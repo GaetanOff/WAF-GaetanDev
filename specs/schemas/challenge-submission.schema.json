@@ -1,0 +1,75 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GaetanDev/WAF/schemas/challenge-submission.schema.json",
+  "title": "ChallengeSubmission",
+  "description": "Corps de la requête POST /waf/verify — résultat du challenge JS",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["token", "nonce", "elapsed_ms", "fingerprint"],
+  "properties": {
+    "token": {
+      "type": "string",
+      "description": "Token signé HMAC généré côté serveur (nonce de challenge)",
+      "minLength": 32
+    },
+    "nonce": {
+      "type": "string",
+      "description": "Nonce trouvé pour satisfaire le proof-of-work",
+      "pattern": "^[0-9]+$"
+    },
+    "elapsed_ms": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Durée d'exécution du challenge JS en millisecondes"
+    },
+    "fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["ua", "tz", "lang", "screen", "cpu", "touch", "canvas_hash", "webgl_renderer", "plugins"],
+      "properties": {
+        "ua": {
+          "type": "string",
+          "description": "navigator.userAgent"
+        },
+        "tz": {
+          "type": "integer",
+          "description": "new Date().getTimezoneOffset() en minutes"
+        },
+        "lang": {
+          "type": "string",
+          "description": "navigator.language"
+        },
+        "screen": {
+          "type": "string",
+          "description": "Résolution : \"WxHxD\" (ex: 1920x1080x24)",
+          "pattern": "^\\d+x\\d+x\\d+$"
+        },
+        "cpu": {
+          "type": "integer",
+          "description": "navigator.hardwareConcurrency",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "touch": {
+          "type": "integer",
+          "description": "navigator.maxTouchPoints",
+          "minimum": 0
+        },
+        "canvas_hash": {
+          "type": "string",
+          "description": "SHA-256 du pixel buffer canvas (hex)",
+          "pattern": "^[0-9a-f]{64}$"
+        },
+        "webgl_renderer": {
+          "type": "string",
+          "description": "gl.getParameter(gl.RENDERER)"
+        },
+        "plugins": {
+          "type": "integer",
+          "description": "navigator.plugins.length",
+          "minimum": 0
+        }
+      }
+    }
+  }
+}

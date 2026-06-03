@@ -1,0 +1,147 @@
+# WAF Anti-DDoS / Anti-Bot — Configuration example
+# Voir specs/schemas/config.schema.json pour le schéma complet
+# Les secrets sensibles doivent être fournis via variables d'environnement :
+#   WAF_CHALLENGE_SECRET_KEY=<32+ chars>
+#   WAF_ADMIN_TOKEN=<32+ chars>
+#   WAF_REDIS_PASSWORD=<password>
+
+version: "1.0"
+
+server:
+  listen: ":8080"              # Port public (derrière Cloudflare)
+  admin_listen: "127.0.0.1:9090"  # API admin — NE PAS exposer publiquement
+  read_timeout: "30s"
+  write_timeout: "30s"
+  idle_timeout: "60s"
+  graceful_shutdown_timeout: "15s"
+
+# Upstream par défaut (si aucun domaine ne correspond)
+upstream:
+  address: "http://nginx:80"
+  timeout: "30s"
+  tls_verify: true
+  max_idle_conns: 100
+
+# Intégration Cloudflare
+cloudflare:
+  trusted: true               # Faire confiance à CF-Connecting-IP
+  auto_update_ranges: false   # true = fetch https://www.cloudflare.com/ips-v4 toutes les 24h
+  update_interval: "24h"
+
+# Rate limiting global (Token Bucket par IP)
+rate_limit:
+  enabled: true
+  requests_per_second: 50    # Tokens ajoutés par seconde
+  burst: 100                 # Capacité max du bucket (spike autorisé)
+  requests_per_minute: 1000
+  requests_per_hour: 10000
+
+# Système de confiance et challenge
+trust:
+  initial_score: 50
+  challenge_threshold: 40    # En dessous → challenge JS déclenché
+  block_threshold: 10        # En dessous → HTTP 403
+  score_ttl: "1h"
+  max_visitors: 100000       # LRU eviction au-delà
+
+# Challenge JavaScript
+challenge:
+  enabled: true
+  # secret_key: "change-me-in-production-min-32-chars" # Préférer env var
+  token_ttl: "30s"           # Durée de validité du nonce
+  cookie_ttl: "24h"          # Durée du cookie de session
+  cookie_name: "waf_session"
+  pow_difficulty: 16         # 16 bits ≈ 500ms sur CPU standard
+  min_elapsed_ms: 500        # Trop rapide = bot
+  max_elapsed_ms: 10000      # Trop lent = abandon
+
+# API Admin
+admin:
+  enabled: true
+  # token: "change-me-in-production-min-32-chars" # Préférer env var
+
+# Stockage de l'état visiteurs
+storage:
+  backend: "memory"          # "memory" (défaut) ou "redis"
+  # redis:
+  #   address: "redis:6379"
+  #   password: ""           # Préférer WAF_REDIS_PASSWORD env var
+  #   db: 0
+  #   tls: false
+
+# IPs et CIDRs toujours autorisés (bypass total)
+whitelist:
+  - "127.0.0.1"
+  - "::1"
+  # - "10.0.0.0/8"           # Réseau interne
+  # - "192.168.0.0/16"       # LAN
+
+# IPs et CIDRs toujours bloqués (HTTP 403)
+blacklist: []
+  # - "1.2.3.4"
+  # - "198.51.100.0/24"
+
+# User-agents de bots légitimes (bypass challenge)
+whitelist_user_agents:
+  - "Googlebot"
+  - "Bingbot"
+  - "Slurp"                  # Yahoo
+  - "DuckDuckBot"
+  - "Baiduspider"
+  - "facebookexternalhit"
+  - "LinkedInBot"
+  - "Twitterbot"
+  - "Applebot"
+  - "UptimeRobot"            # Monitoring
+
+# Chemins honeypot : toute requête → score = 0 + log + bloc
+honeypot_paths:
+  - "/.env"
+  - "/.env.local"
+  - "/.env.production"
+  - "/wp-admin"
+  - "/wp-login.php"
+  - "/wp-config.php"
+  - "/.git/config"
+  - "/phpinfo.php"
+  - "/admin.php"
+  - "/config.php"
+  - "/.htaccess"
+  - "/xmlrpc.php"
+  - "/shell.php"
+  - "/c99.php"
+
+# Configuration par domaine (surcharge les valeurs globales)
+domains:
+  - host: "example.com"
+    upstream: "http://10.0.0.1:80"
+    challenge_enabled: true
+    # Chemins qui déclenchent TOUJOURS le challenge (sensibles)
+    protected_paths:
+      - "/api/"
+      - "/account/"
+    # Chemins qui ne déclenchent JAMAIS le challenge (assets statiques)
+    public_paths:
+      - "/static/"
+      - "/favicon.ico"
+      - "/robots.txt"
+      - "/sitemap.xml"
+
+  - host: "api.example.com"
+    upstream: "http://10.0.0.2:8000"
+    challenge_enabled: false   # API — pas de challenge JS
+    rate_limit_override:
+      requests_per_second: 20  # Plus restrictif pour l'API
+      burst: 40
+    trust_override:
+      block_threshold: 20      # Plus agressif sur l'API
+
+  - host: "*.example.com"
+    upstream: "http://10.0.0.3:80"
+    challenge_enabled: true
+
+# Logging
+logging:
+  level: "info"              # debug | info | warn | error
+  format: "json"             # json (production) | pretty (développement)
+  output: "stdout"           # stdout | stderr

@@ -1,0 +1,177 @@
+---
+status: draft
+sprint: 1
+last-updated: 2026-06-03
+---
+
+# Tasks — WAF Anti-DDoS / Anti-Bot
+
+## Sprint 1 — Fondations (Phase 1)
+
+### T1.1 — Bootstrap projet Go
+- [ ] `go mod init github.com/gaetandev/waf`
+- [ ] Créer la structure de dossiers complète (cf. architecture.md)
+- [ ] `Makefile` : `build`, `test`, `lint`, `run`, `docker-build`
+- [ ] `cmd/waf/main.go` : bootstrap + SIGTERM graceful shutdown
+- [ ] `.gitignore` Go standard
+- **Acceptance** : `make build` produit un binaire, `make test` passe
+- **Spec** : architecture.md
+
+### T1.2 — Config loader + validation
+- [ ] Définir la struct `Config` (cf. config.schema.json)
+- [ ] `config.Load(path)` : YAML → struct
+- [ ] `config.Validate()` : erreurs explicites par champ
+- [ ] Overrides env vars (`WAF_CHALLENGE_SECRET_KEY`, `WAF_ADMIN_TOKEN`)
+- [ ] Tests unitaires : config valide, config manquante, champs invalides
+- **Acceptance** : erreur claire si `challenge.secret_key` absent et env var non défini
+- **Spec** : schemas/config.schema.json
+
+### T1.3 — Reverse proxy + routing domaine
+- [ ] `proxy.Handler` : wrap `httputil.ReverseProxy` avec routing par Host header
+- [ ] Ajout headers : `X-Forwarded-For`, `X-Real-IP`, `X-WAF-Score`
+- [ ] Timeout configurable sur l'upstream
+- [ ] Gestion 502 si upstream down (pas de panic)
+- [ ] Tests avec `httptest.NewServer`
+- **Acceptance** : une requête GET proxifiée → upstream reçoit les bons headers
+- **Spec** : requirements FR-01
+
+### T1.4 — Middleware Cloudflare IP
+- [ ] Embed statique des plages IPv4/IPv6 Cloudflare (cf. https://www.cloudflare.com/ips-v4)
+- [ ] Extraction `CF-Connecting-IP` si source ∈ ranges CF
+- [ ] Rejet 400 si tentative de forge depuis IP non-CF
+- [ ] Tests : IP CF valide, IP non-CF avec header CF, IP non-CF sans header
+- **Acceptance** : `CF-Connecting-IP` utilisé comme IP réelle uniquement si source est Cloudflare
+- **Spec** : requirements FR-02
+
+### T1.5 — Store in-memory + Whitelist/Blacklist
+- [ ] `storage.Store` interface : `GetVisitor`, `SetVisitor`, `DeleteVisitor`, `GetBucket`, `SetBucket`
+- [ ] `memory.Store` : `sync.Map` + goroutine nettoyage TTL (tick toutes les 60s)
+- [ ] LRU eviction si `max_visitors` atteint
+- [ ] `WhitelistMiddleware` : IP exact + CIDR + user-agent regex
+- [ ] `BlacklistMiddleware` : IP exact + CIDR → HTTP 403
+- [ ] Tests unitaires : matching CIDR, eviction LRU, TTL expiry
+- **Acceptance** : IP en whitelist passe sans middleware, IP en blacklist → 403
+- **Spec** : requirements FR-04, features/whitelist-blacklist.feature
+
+### T1.6 — Rate Limiting Token Bucket
+- [ ] `bucket.TokenBucket` : atomic refill, `TryConsume() bool`
+- [ ] `RateLimitMiddleware` : HTTP 429 + `Retry-After: N` + décrémente score -10
+- [ ] Tests : burst autorisé, burst dépassé, récupération après 1s
+- **Acceptance** : 150 req/s sur bucket de 100 → 100 OK + 50 × 429
+- **Spec** : requirements FR-03, features/anti-ddos.feature
+
+---
+
+## Sprint 2 — Intelligence (Phase 2)
+
+### T2.1 — Score de confiance
+- [ ] `trust.ScoreManager` : Get/Set/Apply delta, State(), TTL expiry
+- [ ] Middleware TrustScore : lit état → PASS / CHALLENGE / BLOCK
+- [ ] Tests : transitions d'état, TTL expiry, clamp [0,100]
+- **Spec** : requirements FR-05, features/trust-score.feature
+
+### T2.2 — Anti-Bot rules
+- [ ] `antibot.Rules` : patterns headless UA, headers manquants, honeypot paths
+- [ ] Middleware AntiBot : applique les deltas de score
+- [ ] Honeypot : score = 0 + HTTP 403 + log HONEYPOT
+- [ ] Tests : HeadlessChrome -30, python-requests -15, Googlebot → pass
+- **Spec** : requirements FR-07, features/anti-bot.feature
+
+### T2.3 — HMAC Signing + Cookie
+- [ ] `signing.Sign(key, payload) string` (HMAC-SHA256 base64url)
+- [ ] `signing.Verify(key, payload, sig) bool`
+- [ ] `cookie.Issue(ip, domain, fpHash, score, ttl) http.Cookie`
+- [ ] `cookie.Validate(cookieValue, ip, domain, key) (*Payload, error)`
+- [ ] Tests : cookie valide, TTL expiré, HMAC forgé, IP mismatch
+- **Spec** : requirements FR-06, architecture.md (Cookie structure)
+
+### T2.4 — Challenge token + PoW validation
+- [ ] `nonce.Generate(ip, domain, key) string` : HMAC signé + TTL 30s
+- [ ] `nonce.Validate(token, ip, domain, key) error`
+- [ ] `pow.Validate(token, nonce string, difficultyBits int) bool`
+- [ ] Tests vecteurs PoW : nonce connu + hash attendu
+- **Spec** : requirements FR-06, ADR-003
+
+### T2.5 — Page challenge + /waf/verify
+- [ ] `challenge.html` : template Go, injection Token/Difficulty/RedirectURL
+- [ ] Middleware Challenge : sert la page si pas de cookie valide
+- [ ] Handler `POST /waf/verify` : parse ChallengeSubmission, valide tout
+- [ ] On success : émet cookie + `{"redirect_url": "..."}` 200
+- [ ] On failure : erreur 400 avec code machine-readable
+- [ ] Tests d'intégration : flow complet challenge → cookie → pass
+- **Spec** : requirements FR-06, features/js-challenge.feature, schemas/challenge-submission.schema.json
+
+### T2.6 — Fingerprint validation
+- [ ] `fingerprint.Parse(submission)` : extrait et valide les signaux
+- [ ] `fingerprint.Hash(fp) string` : SHA-256 des 9 signaux
+- [ ] Détection WebGL headless : SwiftShader, llvmpipe → score -30
+- [ ] Intégration dans le verify handler
+- **Spec** : requirements FR-07, ADR-004
+
+---
+
+## Sprint 3 — Anti-DDoS avancé (Phase 3)
+
+### T3.1 — Circuit Breaker
+- [ ] `breaker.CircuitBreaker` : `RecordViolation()`, `IsOpen() bool`, TTL fermeture
+- [ ] Middleware AntiDDoS : ouvre le circuit après N violations, HTTP 403
+- [ ] Tests : 5 violations → circuit ouvert, expiration → circuit fermé
+- **Spec** : requirements FR-08, features/anti-ddos.feature
+
+### T3.2 — Mode dégradé global
+- [ ] `antiddos.GlobalRateDetector` : sliding window, compteur req/s global
+- [ ] Si dépassement seuil : nouveaux visiteurs → 503 + Retry-After
+- **Spec** : requirements FR-08
+
+---
+
+## Sprint 4 — Observabilité (Phase 4)
+
+### T4.1 — Logger structuré
+- [ ] Wrapper `zerolog` avec `request_id` UUID v4 par requête
+- [ ] Middleware de logging : log JSON conforme au schéma security-event.schema.json
+- [ ] Pas de query string dans les logs INFO (seulement path)
+- [ ] Tests : format JSON valide, champs requis présents
+- **Spec** : requirements FR-09, schemas/security-event.schema.json
+
+### T4.2 — Métriques Prometheus
+- [ ] Counters : `waf_requests_total`, `waf_blocked_total`, `waf_challenged_total`
+- [ ] Histogram : `waf_request_duration_seconds`
+- [ ] Gauges : `waf_active_visitors`, `waf_visitors_by_state{state}`
+- [ ] `GET /waf/metrics` handler
+- **Spec** : requirements FR-09
+
+### T4.3 — API Admin complète
+- [ ] Serveur HTTP séparé `:9090` avec auth Bearer
+- [ ] Tous les endpoints de `specs/api/admin.openapi.yaml`
+- [ ] Tests : auth invalide → 401, opérations CRUD whitelist/blacklist
+- **Spec** : requirements FR-10, api/admin.openapi.yaml
+
+---
+
+## Sprint 5 — Production (Phase 5)
+
+### T5.1 — Tests de conformance Gherkin
+- [ ] Tests couvrant tous les scénarios de `specs/features/*.feature`
+- [ ] Coverage ≥ 80% sur packages `trust`, `middleware/challenge`, `middleware/ratelimit`
+- **Spec** : core-quality-gates.mdc, global-testing.mdc
+
+### T5.2 — CI GitHub Actions
+- [ ] Job lint : `golangci-lint run`
+- [ ] Job test : `go test ./... -race -coverprofile=coverage.out`
+- [ ] Job build : `CGO_ENABLED=0 GOOS=linux go build -o waf ./cmd/waf`
+- [ ] Job spec-lint : `spectral lint specs/api/admin.openapi.yaml`
+- **Spec** : core-devops.mdc
+
+### T5.3 — Docker
+- [ ] `Dockerfile` multi-stage : builder Go + image distroless/scratch
+- [ ] Image finale < 30 MB
+- [ ] `docker-compose.yml` : waf + nginx upstream de test
+- [ ] `HEALTHCHECK` sur `/waf/health`
+- **Spec** : requirements NFR-05
+
+### T5.4 — Documentation
+- [ ] `README.md` : installation, configuration, déploiement Cloudflare
+- [ ] `configs/config.example.yaml` finalisé
+- [ ] Guide nginx.conf minimal pour l'upstream
+- [ ] Changelog initial v0.1.0

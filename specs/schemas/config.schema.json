@@ -1,0 +1,388 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GaetanDev/WAF/schemas/config.schema.json",
+  "title": "WAFConfig",
+  "description": "Configuration complète du WAF Anti-DDoS/Anti-Bot",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["version", "server", "upstream"],
+  "properties": {
+    "version": {
+      "type": "string",
+      "pattern": "^\\d+\\.\\d+$",
+      "description": "Version du schéma de configuration",
+      "example": "1.0"
+    },
+    "server": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["listen"],
+      "properties": {
+        "listen": {
+          "type": "string",
+          "description": "Adresse d'écoute du proxy public",
+          "example": ":8080"
+        },
+        "admin_listen": {
+          "type": "string",
+          "description": "Adresse d'écoute de l'API admin (port séparé)",
+          "default": ":9090",
+          "example": "127.0.0.1:9090"
+        },
+        "read_timeout": {
+          "type": "string",
+          "description": "Timeout de lecture HTTP (format Go duration)",
+          "default": "30s",
+          "example": "30s"
+        },
+        "write_timeout": {
+          "type": "string",
+          "default": "30s"
+        },
+        "idle_timeout": {
+          "type": "string",
+          "default": "60s"
+        },
+        "graceful_shutdown_timeout": {
+          "type": "string",
+          "default": "15s"
+        }
+      }
+    },
+    "upstream": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address"],
+      "description": "Upstream par défaut (si aucun domaine spécifique ne correspond)",
+      "properties": {
+        "address": {
+          "type": "string",
+          "description": "URL de l'upstream par défaut",
+          "example": "http://nginx:80"
+        },
+        "timeout": {
+          "type": "string",
+          "default": "30s"
+        },
+        "tls_verify": {
+          "type": "boolean",
+          "default": true,
+          "description": "Vérifier le certificat TLS upstream"
+        },
+        "max_idle_conns": {
+          "type": "integer",
+          "default": 100,
+          "minimum": 1
+        }
+      }
+    },
+    "cloudflare": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "trusted": {
+          "type": "boolean",
+          "default": true,
+          "description": "Faire confiance aux headers Cloudflare (CF-Connecting-IP)"
+        },
+        "auto_update_ranges": {
+          "type": "boolean",
+          "default": false,
+          "description": "Mettre à jour automatiquement les plages IP Cloudflare depuis l'API"
+        },
+        "update_interval": {
+          "type": "string",
+          "default": "24h"
+        }
+      }
+    },
+    "rate_limit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "requests_per_second": {
+          "type": "number",
+          "default": 50,
+          "minimum": 1,
+          "description": "Tokens par seconde (Token Bucket refill rate)"
+        },
+        "burst": {
+          "type": "integer",
+          "default": 100,
+          "minimum": 1,
+          "description": "Capacité maximale du bucket (burst)"
+        },
+        "requests_per_minute": {
+          "type": "integer",
+          "default": 1000
+        },
+        "requests_per_hour": {
+          "type": "integer",
+          "default": 10000
+        }
+      }
+    },
+    "trust": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "initial_score": {
+          "type": "integer",
+          "default": 50,
+          "minimum": 0,
+          "maximum": 100
+        },
+        "challenge_threshold": {
+          "type": "integer",
+          "default": 40,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Score en dessous duquel le challenge JS est déclenché"
+        },
+        "block_threshold": {
+          "type": "integer",
+          "default": 10,
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Score en dessous duquel la requête est bloquée (403)"
+        },
+        "score_ttl": {
+          "type": "string",
+          "default": "1h",
+          "description": "Durée de vie du score en mémoire sans activité"
+        },
+        "max_visitors": {
+          "type": "integer",
+          "default": 100000,
+          "description": "Nombre maximum de visiteurs en mémoire (LRU eviction au-delà)"
+        }
+      }
+    },
+    "challenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "secret_key": {
+          "type": "string",
+          "description": "Clé secrète HMAC. Préférer WAF_CHALLENGE_SECRET_KEY env var",
+          "minLength": 32
+        },
+        "token_ttl": {
+          "type": "string",
+          "default": "30s",
+          "description": "Durée de validité du nonce de challenge"
+        },
+        "cookie_ttl": {
+          "type": "string",
+          "default": "24h",
+          "description": "Durée de validité du cookie de session"
+        },
+        "cookie_name": {
+          "type": "string",
+          "default": "waf_session"
+        },
+        "pow_difficulty": {
+          "type": "integer",
+          "default": 16,
+          "minimum": 8,
+          "maximum": 24,
+          "description": "Nombre de bits de difficulté du proof-of-work (16 ≈ 500ms)"
+        },
+        "min_elapsed_ms": {
+          "type": "integer",
+          "default": 500,
+          "description": "Durée minimale du challenge en ms (en dessous = bot suspect)"
+        },
+        "max_elapsed_ms": {
+          "type": "integer",
+          "default": 10000,
+          "description": "Durée maximale du challenge en ms"
+        }
+      }
+    },
+    "whitelist": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "IP ou CIDR (ex: 192.168.0.0/16 ou 1.2.3.4)"
+      },
+      "default": []
+    },
+    "blacklist": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": []
+    },
+    "whitelist_user_agents": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "description": "Regex pattern de user-agents à whitelister (ex: Googlebot)"
+      },
+      "default": [
+        "Googlebot",
+        "Bingbot",
+        "Slurp",
+        "DuckDuckBot",
+        "Baiduspider",
+        "facebookexternalhit",
+        "LinkedInBot",
+        "Twitterbot"
+      ]
+    },
+    "honeypot_paths": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "default": [
+        "/.env",
+        "/wp-admin",
+        "/wp-login.php",
+        "/.git/config",
+        "/phpinfo.php",
+        "/admin.php"
+      ],
+      "description": "Chemins honeypot : toute requête déclenche un score = 0 + log"
+    },
+    "domains": {
+      "type": "array",
+      "items": {
+        "$ref": "#/definitions/DomainConfig"
+      },
+      "default": []
+    },
+    "logging": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "level": {
+          "type": "string",
+          "enum": ["debug", "info", "warn", "error"],
+          "default": "info"
+        },
+        "format": {
+          "type": "string",
+          "enum": ["json", "pretty"],
+          "default": "json"
+        },
+        "output": {
+          "type": "string",
+          "enum": ["stdout", "stderr"],
+          "default": "stdout"
+        }
+      }
+    },
+    "storage": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "backend": {
+          "type": "string",
+          "enum": ["memory", "redis"],
+          "default": "memory"
+        },
+        "redis": {
+          "$ref": "#/definitions/RedisConfig"
+        }
+      }
+    },
+    "admin": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "token": {
+          "type": "string",
+          "description": "Bearer token pour l'API admin. Préférer WAF_ADMIN_TOKEN env var",
+          "minLength": 32
+        }
+      }
+    }
+  },
+  "definitions": {
+    "DomainConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["host", "upstream"],
+      "properties": {
+        "host": {
+          "type": "string",
+          "description": "Nom de domaine (correspondance exacte ou wildcard *.example.com)",
+          "example": "example.com"
+        },
+        "upstream": {
+          "type": "string",
+          "description": "URL upstream pour ce domaine",
+          "example": "http://10.0.0.1:80"
+        },
+        "challenge_enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "rate_limit_override": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "requests_per_second": { "type": "number" },
+            "burst": { "type": "integer" }
+          }
+        },
+        "trust_override": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "challenge_threshold": { "type": "integer" },
+            "block_threshold": { "type": "integer" }
+          }
+        },
+        "protected_paths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Paths qui déclenchent systématiquement le challenge"
+        },
+        "public_paths": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Paths qui ne déclenchent jamais le challenge"
+        }
+      }
+    },
+    "RedisConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address"],
+      "properties": {
+        "address": {
+          "type": "string",
+          "example": "redis:6379"
+        },
+        "password": {
+          "type": "string",
+          "description": "Préférer WAF_REDIS_PASSWORD env var"
+        },
+        "db": {
+          "type": "integer",
+          "default": 0
+        },
+        "tls": {
+          "type": "boolean",
+          "default": false
+        }
+      }
+    }
+  }
+}

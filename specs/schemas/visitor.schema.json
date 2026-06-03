@@ -1,0 +1,81 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GaetanDev/WAF/schemas/visitor.schema.json",
+  "title": "VisitorState",
+  "description": "État d'un visiteur maintenu en mémoire par le WAF",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ip_hash", "domain", "score", "first_seen", "last_seen", "expires_at"],
+  "properties": {
+    "ip_hash": {
+      "type": "string",
+      "description": "SHA-256(ip_address) tronqué à 16 hex chars — non réversible",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "domain": {
+      "type": "string",
+      "description": "Domaine pour lequel cet état est maintenu"
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Score de confiance courant [0..100]"
+    },
+    "first_seen": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Première requête observée"
+    },
+    "last_seen": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Dernière requête observée"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "TTL — entrée supprimée après cette date si inactive"
+    },
+    "req_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Nombre total de requêtes depuis first_seen"
+    },
+    "violation_count": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Nombre de violations (rate limit, honeypot, etc.)"
+    },
+    "challenge_passed": {
+      "type": "boolean",
+      "default": false,
+      "description": "Le challenge JS a été passé avec succès au moins une fois"
+    },
+    "challenge_attempts": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Nombre de tentatives de challenge (réussies + échouées)"
+    },
+    "challenge_failures": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Nombre d'échecs au challenge JS"
+    },
+    "fp_hash": {
+      "type": ["string", "null"],
+      "description": "SHA-256 du fingerprint navigateur (si challenge passé)",
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "circuit_open": {
+      "type": "boolean",
+      "default": false,
+      "description": "Circuit-breaker ouvert — toutes les requêtes sont bloquées"
+    },
+    "circuit_open_until": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Date jusqu'à laquelle le circuit-breaker reste ouvert"
+    }
+  }
+}

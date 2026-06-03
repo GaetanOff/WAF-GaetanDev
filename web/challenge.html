@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Firewall — Checking your browser</title>
+  <style>
+    body {
+      font-family: 'Arial', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: #f0f0f0;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .firewall-container {
+      text-align: center;
+      padding: 20px;
+      border-radius: 10px;
+      box-shadow: 0 0 20px rgba(0, 0, 0, 0.1);
+      background-color: #fff;
+      max-width: 400px;
+      width: 100%;
+    }
+
+    .firewall-header {
+      font-size: 24px;
+      font-weight: bold;
+      color: #333;
+      margin-bottom: 20px;
+    }
+
+    .animation-background {
+      background: linear-gradient(to right, rgb(22 163 74), #ffffff, rgb(22 163 74));
+      background-size: 200% 100%;
+      animation: moveBackground 4s linear infinite;
+      border-radius: 5px;
+    }
+
+    .animation-text {
+      font-size: 18px;
+      color: #fff;
+      text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.5);
+      padding: 10px;
+    }
+
+    @keyframes moveBackground {
+      0%   { background-position: 200% 0; }
+      100% { background-position: -200% 0; }
+    }
+
+    .timer {
+      margin-top: 16px;
+      font-size: 13px;
+      color: #888;
+      font-family: 'Courier New', monospace;
+    }
+
+    .timer-value {
+      font-weight: bold;
+      color: #555;
+    }
+
+    .status-dot {
+      display: inline-block;
+      width: 8px;
+      height: 8px;
+      background-color: rgb(22, 163, 74);
+      border-radius: 50%;
+      margin-right: 6px;
+      animation: pulse 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse {
+      0%, 100% { opacity: 1; }
+      50%       { opacity: 0.3; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="firewall-container">
+  <div class="firewall-header">Firewall</div>
+  <div class="animation-background">
+    <div class="animation-text">Protected by GaetanDev.fr</div>
+  </div>
+  <div class="timer">
+    <span class="status-dot"></span>
+    Checking your browser&hellip; <span class="timer-value" id="elapsed">0.0</span>s
+  </div>
+</div>
+
+<div style="position:fixed;bottom:10px;left:50%;transform:translateX(-50%);
+            background:#fff;
+            border-radius:8px;
+            padding:4px 12px;
+            font-size:12px;
+            color:#333;
+            box-shadow:0 0 6px rgba(0,0,0,0.1);
+            font-family:Arial, sans-serif;">
+  Protected by <a style="color:rgb(22,163,74);font-weight:bold;text-decoration:none"
+                  href="https://firewall.gaetandev.fr" target="_blank">GaetanDev.fr</a>
+</div>
+
+<script>
+(function () {
+  'use strict';
+
+  // ── Injected by the WAF server at serve time ──
+  var CHALLENGE_TOKEN = '{{.Token}}';
+  var POW_DIFFICULTY  = {{.Difficulty}};   // number of leading zero bits required
+  var VERIFY_PATH     = '/waf/verify';
+  var REDIRECT_URL    = '{{.RedirectURL}}';
+  // ─────────────────────────────────────────────
+
+  var startTime = performance.now();
+
+  // Update elapsed timer every 100ms
+  var timerEl = document.getElementById('elapsed');
+  var timerInterval = setInterval(function () {
+    timerEl.textContent = ((performance.now() - startTime) / 1000).toFixed(1);
+  }, 100);
+
+  // ── Fingerprinting ──────────────────────────────────────────────────────────
+
+  function canvasFingerprint() {
+    try {
+      var c = document.createElement('canvas');
+      c.width = 200; c.height = 60;
+      var ctx = c.getContext('2d');
+      ctx.textBaseline = 'top';
+      ctx.font = '14px Arial';
+      ctx.fillStyle = '#f60';
+      ctx.fillRect(0, 0, 200, 60);
+      ctx.fillStyle = '#069';
+      ctx.fillText('GaetanDev WAF 🔥', 2, 2);
+      ctx.fillStyle = 'rgba(102, 204, 0, 0.7)';
+      ctx.fillText('GaetanDev WAF 🔥', 4, 4);
+      // Return data URL for hashing
+      return c.toDataURL();
+    } catch (e) {
+      return 'unavailable';
+    }
+  }
+
+  function webglRenderer() {
+    try {
+      var c = document.createElement('canvas');
+      var gl = c.getContext('webgl') || c.getContext('experimental-webgl');
+      if (!gl) return 'unavailable';
+      var dbgInfo = gl.getExtension('WEBGL_debug_renderer_info');
+      if (!dbgInfo) return gl.getParameter(gl.RENDERER) || 'unknown';
+      return gl.getParameter(dbgInfo.UNMASKED_RENDERER_WEBGL) || 'unknown';
+    } catch (e) {
+      return 'unavailable';
+    }
+  }
+
+  function collectFingerprint() {
+    return {
+      ua:             navigator.userAgent || '',
+      tz:             new Date().getTimezoneOffset(),
+      lang:           navigator.language || '',
+      screen:         screen.width + 'x' + screen.height + 'x' + screen.colorDepth,
+      cpu:            navigator.hardwareConcurrency || 0,
+      touch:          navigator.maxTouchPoints || 0,
+      canvas_raw:     canvasFingerprint(),   // hashed below
+      webgl_renderer: webglRenderer(),
+      plugins:        navigator.plugins ? navigator.plugins.length : 0
+    };
+  }
+
+  // ── SHA-256 via SubtleCrypto (no external deps) ────────────────────────────
+
+  function sha256hex(str) {
+    var enc = new TextEncoder();
+    return crypto.subtle.digest('SHA-256', enc.encode(str)).then(function (buf) {
+      return Array.from(new Uint8Array(buf))
+        .map(function (b) { return b.toString(16).padStart(2, '0'); })
+        .join('');
+    });
+  }
+
+  // ── Proof-of-Work ──────────────────────────────────────────────────────────
+  // Find integer N ≥ 0 such that SHA-256(CHALLENGE_TOKEN + N)
+  // starts with POW_DIFFICULTY / 4 leading hex zeros (each hex = 4 bits).
+
+  function solvePow(token, difficultyBits) {
+    var zeroCount = Math.ceil(difficultyBits / 4);
+    var prefix    = '0'.repeat(zeroCount);
+    var n         = 0;
+
+    function tryNext() {
+      return sha256hex(token + n).then(function (hash) {
+        if (hash.startsWith(prefix)) {
+          return { nonce: String(n), hash: hash };
+        }
+        n++;
+        // Yield to event loop every 500 iterations to keep page responsive
+        if (n % 500 === 0) {
+          return new Promise(function (resolve) {
+            setTimeout(function () { resolve(tryNext()); }, 0);
+          });
+        }
+        return tryNext();
+      });
+    }
+
+    return tryNext();
+  }
+
+  // ── Main challenge flow ────────────────────────────────────────────────────
+
+  async function runChallenge() {
+    var fp = collectFingerprint();
+
+    // Hash canvas data (avoid sending raw ~20KB data URL)
+    var canvasHash = await sha256hex(fp.canvas_raw);
+    delete fp.canvas_raw;
+    fp.canvas_hash = canvasHash;
+
+    var powResult = await solvePow(CHALLENGE_TOKEN, POW_DIFFICULTY);
+
+    clearInterval(timerInterval);
+
+    var elapsed = Math.round(performance.now() - startTime);
+
+    var payload = {
+      token:       CHALLENGE_TOKEN,
+      nonce:       powResult.nonce,
+      elapsed_ms:  elapsed,
+      fingerprint: fp
+    };
+
+    var response = await fetch(VERIFY_PATH, {
+      method:  'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body:    JSON.stringify(payload)
+    });
+
+    if (response.ok) {
+      var data = await response.json();
+      // Use the redirect URL from server response (preserves original URL)
+      window.location.href = data.redirect_url || REDIRECT_URL;
+    } else {
+      // On failure, reload to get a fresh challenge
+      window.location.reload();
+    }
+  }
+
+  // Start immediately on page load
+  runChallenge().catch(function () {
+    // On any unexpected error, reload for a fresh challenge
+    window.location.reload();
+  });
+}());
+</script>
+</body>
+</html>

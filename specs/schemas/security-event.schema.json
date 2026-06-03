@@ -1,0 +1,82 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GaetanDev/WAF/schemas/security-event.schema.json",
+  "title": "SecurityEvent",
+  "description": "Événement de sécurité journalisé par le WAF (format log JSON)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["timestamp", "request_id", "ip", "domain", "method", "path", "action", "trust_score"],
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 UTC"
+    },
+    "request_id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identifiant unique de la requête (UUID v4)"
+    },
+    "ip": {
+      "type": "string",
+      "description": "IP réelle du client (après extraction CF-Connecting-IP)"
+    },
+    "ip_hash": {
+      "type": "string",
+      "description": "SHA-256(ip)[:16] — pour corrélation sans exposer l'IP dans les métriques"
+    },
+    "domain": {
+      "type": "string"
+    },
+    "method": {
+      "type": "string",
+      "enum": ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "CONNECT", "TRACE"]
+    },
+    "path": {
+      "type": "string",
+      "description": "Path HTTP sans query string (privacy)"
+    },
+    "user_agent": {
+      "type": "string",
+      "description": "User-Agent du client"
+    },
+    "action": {
+      "type": "string",
+      "enum": ["PASS", "CHALLENGE", "BLOCK", "RATE_LIMIT", "CIRCUIT_BREAK", "HONEYPOT"],
+      "description": "Action décidée par le WAF pour cette requête"
+    },
+    "reason": {
+      "type": "string",
+      "description": "Règle ou condition qui a déclenché l'action"
+    },
+    "trust_score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100
+    },
+    "score_delta": {
+      "type": "integer",
+      "description": "Variation de score appliquée lors de cet événement"
+    },
+    "latency_ms": {
+      "type": "number",
+      "description": "Latence totale de traitement en millisecondes (WAF + upstream)"
+    },
+    "waf_latency_ms": {
+      "type": "number",
+      "description": "Latence de traitement WAF seul (hors upstream)"
+    },
+    "upstream_status": {
+      "type": ["integer", "null"],
+      "description": "Code HTTP retourné par l'upstream (null si bloqué avant proxy)"
+    },
+    "cf_ray": {
+      "type": ["string", "null"],
+      "description": "Header CF-Ray de Cloudflare (pour corrélation)"
+    },
+    "cf_country": {
+      "type": ["string", "null"],
+      "description": "Code pays Cloudflare (CF-IPCountry)"
+    }
+  }
+}

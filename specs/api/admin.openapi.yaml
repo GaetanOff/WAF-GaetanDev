@@ -1,0 +1,572 @@
+openapi: "3.1.0"
+
+info:
+  title: WAF Admin API
+  description: |
+    API d'administration du WAF Anti-DDoS/Anti-Bot.
+    Exposée sur un port séparé (défaut: 9090), protégée par Bearer token.
+    Ne jamais exposer ce port publiquement.
+  version: 1.0.0
+  contact:
+    name: GaetanDev
+    url: https://firewall.gaetandev.fr
+
+servers:
+  - url: http://127.0.0.1:9090
+    description: Admin API (port privé)
+
+security:
+  - BearerAuth: []
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: opaque
+
+  schemas:
+    Error:
+      type: object
+      additionalProperties: false
+      required: [error, message]
+      properties:
+        error:
+          type: string
+          description: Code d'erreur machine-readable
+        message:
+          type: string
+          description: Description humaine de l'erreur
+
+    IPEntry:
+      type: object
+      additionalProperties: false
+      required: [ip]
+      properties:
+        ip:
+          type: string
+          description: Adresse IP ou CIDR (ex: 1.2.3.4 ou 10.0.0.0/8)
+          examples:
+            - "1.2.3.4"
+            - "192.168.0.0/24"
+        added_at:
+          type: string
+          format: date-time
+          readOnly: true
+        reason:
+          type: string
+          description: Raison optionnelle de l'ajout
+
+    VisitorInfo:
+      type: object
+      additionalProperties: false
+      required: [ip_hash, domain, score, last_seen]
+      properties:
+        ip_hash:
+          type: string
+        domain:
+          type: string
+        score:
+          type: integer
+          minimum: 0
+          maximum: 100
+        state:
+          type: string
+          enum: [TRUSTED, MONITORED, CHALLENGED, BLOCKED]
+        first_seen:
+          type: string
+          format: date-time
+        last_seen:
+          type: string
+          format: date-time
+        req_count:
+          type: integer
+        violation_count:
+          type: integer
+        challenge_passed:
+          type: boolean
+        circuit_open:
+          type: boolean
+
+    SecurityEventSummary:
+      type: object
+      additionalProperties: false
+      required: [timestamp, ip, domain, action, reason, trust_score]
+      properties:
+        timestamp:
+          type: string
+          format: date-time
+        request_id:
+          type: string
+          format: uuid
+        ip:
+          type: string
+        domain:
+          type: string
+        method:
+          type: string
+        path:
+          type: string
+        action:
+          type: string
+          enum: [PASS, CHALLENGE, BLOCK, RATE_LIMIT, CIRCUIT_BREAK, HONEYPOT]
+        reason:
+          type: string
+        trust_score:
+          type: integer
+
+    WAFStats:
+      type: object
+      additionalProperties: false
+      properties:
+        uptime_seconds:
+          type: integer
+        total_requests:
+          type: integer
+        requests_passed:
+          type: integer
+        requests_challenged:
+          type: integer
+        requests_blocked:
+          type: integer
+        requests_rate_limited:
+          type: integer
+        active_visitors:
+          type: integer
+        trusted_visitors:
+          type: integer
+        monitored_visitors:
+          type: integer
+        challenged_visitors:
+          type: integer
+        blocked_visitors:
+          type: integer
+
+    ConfigUpdate:
+      type: object
+      additionalProperties: false
+      description: Champs de configuration modifiables à chaud (hot-reload partiel)
+      properties:
+        rate_limit:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            requests_per_second:
+              type: number
+            burst:
+              type: integer
+        trust:
+          type: object
+          properties:
+            challenge_threshold:
+              type: integer
+            block_threshold:
+              type: integer
+        challenge:
+          type: object
+          properties:
+            enabled:
+              type: boolean
+            pow_difficulty:
+              type: integer
+
+  parameters:
+    IP:
+      name: ip
+      in: path
+      required: true
+      schema:
+        type: string
+      description: Adresse IP (peut être URL-encodée pour les CIDR avec /)
+      example: "1.2.3.4"
+
+    Page:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    Limit:
+      name: limit
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 50
+
+    Domain:
+      name: domain
+      in: query
+      schema:
+        type: string
+      description: Filtrer par domaine
+
+paths:
+  /waf/health:
+    get:
+      operationId: getHealth
+      summary: Health check
+      security: []
+      tags: [System]
+      responses:
+        "200":
+          description: WAF opérationnel
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [status, version]
+                properties:
+                  status:
+                    type: string
+                    enum: [ok, degraded]
+                  version:
+                    type: string
+                  uptime_seconds:
+                    type: integer
+        "503":
+          description: WAF en erreur
+
+  /waf/stats:
+    get:
+      operationId: getStats
+      summary: Statistiques globales du WAF
+      tags: [System]
+      responses:
+        "200":
+          description: Statistiques courantes
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WAFStats"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /waf/admin/config:
+    get:
+      operationId: getConfig
+      summary: Récupérer la configuration active
+      tags: [Configuration]
+      responses:
+        "200":
+          description: Configuration courante (secrets masqués)
+          content:
+            application/json:
+              schema:
+                description: Voir config.schema.json — secrets remplacés par "***"
+                type: object
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    patch:
+      operationId: updateConfig
+      summary: Mettre à jour des paramètres de configuration (hot-reload)
+      tags: [Configuration]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ConfigUpdate"
+      responses:
+        "200":
+          description: Configuration mise à jour
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [updated_fields]
+                properties:
+                  updated_fields:
+                    type: array
+                    items:
+                      type: string
+        "400":
+          description: Données invalides
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /waf/admin/whitelist:
+    get:
+      operationId: getWhitelist
+      summary: Lister les entrées de la whitelist
+      tags: [Access Control]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Liste des IPs/CIDRs en whitelist
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/IPEntry"
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      operationId: addToWhitelist
+      summary: Ajouter une IP ou CIDR en whitelist
+      tags: [Access Control]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IPEntry"
+      responses:
+        "201":
+          description: Entrée ajoutée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IPEntry"
+        "400":
+          description: IP/CIDR invalide
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: Entrée déjà existante
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /waf/admin/whitelist/{ip}:
+    delete:
+      operationId: removeFromWhitelist
+      summary: Supprimer une IP de la whitelist
+      tags: [Access Control]
+      parameters:
+        - $ref: "#/components/parameters/IP"
+      responses:
+        "204":
+          description: Entrée supprimée
+        "404":
+          description: IP non trouvée
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /waf/admin/blacklist:
+    get:
+      operationId: getBlacklist
+      summary: Lister les entrées de la blacklist
+      tags: [Access Control]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Liste des IPs/CIDRs en blacklist
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/IPEntry"
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    post:
+      operationId: addToBlacklist
+      summary: Ajouter une IP ou CIDR en blacklist
+      tags: [Access Control]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/IPEntry"
+      responses:
+        "201":
+          description: Entrée ajoutée
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/IPEntry"
+        "400":
+          description: IP/CIDR invalide
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /waf/admin/blacklist/{ip}:
+    delete:
+      operationId: removeFromBlacklist
+      summary: Supprimer une IP de la blacklist
+      tags: [Access Control]
+      parameters:
+        - $ref: "#/components/parameters/IP"
+      responses:
+        "204":
+          description: Entrée supprimée
+        "404":
+          description: IP non trouvée
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /waf/admin/visitors:
+    get:
+      operationId: listVisitors
+      summary: Lister les visiteurs actifs avec leur score
+      tags: [Visitors]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Domain"
+        - name: state
+          in: query
+          schema:
+            type: string
+            enum: [TRUSTED, MONITORED, CHALLENGED, BLOCKED]
+        - name: sort
+          in: query
+          schema:
+            type: string
+            enum: [score_asc, score_desc, last_seen_desc]
+            default: last_seen_desc
+      responses:
+        "200":
+          description: Liste des visiteurs actifs
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/VisitorInfo"
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /waf/admin/visitors/{ip_hash}:
+    get:
+      operationId: getVisitor
+      summary: Détails d'un visiteur par hash IP
+      tags: [Visitors]
+      parameters:
+        - name: ip_hash
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Détails du visiteur
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VisitorInfo"
+        "404":
+          description: Visiteur non trouvé
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+    delete:
+      operationId: resetVisitor
+      summary: Réinitialiser le score et l'état d'un visiteur
+      tags: [Visitors]
+      parameters:
+        - name: ip_hash
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "204":
+          description: État du visiteur réinitialisé
+        "404":
+          description: Visiteur non trouvé
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /waf/admin/events:
+    get:
+      operationId: listEvents
+      summary: Lister les événements de sécurité récents
+      tags: [Events]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+        - $ref: "#/components/parameters/Domain"
+        - name: action
+          in: query
+          schema:
+            type: string
+            enum: [PASS, CHALLENGE, BLOCK, RATE_LIMIT, CIRCUIT_BREAK, HONEYPOT]
+        - name: since
+          in: query
+          schema:
+            type: string
+            format: date-time
+          description: Filtrer les événements depuis cette date
+      responses:
+        "200":
+          description: Liste des événements récents (max 24h en mémoire)
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/SecurityEventSummary"
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  components:
+    responses:
+      Unauthorized:
+        description: Token Bearer manquant ou invalide
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/Error"
+            example:
+              error: "unauthorized"
+              message: "Missing or invalid Bearer token"
+
+tags:
+  - name: System
+    description: Health, version, métriques Prometheus
+  - name: Configuration
+    description: Gestion de la configuration hot-reload
+  - name: Access Control
+    description: Gestion whitelist et blacklist
+  - name: Visitors
+    description: Consultation des visiteurs actifs et scores
+  - name: Events
+    description: Événements de sécurité récents
