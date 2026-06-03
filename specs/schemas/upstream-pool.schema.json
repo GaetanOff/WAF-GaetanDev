@@ -1,0 +1,152 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GaetanDev/WAF/schemas/upstream-pool.schema.json",
+  "title": "UpstreamPool",
+  "description": "Configuration d'un pool d'upstreams avec health checks et load balancing",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["upstreams"],
+  "properties": {
+    "strategy": {
+      "type": "string",
+      "enum": ["round_robin", "least_conn", "random", "ip_hash"],
+      "default": "round_robin",
+      "description": "Stratégie de load balancing"
+    },
+    "upstreams": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/UpstreamEntry"
+      }
+    },
+    "health_check": {
+      "$ref": "#/definitions/HealthCheckConfig"
+    },
+    "retry": {
+      "$ref": "#/definitions/RetryConfig"
+    }
+  },
+  "definitions": {
+    "UpstreamEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["address"],
+      "properties": {
+        "address": {
+          "type": "string",
+          "description": "URL de l'upstream (http:// ou https://)",
+          "example": "http://10.0.0.1:80"
+        },
+        "weight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100,
+          "default": 1,
+          "description": "Poids relatif pour le load balancing pondéré"
+        },
+        "backup": {
+          "type": "boolean",
+          "default": false,
+          "description": "Si true, utilisé seulement si tous les upstreams primaires sont down"
+        },
+        "max_conns": {
+          "type": "integer",
+          "minimum": 1,
+          "description": "Nombre maximum de connexions simultanées vers cet upstream (0 = illimité)"
+        },
+        "tls_verify": {
+          "type": "boolean",
+          "default": true,
+          "description": "Vérifier le certificat TLS upstream"
+        },
+        "timeout": {
+          "type": "string",
+          "default": "30s",
+          "description": "Timeout pour les requêtes vers cet upstream spécifiquement"
+        },
+        "label": {
+          "type": "string",
+          "description": "Label pour les métriques et logs (ex: 'primary-paris', 'backup-lyon')",
+          "example": "primary-paris"
+        }
+      }
+    },
+    "HealthCheckConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "path": {
+          "type": "string",
+          "default": "/",
+          "description": "Path HTTP pour le health check (ex: /health, /ping)"
+        },
+        "method": {
+          "type": "string",
+          "enum": ["GET", "HEAD"],
+          "default": "HEAD"
+        },
+        "interval": {
+          "type": "string",
+          "default": "10s",
+          "description": "Intervalle entre chaque health check"
+        },
+        "timeout": {
+          "type": "string",
+          "default": "3s",
+          "description": "Timeout du health check"
+        },
+        "success_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 1,
+          "description": "Succès consécutifs requis pour passer à UP"
+        },
+        "failure_threshold": {
+          "type": "integer",
+          "minimum": 1,
+          "default": 3,
+          "description": "Échecs consécutifs requis pour passer à DOWN"
+        },
+        "expected_status": {
+          "type": "integer",
+          "minimum": 100,
+          "maximum": 599,
+          "default": 200,
+          "description": "Code HTTP attendu du health check"
+        },
+        "expected_body": {
+          "type": "string",
+          "description": "Substring optionnel attendu dans la réponse du health check"
+        }
+      }
+    },
+    "RetryConfig": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "max_retries": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 3,
+          "default": 1,
+          "description": "Nombre de retries sur un autre upstream (seulement méthodes idempotentes)"
+        },
+        "idempotent_methods": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": ["GET", "HEAD", "OPTIONS"],
+          "description": "Méthodes HTTP considérées idempotentes pour le retry"
+        }
+      }
+    }
+  }
+}

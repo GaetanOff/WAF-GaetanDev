@@ -1,0 +1,79 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GaetanDev/WAF/schemas/alert.schema.json",
+  "title": "WAFAlert",
+  "description": "Payload d'un webhook d'alerte envoyé par le WAF",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["id", "timestamp", "trigger", "severity", "domain", "title", "message"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Identifiant unique de l'alerte"
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "trigger": {
+      "type": "string",
+      "enum": [
+        "ddos_detected",
+        "upstream_down",
+        "upstream_recovered",
+        "circuit_breaker_open",
+        "honeypot_triggered",
+        "score_flood",
+        "challenge_flood",
+        "rule_triggered",
+        "tls_cert_expiring",
+        "cluster_node_lost",
+        "admin_auth_failed_flood"
+      ]
+    },
+    "severity": {
+      "type": "string",
+      "enum": ["info", "warning", "critical"],
+      "description": "Niveau de sévérité de l'alerte"
+    },
+    "domain": {
+      "type": ["string", "null"],
+      "description": "Domaine concerné (null si global)"
+    },
+    "title": {
+      "type": "string",
+      "description": "Titre court de l'alerte",
+      "maxLength": 100
+    },
+    "message": {
+      "type": "string",
+      "description": "Description détaillée de l'alerte"
+    },
+    "data": {
+      "type": ["object", "null"],
+      "description": "Données contextuelles spécifiques au trigger",
+      "properties": {
+        "ip": { "type": "string" },
+        "ip_hash": { "type": "string" },
+        "upstream_address": { "type": "string" },
+        "rule_name": { "type": "string" },
+        "count": { "type": "integer" },
+        "rate": { "type": "number" },
+        "threshold": { "type": "number" },
+        "attack_intensity": { "type": "number" },
+        "cert_domain": { "type": "string" },
+        "cert_expiry_date": { "type": "string", "format": "date-time" },
+        "cert_days_remaining": { "type": "integer" }
+      }
+    },
+    "waf_instance": {
+      "type": "string",
+      "description": "Identifiant de l'instance WAF (hostname ou config.instance_id)"
+    },
+    "waf_version": {
+      "type": "string",
+      "description": "Version du WAF"
+    }
+  }
+}
