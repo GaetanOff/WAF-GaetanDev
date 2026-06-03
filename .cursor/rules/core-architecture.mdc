@@ -1,0 +1,270 @@
+---
+description: Contract-first architecture — design driven by specifications, C4 model, DDD patterns
+alwaysApply: true
+---
+
+# Contract-First Architecture
+
+## Decision Framework
+
+For every architectural decision, document as an ADR referencing the specs that drove it:
+
+1. **Context**: What spec requirement or contract constraint drives this decision?
+2. **Options**: What are the viable approaches? (minimum 2)
+3. **Trade-offs**: Pros and cons of each option against the spec requirements.
+4. **Decision**: Which option and why — with spec references.
+5. **Consequences**: What contracts are affected? What new specs are needed?
+
+## Architecture Patterns
+
+Choose based on the contracts defined in the Specification phase:
+
+| Pattern | When to Use | Spec Signal |
+|---------|-------------|-------------|
+| **Monolith** | Small team, single product, few API contracts | <10 endpoints, single data store |
+| **Modular Monolith** | Growing product, clear contract boundaries | Multiple bounded contexts in specs |
+| **Microservices** | Independent contracts, different scaling needs | Separate API specs per domain |
+| **Serverless** | Event-driven contracts, async workflows | AsyncAPI specs, event schemas |
+| **Jamstack** | Content-heavy, static + dynamic hybrid | Few API contracts, CDN-friendly |
+| **Event-Driven** | Async workflows, decoupled contracts | Event schemas, pub/sub contracts |
+
+## C4 Architecture Model
+
+Document architecture at four levels of abstraction, driven by specs:
+
+### Level 1: System Context Diagram
+
+Shows the system and its external actors/dependencies. Derived from integration contracts.
+
+```
+┌─────────────────────────────────────────────────────┐
+│                   SYSTEM CONTEXT                     │
+│                                                      │
+│  [User] ──→ [Your System] ──→ [Payment Provider]    │
+│                  │                                    │
+│                  ├──→ [Email Service]                 │
+│                  └──→ [Auth Provider]                 │
+│                                                      │
+│  Sources: specs/contracts/*.pact.json                │
+│           specs/api/openapi.yaml (security schemes)  │
+└─────────────────────────────────────────────────────┘
+```
+
+Rules:
+- Every external dependency must have an integration contract.
+- Every actor must be referenced in behavior specs.
+
+### Level 2: Container Diagram
+
+Shows the major containers (apps, databases, queues). Derived from API specs and data contracts.
+
+```
+┌────────────────────────────────────────────────────────────┐
+│                    CONTAINER DIAGRAM                        │
+│                                                             │
+│  [Web App (Next.js)] ──API──→ [API Server (Node.js)]       │
+│                                     │                       │
+│                              ┌──────┼──────┐                │
+│                              ↓      ↓      ↓                │
+│                          [PostgreSQL] [Redis] [S3]          │
+│                                                             │
+│  [Mobile App] ──API──→ [API Server]                         │
+│                                                             │
+│  Sources: specs/api/openapi.yaml (API boundaries)           │
+│           specs/schemas/ (data store decisions)              │
+│           specs/decisions/ (ADRs)                            │
+└────────────────────────────────────────────────────────────┘
+```
+
+### Level 3: Component Diagram
+
+Shows modules within a container. Derived from feature specs and bounded contexts.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│              API SERVER — COMPONENT DIAGRAM               │
+│                                                           │
+│  ┌──────────┐  ┌──────────┐  ┌──────────────┐           │
+│  │   Auth   │  │  Users   │  │   Orders     │           │
+│  │  Module  │  │  Module  │  │   Module     │           │
+│  └────┬─────┘  └────┬─────┘  └──────┬───────┘           │
+│       │              │               │                    │
+│  ┌────┴──────────────┴───────────────┴────┐              │
+│  │         Shared Infrastructure           │              │
+│  │  (middleware, error handler, logger)     │              │
+│  └─────────────────────────────────────────┘              │
+│                                                           │
+│  Sources: specs/features/ (one module per feature area)   │
+│           specs/schemas/ (shared schemas = shared infra)  │
+└──────────────────────────────────────────────────────────┘
+```
+
+### Level 4: Code Diagram
+
+Shows classes/functions within a component. Derived from data contracts and behavior specs. Use sparingly — code should be self-documenting at this level.
+
+## Domain-Driven Design Patterns (Spec-Driven)
+
+For complex domains, use DDD patterns mapped to specs:
+
+### Bounded Contexts
+
+Each bounded context maps to a separate set of specs:
+
+```
+specs/
+  contexts/
+    identity/               # Auth & user management context
+      api/openapi.yaml
+      schemas/user.schema.json
+      features/auth.feature
+    ordering/               # Order management context
+      api/openapi.yaml
+      schemas/order.schema.json
+      features/checkout.feature
+    shipping/               # Shipping context
+      api/openapi.yaml
+      schemas/shipment.schema.json
+    shared-kernel/          # Shared across contexts
+      schemas/address.schema.json
+      schemas/money.schema.json
+```
+
+Rules:
+- Each bounded context owns its specs — no cross-context `$ref` except shared-kernel.
+- Context boundaries align with team boundaries (Conway's Law).
+- Communication between contexts is via explicit contracts (API, events, shared-kernel).
+
+### Aggregates
+
+Map aggregate roots to data contracts:
+
+- The aggregate root schema is the main entity schema.
+- Child entities within the aggregate are nested in the root schema.
+- Invariants (business rules) are expressed in behavior specs.
+- Each aggregate boundary defines a transaction boundary.
+
+### Domain Events
+
+Map domain events to AsyncAPI specs:
+
+```yaml
+channels:
+  ordering/order-placed:
+    publish:
+      message:
+        payload:
+          type: object
+          required: [orderId, userId, items, total, placedAt]
+          properties:
+            orderId: { type: string, format: uuid }
+            userId: { type: string, format: uuid }
+            items: { type: array }
+            total: { type: number }
+            placedAt: { type: string, format: date-time }
+```
+
+Rules:
+- Every state transition that other contexts care about → domain event.
+- Events are immutable facts — define them as past-tense verbs (`OrderPlaced`, `UserRegistered`).
+- Include all data the consumer needs — consumers should not call back to the producer.
+
+## API Gateway Patterns
+
+When multiple API specs exist (microservices, bounded contexts):
+
+### Aggregation
+
+```yaml
+# Gateway aggregates multiple backend APIs into one consumer-facing API
+gateway:
+  routes:
+    /api/v1/users:
+      upstream: identity-service
+      spec: specs/contexts/identity/api/openapi.yaml
+
+    /api/v1/orders:
+      upstream: ordering-service
+      spec: specs/contexts/ordering/api/openapi.yaml
+
+    /api/v1/shipping:
+      upstream: shipping-service
+      spec: specs/contexts/shipping/api/openapi.yaml
+```
+
+### Gateway Responsibilities (from specs)
+- **Authentication**: validate JWT per the security scheme in OpenAPI spec.
+- **Rate limiting**: enforce limits per the rate limit contract.
+- **Request routing**: map paths to upstream services per API specs.
+- **Response aggregation**: combine responses from multiple specs (BFF pattern).
+- **Protocol translation**: GraphQL → REST, REST → gRPC per contract mappings.
+
+## Contract-Driven Data Modeling
+
+- Start from the **data contracts** (JSON Schema / TypeScript interfaces) defined in specs.
+- Map each schema to a database table/collection — the spec IS the source of truth.
+- Normalize for writes, denormalize for reads (when performance specs require it).
+- Choose the right database for the workload based on contract shapes:
+  - **Relational** (PostgreSQL, MySQL): structured schemas, complex query contracts, ACID.
+  - **Document** (MongoDB, Firestore): flexible schemas, nested data contracts.
+  - **Key-Value** (Redis, DynamoDB): simple lookup contracts, high-throughput.
+  - **Graph** (Neo4j): relationship-heavy contracts.
+- Plan for data migrations from day one. Schema evolution must maintain contract compatibility.
+
+## Contract-Driven API Design
+
+- API architecture is derived directly from the **OpenAPI / GraphQL / gRPC specs**.
+- Every endpoint in the spec maps to a route, controller, and service.
+- Shared spec components (`$ref`) map to shared middleware and utilities.
+- Error contracts define the error handling middleware.
+- Pagination, filtering, and sorting contracts define query parameter handling.
+- Versioning strategy is defined in the spec (`/api/v1/`).
+
+## State Management (Driven by Contracts)
+
+- Identify what state lives where based on the data contracts:
+  - Server state: entities defined in data schemas.
+  - Client state: UI component contracts and prop types.
+  - URL state: query parameters defined in API specs.
+  - Cache state: derived from response contracts and cache-control specs.
+- Minimize client-side state. Derive what you can from server contracts.
+- Use optimistic updates for responsive UIs with server contract reconciliation.
+
+## Security Architecture (Driven by Security Specs)
+
+- Authentication strategy defined in the API spec's security schemes.
+- Authorization model derived from endpoint-level security requirements in the spec.
+- Trust boundaries mapped from the contract boundaries between services.
+- Secrets management, encryption specs defined as non-functional requirements.
+
+## Scalability (Driven by Performance Specs)
+
+- Performance SLOs from specs drive scaling decisions (p50/p95/p99 latency, throughput).
+- Identify bottlenecks by analyzing contract call patterns and data flow.
+- Use stateless services where contracts allow (easier to scale).
+- Plan caching layers based on response contract cache-control headers.
+- Async processing for contracts with high latency tolerance (queues, background jobs).
+
+## Cross-Cutting Concerns (Defined in Shared Specs)
+
+Plan these upfront as shared spec components:
+- **Error envelope**: standard error response contract used by all endpoints.
+- **Pagination**: shared pagination contract (`page`, `limit`, `total`, `next`).
+- **Logging**: structured log format spec with correlation IDs (see `core-observability` rule).
+- **Health checks**: health endpoint contract (`/health`, `/ready`).
+- **Rate limiting**: rate limit headers contract (`X-RateLimit-*`).
+- **Auth headers**: authentication header contract (`Authorization: Bearer <token>`).
+
+## From Specs to Architecture Diagram
+
+```
+specs/api/openapi.yaml     → Routes, Controllers, Middleware
+specs/api/schema.graphql   → Resolvers, DataLoaders, Subscriptions
+specs/api/service.proto    → gRPC Services, Message Handlers
+specs/schemas/*.json       → Database Schema, ORM Models, Validation
+specs/contracts/*.pact     → Integration Layer, External Service Clients
+specs/features/*.feature   → Use Cases, Business Logic Services
+specs/ui/*.props.ts        → Component Tree, State Management
+specs/slos/*.yaml          → Monitoring, Alerting, Dashboards
+specs/decisions/*.md       → ADRs, Architecture Documentation
+```

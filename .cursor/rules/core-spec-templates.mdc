@@ -1,0 +1,472 @@
+---
+description: Ready-to-use specification templates — OpenAPI, JSON Schema, Gherkin, ADR, Pact, AsyncAPI
+alwaysApply: true
+---
+
+# Spec Templates
+
+## Overview
+
+These templates ensure every specification follows a consistent, complete format. Use them as starting points — adapt to the project's needs but preserve the required sections.
+
+## OpenAPI 3.1 Skeleton
+
+Start every API spec from this skeleton:
+
+```yaml
+openapi: 3.1.0
+info:
+  title: <Project Name> API
+  description: <One-line purpose of the API>
+  version: 1.0.0
+  contact:
+    name: <Team Name>
+    email: <team@example.com>
+
+servers:
+  - url: http://localhost:3000/api/v1
+    description: Local development
+  - url: https://staging.example.com/api/v1
+    description: Staging
+  - url: https://api.example.com/api/v1
+    description: Production
+
+security:
+  - bearerAuth: []
+
+paths:
+  /health:
+    get:
+      summary: Health check
+      operationId: healthCheck
+      tags: [System]
+      security: []
+      responses:
+        '200':
+          description: Service is healthy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/HealthResponse'
+
+  # Add resource endpoints here following the pattern:
+  # /<resource>:
+  #   get:   listResources   → 200 (paginated list)
+  #   post:  createResource  → 201 (created entity)
+  # /<resource>/{id}:
+  #   get:    getResource    → 200 (single entity)
+  #   put:    updateResource → 200 (updated entity)
+  #   delete: deleteResource → 204 (no content)
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  parameters:
+    PageParam:
+      name: page
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+    LimitParam:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    IdParam:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    HealthResponse:
+      type: object
+      required: [status, timestamp]
+      properties:
+        status:
+          type: string
+          enum: [healthy, degraded, unhealthy]
+        timestamp:
+          type: string
+          format: date-time
+        version:
+          type: string
+        services:
+          type: object
+          additionalProperties:
+            type: string
+            enum: [up, down]
+
+    PaginatedResponse:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: array
+          items: {}
+        meta:
+          $ref: '#/components/schemas/PaginationMeta'
+
+    PaginationMeta:
+      type: object
+      required: [page, limit, total, totalPages]
+      properties:
+        page:
+          type: integer
+        limit:
+          type: integer
+        total:
+          type: integer
+        totalPages:
+          type: integer
+        hasNextPage:
+          type: boolean
+        hasPreviousPage:
+          type: boolean
+
+    ErrorResponse:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message, timestamp]
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code (UPPER_SNAKE_CASE)
+            message:
+              type: string
+              description: Human-readable error message
+            timestamp:
+              type: string
+              format: date-time
+            requestId:
+              type: string
+              format: uuid
+              description: Correlation ID for tracing
+            details:
+              type: array
+              items:
+                type: object
+                required: [field, message]
+                properties:
+                  field:
+                    type: string
+                  message:
+                    type: string
+                  code:
+                    type: string
+
+  responses:
+    BadRequest:
+      description: Invalid request payload
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: VALIDATION_ERROR
+              message: Request validation failed
+              timestamp: '2024-01-01T00:00:00Z'
+              details:
+                - field: email
+                  message: Must be a valid email address
+                  code: INVALID_FORMAT
+    Unauthorized:
+      description: Missing or invalid authentication
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          example:
+            error:
+              code: UNAUTHORIZED
+              message: Authentication required
+              timestamp: '2024-01-01T00:00:00Z'
+    Forbidden:
+      description: Insufficient permissions
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    NotFound:
+      description: Resource not found
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    Conflict:
+      description: Resource conflict (duplicate)
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+    TooManyRequests:
+      description: Rate limit exceeded
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/ErrorResponse'
+          headers:
+            Retry-After:
+              schema:
+                type: integer
+              description: Seconds until rate limit resets
+            X-RateLimit-Limit:
+              schema:
+                type: integer
+            X-RateLimit-Remaining:
+              schema:
+                type: integer
+```
+
+## JSON Schema Entity Template
+
+Every data entity should follow this skeleton:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.com/schemas/<entity>.schema.json",
+  "title": "<Entity>",
+  "description": "<What this entity represents>",
+  "type": "object",
+  "required": ["id", "createdAt", "updatedAt"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Unique identifier"
+    },
+    "createdAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Creation timestamp (ISO 8601)"
+    },
+    "updatedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Last update timestamp (ISO 8601)"
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+Required properties for every entity schema:
+- `$id` — globally unique schema identifier.
+- `title` and `description` — human-readable context.
+- `id`, `createdAt`, `updatedAt` — standard audit fields.
+- `additionalProperties: false` — enforce strict shape.
+
+## Gherkin Feature Template
+
+```gherkin
+Feature: <Feature Name>
+  As a <role>
+  I want to <capability>
+  So that <benefit>
+
+  Background:
+    Given the system is initialized
+    And the following users exist:
+      | email             | role  |
+      | admin@example.com | admin |
+
+  # --- Happy Path ---
+
+  Scenario: <Successful action description>
+    Given <precondition>
+    When <action with specific input>
+    Then response status is <expected status>
+    And response body matches schema "<SchemaName>"
+    And <specific assertion on the response>
+
+  # --- Error Paths ---
+
+  Scenario: <Action with invalid input>
+    Given <precondition>
+    When <action with invalid input>
+    Then response status is <error status>
+    And response body matches schema "ErrorResponse"
+    And error code is "<ERROR_CODE>"
+
+  Scenario: <Action without authorization>
+    Given the user is not authenticated
+    When <action>
+    Then response status is 401
+    And error code is "UNAUTHORIZED"
+
+  # --- Edge Cases ---
+
+  Scenario: <Boundary condition>
+    Given <edge case precondition>
+    When <action at boundary>
+    Then <expected behavior at boundary>
+
+  Scenario Outline: <Parameterized scenario>
+    Given <precondition>
+    When <action with "<param>">
+    Then response status is <status>
+
+    Examples:
+      | param   | status |
+      | valid   | 200    |
+      | invalid | 422    |
+      | empty   | 422    |
+```
+
+## ADR Template
+
+Store in `specs/decisions/NNN-<short-title>.md`:
+
+```markdown
+# ADR-NNN: <Decision Title>
+
+**Status**: Proposed | Accepted | Deprecated | Superseded by ADR-XXX
+**Date**: YYYY-MM-DD
+**Deciders**: <who was involved>
+
+## Context
+
+<What requirement, constraint, or spec drove this decision?>
+<Reference specific specs: specs/api/openapi.yaml, specs/schemas/user.schema.json>
+
+## Options Considered
+
+### Option A: <Name>
+- **Pros**: <advantages>
+- **Cons**: <disadvantages>
+- **Spec impact**: <which contracts are affected>
+
+### Option B: <Name>
+- **Pros**: <advantages>
+- **Cons**: <disadvantages>
+- **Spec impact**: <which contracts are affected>
+
+## Decision
+
+<Which option was chosen and why.>
+
+## Consequences
+
+- <What changes in the system>
+- <What new specs or contracts are needed>
+- <What technical debt is introduced>
+- <What becomes easier/harder>
+
+## Spec References
+
+- `specs/api/openapi.yaml` — <how this decision affects the API contract>
+- `specs/schemas/<entity>.schema.json` — <how this affects data contracts>
+- `specs/decisions/NNN-related.md` — <related ADRs>
+```
+
+## Pact Consumer Contract Template
+
+```json
+{
+  "consumer": { "name": "<Consumer Service>" },
+  "provider": { "name": "<Provider Service>" },
+  "interactions": [
+    {
+      "description": "<Describe the interaction>",
+      "providerState": "<Provider state precondition>",
+      "request": {
+        "method": "GET",
+        "path": "/api/v1/<resource>",
+        "headers": {
+          "Accept": "application/json",
+          "Authorization": "Bearer <token>"
+        }
+      },
+      "response": {
+        "status": 200,
+        "headers": {
+          "Content-Type": "application/json"
+        },
+        "body": {
+          "data": []
+        },
+        "matchingRules": {
+          "body": {
+            "$.data": { "min": 0 },
+            "$.data[*].id": { "match": "type" }
+          }
+        }
+      }
+    }
+  ],
+  "metadata": {
+    "pactSpecification": { "version": "2.0.0" }
+  }
+}
+```
+
+## AsyncAPI Event Template
+
+```yaml
+asyncapi: 2.6.0
+info:
+  title: <Service Name> Events
+  version: 1.0.0
+  description: <Event-driven contracts for this service>
+
+channels:
+  <domain>/<event-name>:
+    description: <What triggers this event>
+    publish:
+      operationId: on<EventName>
+      message:
+        $ref: '#/components/messages/<EventName>'
+
+components:
+  messages:
+    <EventName>:
+      name: <EventName>
+      title: <Human-readable event title>
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/<EventPayload>'
+
+  schemas:
+    <EventPayload>:
+      type: object
+      required: [eventId, occurredAt, data]
+      properties:
+        eventId:
+          type: string
+          format: uuid
+        occurredAt:
+          type: string
+          format: date-time
+        source:
+          type: string
+          description: Service that emitted the event
+        data:
+          type: object
+          description: Event-specific payload
+```
+
+## Template Usage Rules
+
+- **Always start from a template**. Don't write specs from scratch when a template exists.
+- **Remove unused sections**. Templates are maximal — trim what doesn't apply.
+- **Customize names and descriptions**. Never leave placeholder text (`<...>`) in approved specs.
+- **Maintain consistency**. If the project uses a subset of templates, apply that subset uniformly.
+- **Version templates**. When the team improves a template, apply the improvement retroactively.

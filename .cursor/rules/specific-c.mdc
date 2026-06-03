@@ -1,0 +1,84 @@
+---
+description: C coding standards — memory safety, defensive programming, portability
+globs: "**/*.c,**/*.h"
+alwaysApply: false
+---
+
+# C Standards
+
+## Memory Management
+
+- Every `malloc`/`calloc`/`realloc` must have a corresponding `free`. No exceptions.
+- Always check the return value of allocation functions for `NULL`.
+- Set pointers to `NULL` after freeing to prevent use-after-free.
+- Prefer `calloc` over `malloc` — zero-initialization catches bugs early.
+- Use `sizeof(*ptr)` instead of `sizeof(Type)` for allocations to stay in sync with the type.
+
+```c
+// ✅ Safe allocation pattern
+int *buf = calloc(count, sizeof(*buf));
+if (!buf) {
+    return ERR_NOMEM;
+}
+// ... use buf ...
+free(buf);
+buf = NULL;
+```
+
+## Defensive Programming
+
+- Check all function return values — especially I/O, system calls, and allocations.
+- Validate all pointer parameters at function entry. Return error codes for invalid input.
+- Use `const` liberally: `const` parameters, `const` pointers, `const` return types.
+- Prefer fixed-size integer types from `<stdint.h>` (`uint32_t`, `int64_t`) over `int`/`long`.
+- Guard against integer overflow in size calculations: check before multiplying.
+
+## Strings & Buffers
+
+- Always use bounded functions: `snprintf` over `sprintf`, `strncpy` over `strcpy`.
+- Always null-terminate strings explicitly after buffer operations.
+- Track buffer sizes alongside pointers — pass `(buf, buf_size)` pairs to functions.
+- Never use `gets()`. Use `fgets()` with explicit size limits.
+- Be aware of off-by-one errors in buffer size calculations.
+
+## Error Handling
+
+- Use return codes consistently: `0` for success, negative values for errors.
+- Define an `enum` for error codes with descriptive names.
+- Use a `goto cleanup` pattern for multi-resource functions to ensure proper cleanup.
+
+```c
+int process_file(const char *path)
+{
+    int ret = 0;
+    FILE *fp = NULL;
+    char *buf = NULL;
+
+    fp = fopen(path, "r");
+    if (!fp) { ret = ERR_OPEN; goto cleanup; }
+
+    buf = malloc(BUF_SIZE);
+    if (!buf) { ret = ERR_NOMEM; goto cleanup; }
+
+    // ... process ...
+
+cleanup:
+    free(buf);
+    if (fp) fclose(fp);
+    return ret;
+}
+```
+
+## Headers & Organization
+
+- Use include guards in all headers: `#ifndef PROJECT_MODULE_H` / `#define` / `#endif`.
+- Expose only the public API in `.h` files. Use `static` for file-private functions.
+- One module = one `.c` + one `.h` pair. Keep interfaces minimal.
+- Include order: own header → project headers → system headers → third-party.
+
+## Portability & Safety
+
+- Compile with `-Wall -Wextra -Werror` (GCC/Clang). Fix all warnings.
+- Run static analyzers (clang-tidy, cppcheck) and sanitizers (`-fsanitize=address,undefined`).
+- Avoid undefined behavior: no signed overflow, no out-of-bounds access, no uninitialized reads.
+- Use `static_assert` (C11) for compile-time invariants.

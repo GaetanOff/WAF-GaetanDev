@@ -1,0 +1,48 @@
+---
+description: Python coding standards — PEP8, typing, patterns, tooling
+globs: "**/*.py"
+alwaysApply: false
+---
+
+# Python Standards
+
+## Style
+
+- Follow PEP 8. Use a formatter (Black or Ruff) with default settings.
+- Max line length: 88 (Black default) or 100.
+- Use snake_case for functions/variables, PascalCase for classes, UPPER_SNAKE_CASE for constants.
+- Use trailing commas in multi-line structures for cleaner diffs.
+
+## Type Hints
+
+- Add type hints to all function signatures (parameters and return types).
+- Use modern syntax: `list[str]`, `dict[str, int]`, `X | None` (Python 3.10+).
+- Use `from __future__ import annotations` for forward references in older versions.
+- Run `mypy` or `pyright` in strict mode in CI.
+
+## Patterns
+
+- Use dataclasses or Pydantic models for structured data — avoid raw dicts.
+- Use context managers (`with`) for resource management (files, connections, locks).
+- Use list/dict/set comprehensions when they improve readability. Avoid nested comprehensions.
+- Prefer `pathlib.Path` over `os.path` for file operations.
+- Use `enum.Enum` for fixed sets of values.
+
+## Error Handling
+
+- Catch specific exceptions, never bare `except:` or `except Exception:` without re-raising.
+- Use custom exception classes for domain errors.
+- Use `logging` module — not `print()` — for production code.
+
+## Project Structure
+
+- Use `pyproject.toml` as the single config file (PEP 621).
+- Use virtual environments (`venv`, `uv`, or `poetry`).
+- Pin dependencies with a lockfile (`uv.lock`, `poetry.lock`, `requirements.txt`).
+- Organize: `src/<package>/`, `tests/`, `docs/`, `scripts/`.
+
+## Testing
+
+- Use `pytest` as the test runner. Follow `test_` naming convention.
+- Use fixtures for setup/teardown. Prefer factory fixtures over complex setup.
+- Use `parametrize` for testing multiple inputs.

@@ -1,0 +1,48 @@
+---
+description: Code review checklist and guidelines
+alwaysApply: true
+---
+
+# Code Review
+
+## Before Submitting
+
+- [ ] Code compiles/builds without errors or warnings.
+- [ ] All tests pass. New tests cover the changed behavior.
+- [ ] No debug code, console logs, or commented-out code left behind.
+- [ ] Self-reviewed the diff — read every changed line.
+- [ ] PR description explains what changed and why.
+
+## Review Checklist
+
+### Correctness
+- Does the code do what it claims?
+- Are edge cases handled (null, empty, boundary values)?
+- Are race conditions or concurrency issues possible?
+
+### Security
+- Is user input validated and sanitized?
+- Are secrets and credentials kept out of code?
+- Are authorization checks in place?
+
+### Maintainability
+- Is the code easy to understand without the PR description?
+- Are names clear and consistent?
+- Is complexity justified or can it be simplified?
+
+### Performance
+- Are there N+1 queries or unnecessary loops?
+- Are large datasets paginated?
+- Are expensive operations cached or debounced?
+
+### Testing
+- Are new code paths tested?
+- Do tests verify behavior, not implementation?
+- Are error paths tested?
+
+## Giving Feedback
+
+- Be specific: point to the line, suggest an alternative.
+- Distinguish between blocking issues and nits/suggestions.
+- Ask questions instead of making demands ("Could we...?" not "You should...").
+- Praise good patterns and clever solutions.

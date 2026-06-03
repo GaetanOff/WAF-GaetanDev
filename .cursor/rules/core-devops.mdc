@@ -1,0 +1,110 @@
+---
+description: DevOps and CI/CD — spec-aware pipelines, deployment, infrastructure, monitoring
+alwaysApply: true
+---
+
+# DevOps & CI/CD (Spec-Aware)
+
+## CI Pipeline
+
+Every project should have a CI pipeline with **spec validation** as a first-class step:
+
+### Minimum Pipeline
+
+```yaml
+# Stages (run in order)
+1. Install dependencies
+2. Spec lint (OpenAPI, JSON Schema validation)
+3. Spec conformance check (detect spec-to-code drift)
+4. Lint and format check
+5. Type check (if applicable)
+6. Conformance tests (spec-generated)
+7. Unit tests
+8. Build
+9. Integration tests (on PR/merge)
+```
+
+### Extended Pipeline (for production projects)
+
+```yaml
+# Additional stages
+10. Contract tests (Pact / consumer-driven)
+11. Security scan (dependency audit, SAST)
+12. E2E tests from behavior specs (on merge to main)
+13. Docker image build
+14. Deploy to staging
+15. Smoke tests on staging (conformance subset)
+16. Deploy to production (manual trigger or auto)
+```
+
+### Spec-Specific CI Steps
+
+- **Spec lint**: validate OpenAPI with `spectral`, JSON Schema with `ajv`, AsyncAPI with `asyncapi-cli`.
+- **Spec drift detection**: compare generated types against spec schemas — fail if they diverge.
+- **Conformance tests**: run `dredd`/`prism`/`schemathesis` against the running API.
+- **Contract tests**: run `pact` tests to validate integration contracts.
+- **Spec change detection**: on PRs that modify `specs/`, require spec review approval.
+
+## Deployment Strategy
+
+Choose based on risk tolerance:
+
+| Strategy | Risk | Downtime | Complexity |
+|----------|------|----------|------------|
+| **Rolling** | Medium | Zero | Low |
+| **Blue-Green** | Low | Zero | Medium |
+| **Canary** | Low | Zero | High |
+| **Recreate** | High | Yes | Very low |
+
+## Environment Management
+
+- Maintain at least 3 environments: development, staging, production.
+- Staging should mirror production as closely as possible.
+- Use environment variables for all environment-specific configuration.
+- Never use production data in development. Use seed data or anonymized copies.
+- Run conformance tests against staging before promoting to production.
+
+## Infrastructure as Code
+
+- Define infrastructure with Terraform, Pulumi, CDK, or similar.
+- Version control all infrastructure definitions.
+- Use modules/stacks for reusable infrastructure components.
+- Apply least privilege to all service accounts and IAM roles.
+
+## Containerization
+
+- Containerize all services for consistent deployment (see `specific-docker` rule).
+- Use multi-stage builds for smallest possible images.
+- Pin base image versions. Scan images for vulnerabilities.
+- Define health checks for all containers (matching the health endpoint contract).
+- Use docker-compose for local development, orchestrators for production.
+
+## Monitoring & Observability
+
+### The Three Pillars
+
+1. **Logs**: structured JSON logs with correlation IDs. Centralize with ELK/Grafana Loki.
+2. **Metrics**: request rate, error rate, latency (RED). CPU, memory, disk (USE). Export to Prometheus/Datadog.
+3. **Traces**: distributed tracing for request flow across services. Use OpenTelemetry.
+
+### SLO-Based Alerting (Spec-Driven)
+
+- Define SLOs in performance specs (p50/p95/p99 latency, error rate, availability).
+- Alert when SLI approaches the error budget defined in specs.
+- Alert on symptoms (high error rate, high latency), not causes.
+- Avoid alert fatigue — every alert should be actionable.
+- Establish on-call runbooks for common alerts.
+
+## Secrets Management
+
+- Never store secrets in code, config files, or environment variables in CI/CD config.
+- Use a secrets manager: Vault, AWS Secrets Manager, GCP Secret Manager, Azure Key Vault.
+- Rotate secrets on a schedule and after any breach.
+- Audit secret access logs regularly.
+
+## Backup & Recovery
+
+- Automate database backups. Test restoration regularly.
+- Define RPO (Recovery Point Objective) and RTO (Recovery Time Objective) in specs.
+- Document and test the disaster recovery plan.
+- Keep backups in a different region/zone than production.

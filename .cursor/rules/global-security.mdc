@@ -1,0 +1,95 @@
+---
+description: Security best practices mapped to OWASP Top 10, security headers, rate limiting, and data classification
+alwaysApply: true
+---
+
+# Security
+
+## The SDD Approach to Security
+
+Security is a contract, not an afterthought. Secure by design means that security constraints (authentication, authorized roles, rate limits) are explicitly defined in the OpenAPI and JSON Schema specs.
+
+## OWASP Top 10 2025 Mapping & Mitigations
+
+### 1. Broken Access Control (IDOR)
+- **Vulnerability**: A user can access another user's data by guessing their ID.
+- **Spec Rule**: Define precise authorization policies per endpoint.
+- **Code Rule**: Validate resource ownership on *every* access. Never rely on hidden UI elements.
+  ```typescript
+  // BAD: Accessing without checking ownership
+  const order = await db.orders.find(req.params.id);
+
+  // GOOD: Always scoping by the authenticated user's ID
+  const order = await db.orders.find({ id: req.params.id, userId: req.user.id });
+  ```
+
+### 2. Cryptographic Failures
+- **Vulnerability**: Exposing sensitive data in transit or at rest.
+- **Code Rule**: Always use HTTPS. Encrypt sensitive fields (PII, SSN, tokens) at rest using a strong cipher (AES-256-GCM). Hash passwords with Argon2, scrypt, or bcrypt (min work factor 12).
+- **Code Rule**: Never write your own crypto. Use standard library or libsodium.
+
+### 3. Injection (SQL, NoSQL, OS Command)
+- **Vulnerability**: Untrusted data is sent to an interpreter as part of a command.
+- **Code Rule**: Parameterize *all* queries. Use an ORM/query builder that parameterizes automatically.
+- **Code Rule**: Never safely interpolate user strings into native SQL: `WHERE email = '${userInput}'`.
+
+### 4. Insecure Design
+- **Code Rule**: Threat model before writing code. Enunciate the boundaries of trust. Fall back to secure defaults (Deny-by-Default).
+
+### 5. Security Misconfiguration
+- **Vulnerability**: Unnecessary features are enabled, default passwords kept, verbose error messages leaked.
+- **Code Rule**: Ensure production environments strip stack traces from errors (see `global-error-handling`). Disable directory listing. Configure CORS restrictively.
+
+### 6. Vulnerable and Outdated Components
+- **Code Rule**: Run `npm audit`/`pnpm audit`/`cargo audit` in CI. Pin dependencies via lockfiles. Upgrade aggressively.
+
+### 7. Identification and Authentication Failures
+- **Vulnerability**: Session fixation, weak passwords, missing MFA.
+- **Code Rule**: Enforce strong password complexity. Throttle login attempts (prevent brute force). Use secure, HTTPOnly, SameSite=Strict cookies for session management (never `localStorage` for sensitive tokens unless mitigated against XSS).
+
+### 8. Software and Data Integrity Failures
+- **Vulnerability**: CI/CD pipeline compromise, missing package signatures, insecure deserialization.
+- **Code Rule**: Verity checksums. Avoid `eval()`, `pickle.loads()`, or YAML's `unsafe_load()`.
+
+### 9. Security Logging and Monitoring Failures
+- **Vulnerability**: Breaches go undetected for months.
+- **Code Rule**: Log all authentication events, authorization failures, and critical data changes. Add alerting triggers (see `core-observability`).
+
+### 10. Server-Side Request Forgery (SSRF)
+- **Vulnerability**: The server fetches a URL submitted by a user without validating the destination.
+- **Code Rule**: If fetching external URLs is required, use an allowlist of domains. Block internal IP addresses (e.g., 169.254.169.254, 127.0.0.1, 10.x.x.x).
+
+## Security Headers
+
+All web responses must include these headers:
+
+- `Strict-Transport-Security: max-age=31536000; includeSubDomains; preload` (HSTS)
+- `X-Content-Type-Options: nosniff`
+- `X-Frame-Options: DENY` (or `SAMEORIGIN`)
+- `Content-Security-Policy`: Restrict scripts, styles, fonts, and iframes to trusted origins. Default to `default-src 'self'`.
+- `X-XSS-Protection: 1; mode=block` (Legacy, but good to keep)
+
+## Rate Limiting
+
+Define rate limits in the API Spec and enforce them at the API Gateway or Application layer.
+
+- Limit per User IP or Bearer Token.
+- Distinguish between standard API endpoints (e.g., 100/min) and sensitive endpoints (e.g., `/login` → 5/min).
+- Include standard `RateLimit` headers in responses (`RateLimit-Limit`, `RateLimit-Remaining`, `RateLimit-Reset`).
+- Return `429 Too Many Requests` when limits are exceeded.
+
+## Data Classification
+
+Annotate your JSON Schemas or code models with data classification tags to prevent accidental leakage.
+
+1. **Public**: Intended for public consumption (e.g., marketing copy, blog posts).
+2. **Internal**: Default for standard operational data (e.g., system logs without PII).
+3. **Confidential**: Personally Identifiable Information (PII) — names, emails, order histories. Requires authorization to access. Must NOT appear in standard logs.
+4. **Restricted**: Highly sensitive data — passwords, SSNs, credit card numbers. Must be encrypted at rest and in transit.
+
+## Secrets Management
+
+- **NEVER** commit secrets to version control. Add `.env` to `.gitignore`.
+- Use an external Secrets Manager (AWS Secrets Manager, HashiCorp Vault, Azure Key Vault) in staging/production.
+- Rotate secrets systematically.
+- Scan repositories for leaked secrets using `git-secrets` or TruffleHog in the CI pipeline.

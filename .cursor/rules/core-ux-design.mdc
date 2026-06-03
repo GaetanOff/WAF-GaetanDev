@@ -1,0 +1,98 @@
+---
+description: UX/UI design principles — user experience, interface patterns, accessibility
+alwaysApply: true
+---
+
+# UX & UI Design
+
+## Principles
+
+- **Clarity over cleverness**: users should immediately understand what they can do.
+- **Consistency**: same action → same result, same element → same appearance.
+- **Feedback**: every user action should produce visible feedback (loading, success, error).
+- **Forgiveness**: allow undo, confirm destructive actions, make errors recoverable.
+- **Progressive disclosure**: show the essential first, reveal complexity on demand.
+
+## Layout & Visual Hierarchy
+
+- Use a clear visual hierarchy: size, weight, color, and spacing signal importance.
+- Maintain consistent spacing with a base unit system (4px or 8px grid).
+- Use whitespace generously — it improves readability and reduces cognitive load.
+- Group related elements visually. Separate unrelated groups with space or dividers.
+- Align elements to a grid. Inconsistent alignment looks unprofessional.
+
+## Interactive States
+
+Every interactive element needs these states:
+
+- **Default**: normal appearance.
+- **Hover**: visual feedback on mouse over.
+- **Focus**: visible focus ring for keyboard navigation (WCAG requirement).
+- **Active/Pressed**: feedback during click/tap.
+- **Disabled**: visually distinct + non-interactive + tooltip explaining why.
+- **Loading**: spinner or skeleton when waiting for async data.
+
+## Forms
+
+- Label every input. Don't use placeholder text as the label.
+- Show validation errors inline, next to the field, in real-time.
+- Use appropriate input types (`email`, `tel`, `url`, `number`) for mobile keyboards.
+- Pre-fill known values. Remember previous entries when appropriate.
+- Group related fields. Use multi-step forms for complex flows.
+- Place the primary action button at the end of the form, aligned with fields.
+
+## Empty States & Errors
+
+- Design empty states: show helpful guidance, not just "No data."
+- Error messages should be: specific, human-readable, actionable ("Try X" not "Error 500").
+- Provide a clear path forward from every error state (retry button, help link).
+- Use 404 pages that help users navigate back to useful content.
+
+## Responsive Design
+
+- Design mobile-first, enhance for larger screens.
+- Test on real devices, not just browser dev tools.
+- Ensure touch targets are at least 44x44px on mobile.
+- Adjust layout, font sizes, and spacing per breakpoint.
+- Use responsive images (`srcset`, `<picture>`) for different screen sizes.
+
+## Loading & Performance Perception
+
+- Show skeleton screens instead of spinners for content-heavy pages.
+- Use optimistic updates for responsive-feeling interactions.
+- Prioritize above-the-fold content loading.
+- Show progress indicators for long operations (upload, processing).
+- Lazy-load content below the fold.
+
+## Color & Typography
+
+- Use a consistent color palette with defined semantic roles (primary, secondary, error, success).
+- Ensure text contrast meets WCAG AA: 4.5:1 for body text, 3:1 for large text.
+- Limit to 2-3 font families maximum.
+- Use a type scale for consistent sizing (e.g., 12, 14, 16, 20, 24, 32, 48).
+- Line height for body text: 1.5-1.75 for readability.
+
+## Navigation
+
+- Keep primary navigation consistent across all pages.
+- Use breadcrumbs for deep hierarchies.
+- Indicate the current page/section in navigation.
+- Provide a search function for content-heavy applications.
+- Use clear, descriptive labels — not jargon or clever names.
+
+## Accessibility (a11y)
+
+- Use semantic HTML: `<nav>`, `<main>`, `<article>`, `<button>`, `<a>`.
+- All images need meaningful `alt` text (or `alt=""` for decorative images).
+- Support keyboard navigation for all interactive elements.
+- Use `aria-` attributes when semantic HTML isn't sufficient.
+- Test with screen readers (NVDA, VoiceOver).
+- Support `prefers-reduced-motion` and `prefers-color-scheme`.
+- Never rely on color alone to convey information (use icons, text, or patterns).
+
+## Micro-interactions
+
+- Animate state transitions smoothly (150-300ms for UI, 300-500ms for emphasis).
+- Use easing curves, not linear transitions.
+- Animate only what changes — don't animate entire page reloads.
+- Respect user preferences: disable animations when `prefers-reduced-motion` is set.

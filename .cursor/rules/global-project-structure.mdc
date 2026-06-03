@@ -1,0 +1,43 @@
+---
+description: Project structure and file organization conventions
+alwaysApply: true
+---
+
+# Project Structure
+
+## Principles
+
+- Organize by **feature/domain**, not by file type (prefer `user/controller.ts` over `controllers/user.ts`).
+- Keep related files close together (colocation).
+- Maintain a flat structure — avoid deep nesting beyond 3-4 levels.
+- Every directory should have a clear, single purpose.
+
+## Naming Conventions
+
+- Directories: `kebab-case` (e.g. `user-profile/`, `api-clients/`).
+- Files: match the language convention (PascalCase for components, kebab-case for modules, snake_case for Python).
+- Index/barrel files: use sparingly — they can hide dependencies and slow builds.
+
+## Standard Layout
+
+```
+src/
+  features/          # Feature-based modules
+  shared/            # Shared utilities, types, constants
+  infrastructure/    # Database, external services, config
+  tests/             # Test files (or colocated with source)
+docs/                # Documentation
+scripts/             # Build, deploy, migration scripts
+```
+
+## Configuration Files
+
+- Keep config files at the project root (`tsconfig.json`, `pyproject.toml`, etc.).
+- Use `.env.example` as a template — never commit `.env`.
+- Centralize environment-specific config in a single module.
+
+## Boundaries
+
+- Define clear module boundaries. Modules should expose a public API and hide internals.
+- Avoid circular dependencies between modules.
+- Shared code goes in `shared/` or `common/` — not duplicated across features.

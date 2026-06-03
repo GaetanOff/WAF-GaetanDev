@@ -1,0 +1,94 @@
+---
+description: Spec-driven iteration — specs evolve first, code follows
+alwaysApply: true
+---
+
+# Spec-Driven Iteration
+
+## Feedback Loop
+
+After each implementation cycle:
+
+1. **Review**: Compare implementation against specs and conformance test results.
+2. **Identify gaps**: What spec scenarios are missing? What contracts are incomplete?
+3. **Update specs**: Evolve specs first — add missing contracts, refine existing ones.
+4. **Update conformance tests**: Generate new tests from updated specs.
+5. **Implement**: Make targeted changes to pass the new conformance tests.
+6. **Validate**: Re-run all conformance gates to confirm nothing broke.
+
+## Spec Evolution Triggers
+
+Update specs when you see:
+- **Missing scenarios**: real usage reveals behavior not covered by any spec.
+- **Contract gaps**: edge cases or error conditions not defined in the contract.
+- **Performance misses**: SLOs need adjustment based on real-world measurements.
+- **Security findings**: new threat vectors require additional security contracts.
+- **User feedback**: UX issues require changes to UI contracts or behavior specs.
+- **Integration changes**: external service changes require contract updates.
+
+## Spec Evolution Rules
+
+- **Spec changes come first**. Never change code without updating the spec.
+- Spec changes require review — they affect the contract with consumers.
+- Backward-compatible changes: add new fields (optional), new endpoints, new error codes.
+- Breaking changes: require a major version bump and migration guide in the spec.
+- Run all conformance tests before and after spec changes. Green → evolve → green.
+- Make small, incremental spec changes. Don't rewrite entire contracts at once.
+
+## Refactoring (Spec-Aware)
+
+Refactoring triggers remain the same, but with a spec constraint:
+
+- **Duplication**: same logic in 3+ places → extract, but ensure the shared code still conforms.
+- **Long functions**: >40 lines → split, but each piece must still satisfy its spec contract.
+- **Large files**: >300 lines → break into modules, but maintain spec conformance at each boundary.
+- **Contract violations**: code that no longer matches the spec → fix code, not spec (unless spec is wrong).
+
+Refactoring rules:
+- Refactor in dedicated commits — never mix refactoring with spec changes.
+- Run conformance tests before and after. Green → refactor → green.
+- Internal refactoring (no contract change) doesn't require spec updates.
+- If refactoring changes a public interface, update the spec first.
+
+## Performance Optimization Cycle (Spec-Driven)
+
+1. **Check SLOs**: compare actual metrics against performance specs.
+2. **Profile**: identify the actual bottleneck with tools.
+3. **Hypothesize**: propose a change that brings metrics within SLO bounds.
+4. **Implement**: make the change.
+5. **Measure**: compare against SLOs. If within bounds, done. If not, iterate.
+6. **Update specs**: if SLOs were unrealistic, update the performance spec with justification.
+
+## Technical Debt Management
+
+- Track debt as **spec conformance gaps** — where code doesn't fully match specs.
+- Track debt as **spec completeness gaps** — where specs don't cover all real behavior.
+- Allocate time for debt reduction in each iteration.
+- Prioritize debt that causes conformance test failures or blocks new specs.
+- Distinguish between intentional debt (trade-off documented in ADR) and accidental debt.
+
+## UX Refinement (Driven by UI Specs)
+
+- Review the UI against UI contracts and component specs.
+- Check consistency: do components match their prop contracts?
+- Verify responsive behavior against breakpoint specs.
+- Test with keyboard-only navigation per accessibility specs.
+- When UX needs change, update the UI spec first, then the components.
+
+## Documentation Updates
+
+After each iteration:
+- Specs are the documentation — ensure they're up to date.
+- Auto-generate API docs from OpenAPI specs.
+- Auto-generate type docs from data contracts.
+- Update ADRs if architectural decisions evolved.
+- Update changelog with spec version changes.
+- Remove outdated specs — stale specs mislead worse than stale docs.
+
+## Continuous Improvement Mindset
+
+- After completing a project, conduct a retrospective on the spec process.
+- Which specs were most valuable? Which were over-specified?
+- Capture reusable spec patterns and templates for future projects.
+- Update bootstrap rules based on lessons learned.
+- Share spec authoring knowledge across the team.

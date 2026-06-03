@@ -1,0 +1,50 @@
+---
+description: React component patterns, hooks, state management, and best practices
+globs: "**/*.tsx,**/*.jsx"
+alwaysApply: false
+---
+
+# React Patterns
+
+## Components
+
+- Use functional components exclusively. No class components.
+- One component per file. Name file same as component (PascalCase).
+- Keep components small — extract sub-components when JSX exceeds ~50 lines.
+- Colocate styles, tests, and types with the component.
+
+## Props
+
+- Define props with TypeScript interfaces. Export them if consumers need them.
+- Destructure props in the function signature.
+- Use `children` for composition instead of render props when possible.
+- Avoid spreading `{...props}` blindly — be explicit about forwarded props.
+
+## Hooks
+
+- Follow the Rules of Hooks (top-level only, React functions only).
+- Extract reusable logic into custom hooks (`useXxx` naming).
+- Keep `useEffect` focused — one effect per concern.
+- Always specify complete dependency arrays. Use `eslint-plugin-react-hooks`.
+- Clean up effects: return a cleanup function for subscriptions, timers, listeners.
+
+## State Management
+
+- Start with local state (`useState`). Lift state up only when needed.
+- Use `useReducer` for complex state transitions.
+- Context for truly global state (theme, auth). Avoid overusing Context for frequent updates.
+- Consider external stores (Zustand, Jotai) only when Context causes performance issues.
+
+## Performance
+
+- Memoize expensive computations with `useMemo`.
+- Memoize callback references with `useCallback` only when passed to memoized children.
+- Use `React.memo()` for pure components that receive stable props.
+- Lazy-load routes and heavy components with `React.lazy()` + `Suspense`.
+
+## Anti-Patterns
+
+- Don't store derived state — compute it during render.
+- Don't mutate state directly — always return new objects/arrays.
+- Don't use array index as `key` for dynamic lists.
+- Don't call hooks conditionally.

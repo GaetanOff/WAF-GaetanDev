@@ -1,0 +1,91 @@
+---
+description: Swift and SwiftUI best practices, value types, async/await, Combine, strict typings
+globs: **/*.swift
+---
+
+# Swift & SwiftUI (Spec-Driven)
+
+## Language Fundamentals
+
+- Swift emphasizes safety and clarity. Leverage the compiler to enforce correctness.
+- Prefer `let` (constants) over `var` (variables). Mutability should be explicit and scoped.
+- Prefer `struct` (value types) over `class` (reference types) by default. Use classes only when identity or shared mutable state is required.
+- Name types using `UpperCamelCase` and properties/methods using `lowerCamelCase`.
+- Use descriptive naming that reads like English. Include argument labels to clarify intent (e.g., `func fetchUser(withID id: String)`).
+
+## Null Safety & Optionals
+
+- Avoid force-unwrapping (`!`) and implicitly unwrapped optionals as much as possible. They circumvent Swift's safety guarantees and cause crashes.
+- Use optional binding (`if let`, `guard let`) to cleanly unwrap optionals.
+- Use the nil-coalescing operator (`??`) to provide sensible defaults.
+- Use `guard` statements for early exits to prevent nested `if` statements (the "Happy Path" should not be indented).
+
+## Error Handling
+
+- Follow `global-error-handling` rules.
+- Use `Throws` and `Result<T, Error>` for recoverable errors.
+- Create custom `Error` enums that conform to `LocalizedError` for user-facing error messages.
+- Use `do-catch` blocks to handle errors gracefully.
+
+## Concurrency (async/await)
+
+- Embrace modern Swift concurrency (`async`/`await`, `Task`, `TaskGroup`). Avoid legacy completion handlers and Grand Central Dispatch (GCD) where possible.
+- Use `@MainActor` to ensure UI updates happen on the main thread.
+- Use `Task.detached` only when the work is completely independent of the current context. Handle cancellation appropriately using `Task.isCancelled` or `Task.checkCancellation()`.
+
+## SwiftUI Best Practices
+
+- Make Views as small, focused, and reusable as possible.
+- Separate logic from presentation. Views should mostly reflect state, not compute it. (MVVM or pure Redux-like flow).
+- Use proper state wrappers:
+  - `@State` for simple, purely local, and private UI state.
+  - `@Binding` to pass read/write access down to child views.
+  - `@Environment` and `@EnvironmentObject` for global/dependency injection.
+  - `@StateObject` to instantiate an observable object that the view owns.
+  - `@ObservedObject` to pass an observable object down from a parent.
+- Leverage SwiftUI's built-in modifiers before creating custom ones.
+- Ensure accessibility. Provide meaningful accessibility labels (`.accessibilityLabel(_:)`) and traits, and support dynamic typing (`.font(.body)`).
+
+## Data Models & Parsing
+
+- Derive data models from JSON Schema specs.
+- Use `Codable` for parsing JSON. Don't write manual parsing code.
+- Keep network and parsing logic in dedicated services/repositories, separate from UI and ViewModels.
+- Use custom `CodingKeys` when API keys don't match Swift naming conventions (e.g., snake_case to camelCase).
+
+## UI/UX Rules
+
+- Follow Apple's Human Interface Guidelines (HIG).
+- Support Dark Mode dynamically. Use system colors (e.g., `.primary`, `.secondary`, `.systemBackground`) or define adaptive color assets in the Asset Catalog.
+- Ensure tap targets are minimum 44x44 points.
+
+## Example: Spec-Driven SwiftUI View
+
+```swift
+import SwiftUI
+
+// Feature specified in specs/features/profile.feature
+struct ProfileView: View {
+    @StateObject private var viewModel = ProfileViewModel()
+    
+    var body: some View {
+        NavigationView {
+            Group {
+                switch viewModel.state {
+                case .loading:
+                    ProgressView()
+                case .loaded(let profile):
+                    ProfileContentView(profile: profile)
+                case .error(let error):
+                    ErrorView(error: error, retryAction: viewModel.loadProfile)
+                }
+            }
+            .navigationTitle("Profile")
+        }
+        .task {
+            // Uses async/await inside .task
+            await viewModel.loadProfile()
+        }
+    }
+}
+```

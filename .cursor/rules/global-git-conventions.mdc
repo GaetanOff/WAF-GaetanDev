@@ -1,0 +1,53 @@
+---
+description: Git conventions — commits, branches, PR workflow with spec-driven additions
+alwaysApply: true
+---
+
+# Git Conventions
+
+## Commit Messages
+
+Follow **Conventional Commits** format:
+
+```
+<type>(<scope>): <short description>
+
+[optional body — explain WHY, not WHAT]
+
+[optional footer — BREAKING CHANGE, closes #issue]
+```
+
+Types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`, `style`, `build`, `spec`.
+
+- `spec`: changes to specifications (OpenAPI, JSON Schema, Gherkin, contracts).
+- Subject line: imperative mood, lowercase, no period, max 72 chars.
+- Body: wrap at 80 chars, explain motivation and context.
+- One logical change per commit. Don't mix refactoring with features.
+- Spec changes and implementation changes should be in **separate commits**.
+
+## Branches
+
+- `main` / `master`: production-ready code. Never commit directly.
+- `develop`: integration branch (if using Git Flow).
+- Feature: `feat/<ticket-id>-short-description`
+- Bugfix: `fix/<ticket-id>-short-description`
+- Hotfix: `hotfix/<ticket-id>-short-description`
+- Specification: `spec/<ticket-id>-short-description`
+
+## Pull Requests
+
+- Keep PRs small and focused — under 400 lines of diff when possible.
+- Write a clear description: what changed, why, how to test.
+- For spec PRs: describe the contracts added/changed and their impact.
+- For implementation PRs: reference the spec the code conforms to.
+- Link related issues/tickets.
+- Ensure CI passes (including spec lint and conformance tests) before requesting review.
+- Squash or rebase before merging to keep history clean.
+
+## Hygiene
+
+- Pull and rebase frequently to avoid large merge conflicts.
+- Delete branches after merging.
+- Never commit secrets, `.env`, or build artifacts.
+- Use `.gitignore` appropriate for the tech stack.
+- Commit specs alongside code — they live in the same repo.

@@ -1,0 +1,69 @@
+---
+description: Java coding standards — modern Java, Spring patterns, error handling
+globs: "**/*.java"
+alwaysApply: false
+---
+
+# Java Standards
+
+## Modern Java (17+)
+
+- Use records for immutable data carriers: `record User(String name, int age) {}`.
+- Use sealed classes/interfaces to restrict type hierarchies.
+- Use pattern matching for `instanceof`: `if (obj instanceof String s)`.
+- Use switch expressions with arrow syntax and exhaustiveness checks.
+- Use text blocks (`"""`) for multi-line strings (SQL, JSON, templates).
+- Use `var` for local variables when the type is obvious.
+
+```java
+// ✅ Modern switch expression
+String label = switch (status) {
+    case ACTIVE -> "Active";
+    case INACTIVE -> "Inactive";
+    case PENDING -> "Pending";
+};
+```
+
+## Naming & Style
+
+- Classes/interfaces: `PascalCase`. Methods/variables: `camelCase`. Constants: `UPPER_SNAKE_CASE`.
+- Package names: lowercase, reversed domain (`com.example.project.feature`).
+- Boolean methods: `is`, `has`, `can` prefix (`isValid()`, `hasAccess()`).
+- No wildcard imports (`import *`). Organize imports: java → javax → third-party → project.
+
+## Null Safety
+
+- Avoid returning `null`. Use `Optional<T>` for values that may be absent.
+- Never use `Optional` as a field or method parameter — only as return type.
+- Use `@Nullable` / `@NonNull` annotations for public API boundaries.
+- Use `Objects.requireNonNull()` for fail-fast null checks on parameters.
+
+## Error Handling
+
+- Use checked exceptions for recoverable conditions, unchecked for programming errors.
+- Create domain-specific exception hierarchies extending `RuntimeException`.
+- Always include the cause: `throw new ServiceException("msg", cause)`.
+- Never catch `Throwable` or `Exception` generically — be specific.
+- Use try-with-resources for all `AutoCloseable` resources.
+
+## Collections & Streams
+
+- Use `List.of()`, `Map.of()`, `Set.of()` for immutable collections.
+- Use Streams for data transformation pipelines. Avoid side effects in streams.
+- Don't overuse streams — a `for` loop is clearer for simple iterations with complex logic.
+- Prefer `Collection` or `List` over raw arrays in APIs.
+
+## Spring / Enterprise Patterns
+
+- Use constructor injection (implicit with single constructor). Avoid `@Autowired` on fields.
+- Keep controllers thin — delegate to service layer.
+- Use `@Transactional` at the service layer, not the repository layer.
+- Validate inputs with Bean Validation (`@Valid`, `@NotBlank`, `@Size`).
+- Use `@RestControllerAdvice` for centralized exception handling.
+
+## Testing
+
+- Use JUnit 5 with `@DisplayName` for readable test names.
+- Use Mockito for mocking. Avoid `@MockBean` in unit tests (slow Spring context).
+- Use `@SpringBootTest` only for integration tests. Unit test with plain constructors.
+- Use AssertJ for fluent, readable assertions.

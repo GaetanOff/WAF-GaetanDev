@@ -1,0 +1,220 @@
+---
+description: Spec-driven migration and versioning — schema evolution, API versioning, backward compatibility
+alwaysApply: true
+---
+
+# Migration & Versioning Strategy
+
+## Schema Migration Lifecycle
+
+Every data contract change follows this lifecycle:
+
+```
+Draft → Reviewed → Tested → Applied → Verified → (Rolled Back if needed)
+```
+
+### Migration Rules
+
+- Every schema change produces a **versioned migration** (up + down).
+- Migrations are **atomic** — one logical change per migration file.
+- Migrations must be **reversible** — every `up` has a matching `down`.
+- Migrations are **idempotent** — running the same migration twice is safe.
+- Migration files are **immutable** once applied — never edit an applied migration.
+- Test migrations against a copy of production data before applying.
+
+### Migration File Naming
+
+```
+migrations/
+  001_create_users_table.sql          # or .ts, .py depending on stack
+  002_add_email_verified_to_users.sql
+  003_create_orders_table.sql
+  004_add_index_orders_user_id.sql
+```
+
+Naming convention: `<sequence>_<verb>_<description>.<ext>`
+- Verbs: `create`, `add`, `remove`, `rename`, `alter`, `drop`, `seed`
+- Always increment the sequence number — never reuse or reorder.
+
+### Migration Script Template
+
+```sql
+-- Migration: 001_create_users_table
+-- Created: YYYY-MM-DD
+-- Spec: specs/schemas/user.schema.json
+
+-- UP
+CREATE TABLE users (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  email VARCHAR(255) NOT NULL UNIQUE,
+  name VARCHAR(100) NOT NULL,
+  role VARCHAR(20) NOT NULL DEFAULT 'user' CHECK (role IN ('admin', 'user', 'viewer')),
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_users_email ON users(email);
+
+-- DOWN
+DROP TABLE IF EXISTS users;
+```
+
+## API Versioning Strategy
+
+### Versioning Methods
+
+| Method | When to Use | SDD Signal |
+|--------|-------------|------------|
+| **URL path** (`/api/v1/`) | Public APIs, clear consumer contracts | Recommended default |
+| **Header** (`Accept: application/vnd.api.v2+json`) | Internal APIs, granular version control | When URL versioning is too coarse |
+| **Query param** (`?version=2`) | Simple APIs, quick iteration | Prototyping only |
+
+**Default recommendation**: URL path versioning (`/api/v1/`).
+
+### Version Lifecycle
+
+```
+v1 (current) → v2 (development) → v2 (current) + v1 (deprecated) → v1 (sunset)
+```
+
+- **Current**: actively maintained, receives bug fixes and security patches.
+- **Deprecated**: still functional, no new features, sunset date announced (minimum 6 months).
+- **Sunset**: removed, returns `410 Gone` with migration guide link.
+
+### Deprecation Contract
+
+When deprecating an endpoint or API version, include these headers:
+
+```yaml
+headers:
+  Deprecation:
+    schema:
+      type: string
+      format: date-time
+    description: Date when this endpoint was deprecated
+  Sunset:
+    schema:
+      type: string
+      format: date-time
+    description: Date when this endpoint will be removed
+  Link:
+    schema:
+      type: string
+    description: URL to migration guide
+```
+
+## Breaking vs Non-Breaking Changes
+
+### Non-Breaking (Safe — backward compatible)
+
+- ✅ Add a new optional field to a response body.
+- ✅ Add a new endpoint.
+- ✅ Add a new optional query parameter.
+- ✅ Add a new enum value (if clients handle unknown values gracefully).
+- ✅ Add a new error code.
+- ✅ Widen a type constraint (e.g. `maxLength: 50` → `maxLength: 100`).
+- ✅ Add new response headers.
+
+### Breaking (Requires major version bump)
+
+- ❌ Remove or rename a field from a response body.
+- ❌ Remove or rename an endpoint.
+- ❌ Change a field's type (e.g. `string` → `number`).
+- ❌ Make an optional field required.
+- ❌ Remove an enum value.
+- ❌ Tighten a type constraint (e.g. `maxLength: 100` → `maxLength: 50`).
+- ❌ Change a status code for an existing response.
+- ❌ Change the authentication mechanism.
+
+### Gray Area (Evaluate case by case)
+
+- ⚠️ Add a required field to a request body (breaking for existing clients).
+- ⚠️ Change default values.
+- ⚠️ Reorder fields (if clients depend on order — shouldn't but some do).
+
+## Data Contract Evolution Rules
+
+### Additive Changes (Preferred)
+
+```json
+// v1: Original schema
+{ "required": ["id", "email", "name"] }
+
+// v1.1: Add optional field (non-breaking)
+{ "required": ["id", "email", "name"],
+  "properties": { "avatar": { "type": "string", "format": "uri" } } }
+```
+
+### Deprecation Workflow
+
+1. Mark the field as deprecated in the spec:
+   ```yaml
+   properties:
+     legacyField:
+       type: string
+       deprecated: true
+       description: "DEPRECATED: Use newField instead. Will be removed in v3."
+   ```
+2. Add the replacement field alongside.
+3. Update all internal consumers to use the new field.
+4. After the deprecation period, remove the old field with a major version bump.
+
+### Schema Versioning
+
+- Embed version in `$id`: `https://example.com/schemas/v2/user.schema.json`.
+- Use `$comment` to document breaking changes.
+- Tag schema versions alongside API versions.
+
+## Backward Compatibility Verification
+
+### Pre-Merge Checklist
+
+- [ ] Run the OpenAPI diff tool (`oasdiff`, `openapi-diff`) against the previous version.
+- [ ] Verify no fields removed from response schemas.
+- [ ] Verify no required fields added to request schemas.
+- [ ] Verify no type changes on existing fields.
+- [ ] Verify no status code changes on existing endpoints.
+- [ ] Run existing conformance tests against the new schema — they must still pass.
+- [ ] If breaking: bump major version, write migration guide, update deprecation headers.
+
+### Automated Compatibility Check
+
+Add to CI pipeline:
+
+```yaml
+# In CI config
+- name: Check API compatibility
+  run: |
+    oasdiff breaking specs/api/openapi-previous.yaml specs/api/openapi.yaml
+    # Fails if breaking changes detected without version bump
+```
+
+## Migration Guide Template
+
+When introducing breaking changes, provide a migration guide:
+
+```markdown
+# Migration Guide: v1 → v2
+
+## Breaking Changes
+
+### 1. `POST /api/v1/users` → `POST /api/v2/users`
+- **Change**: `username` field renamed to `displayName`
+- **Before**: `{ "username": "alice" }`
+- **After**: `{ "displayName": "alice" }`
+- **Action**: Update all API calls to use `displayName`
+
+### 2. Response format change
+- **Change**: Error responses now use the standard error envelope
+- **Before**: `{ "message": "Not found" }`
+- **After**: `{ "error": { "code": "NOT_FOUND", "message": "Not found" } }`
+- **Action**: Update error handling to parse the new format
+
+## Timeline
+- **v2 available**: YYYY-MM-DD
+- **v1 deprecated**: YYYY-MM-DD
+- **v1 sunset**: YYYY-MM-DD (6 months after deprecation)
+
+## Support
+Contact <team@example.com> for migration assistance.
+```

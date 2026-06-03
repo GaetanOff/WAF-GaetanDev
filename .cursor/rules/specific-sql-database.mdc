@@ -1,0 +1,45 @@
+---
+description: SQL and database conventions — queries, schema design, migrations
+globs: "**/*.sql,**/*.prisma,**/migrations/**"
+alwaysApply: false
+---
+
+# SQL & Database
+
+## Schema Design
+
+- Use singular table names (`user`, not `users`) or be consistent — pick one convention.
+- Primary keys: prefer `id` with UUID or auto-increment.
+- Use `created_at` and `updated_at` timestamps on every table.
+- Add `NOT NULL` constraints by default. Allow `NULL` only with explicit reason.
+- Use foreign keys for referential integrity. Name them: `fk_<table>_<referenced_table>`.
+
+## Naming
+
+- Tables and columns: `snake_case`.
+- Indexes: `idx_<table>_<columns>`.
+- Constraints: `chk_<table>_<description>`, `uq_<table>_<columns>`.
+- Avoid reserved words as column names.
+
+## Queries
+
+- Always use parameterized queries — never string concatenation.
+- Select only the columns you need — avoid `SELECT *` in application code.
+- Use `EXPLAIN ANALYZE` to understand and optimize query plans.
+- Add indexes for columns used in `WHERE`, `JOIN`, `ORDER BY`.
+- Paginate results with `LIMIT`/`OFFSET` or cursor-based pagination.
+
+## Migrations
+
+- Use a migration tool (Prisma Migrate, Flyway, Alembic, Knex).
+- Each migration is a single, atomic schema change.
+- Migrations must be reversible — always write `up` and `down`.
+- Never modify a migration that has been applied to production.
+- Test migrations against a copy of production data before deploying.
+
+## ORM Best Practices
+
+- Be aware of N+1 queries — use eager loading / `include` / `join`.
+- Use transactions for operations that must be atomic.
+- Use raw queries for complex reporting — ORMs aren't always the best tool.
+- Monitor query performance with slow query logs.

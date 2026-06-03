@@ -1,0 +1,86 @@
+---
+description: Spec-driven planning — requirements as specifications, contracts as acceptance criteria
+alwaysApply: true
+---
+
+# Spec-Driven Planning
+
+## Requirements as Specifications
+
+- Decompose the project into epics → features → specs → tasks.
+- For each feature, write a **feature spec** defining: inputs, outputs, contracts, edge cases, error cases.
+- Distinguish between must-have (MVP), should-have, and nice-to-have specs.
+- Identify external dependencies and define **integration contracts** for each.
+- Map out the user journey for each core use case as a sequence of contract interactions.
+
+## Scoping
+
+- Define MVP scope as a **minimal set of specs** that delivers value.
+- Identify risks and unknowns early. Write **spike specs** to prototype the riskiest contracts.
+- List assumptions and validate them against specs before building on top of them.
+- Estimate relative complexity for each spec (S/M/L/XL).
+- Plan for incremental delivery — each increment delivers a complete set of conforming specs.
+
+## Spec-Based Acceptance Criteria
+
+Write acceptance criteria as **executable specifications**:
+
+```
+Feature: [Feature Name]
+Spec: [Contract Reference]
+
+Given [precondition — initial state / data contract]
+When [action — API call / user interaction / event]
+Then [expected outcome — response contract / state change / side effect]
+And [contract validation — response matches schema X]
+```
+
+Every feature spec needs:
+- Happy path criteria with exact input/output contracts.
+- Error path criteria with exact error response contracts.
+- Performance criteria (response time, throughput) as measurable SLOs.
+- Security criteria (access control, data protection) as authorization contracts.
+
+## Spec-Driven Task Breakdown
+
+For each feature, create a spec-first implementation plan:
+
+1. **Spec authoring**: write data contracts, API contracts, UI contracts.
+2. **Spec review**: validate contracts with stakeholders, check consistency.
+3. **Conformance tests**: generate tests from specs before any implementation.
+4. **Data layer**: models and schema derived from data contracts.
+5. **Business logic**: services and validation derived from behavior specs.
+6. **API/Interface**: endpoints derived from API contracts.
+7. **UI** (if applicable): components derived from UI contracts.
+8. **Conformance validation**: all tests pass against implementation.
+9. **Documentation**: auto-generated from specs (OpenAPI docs, type docs).
+
+## Prioritization
+
+- Start with **foundational contracts** (auth contract, core entity schemas).
+- Build specs that unblock other specs first (shared types, common error contracts).
+- Defer optimization and polish specs until core contracts are stable.
+- Allocate time for spec review, conformance testing, and contract evolution.
+
+## Constraints Checklist
+
+Before writing specs, clarify:
+- [ ] Target platforms and browsers.
+- [ ] Performance requirements as SLOs (latency p50/p95/p99, throughput, concurrent users).
+- [ ] Security and compliance requirements (GDPR, HIPAA, SOC2) as security contracts.
+- [ ] Accessibility standards (WCAG level) as UI contracts.
+- [ ] Internationalization / localization needs as data format contracts.
+- [ ] Deployment environment (cloud provider, containers, serverless).
+- [ ] API versioning strategy and backward compatibility constraints.
+- [ ] Budget constraints for infrastructure and third-party services.
+
+## Spec Formats by Layer
+
+| Layer | Spec Format | Example |
+|-------|-------------|---------|
+| **API** | OpenAPI 3.x / AsyncAPI | `specs/api/openapi.yaml` |
+| **Data** | JSON Schema / TypeScript interfaces | `specs/schemas/user.schema.json` |
+| **Events** | AsyncAPI / CloudEvents schema | `specs/events/order-created.yaml` |
+| **UI** | Component prop types / Storybook stories | `specs/ui/button.props.ts` |
+| **Integration** | Contract tests (Pact, Dredd) | `specs/contracts/payment-api.pact.json` |
+| **Behavior** | Given-When-Then / Cucumber | `specs/features/checkout.feature` |

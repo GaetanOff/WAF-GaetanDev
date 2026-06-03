@@ -1,0 +1,55 @@
+---
+description: Docker and containerization best practices
+globs: "**/Dockerfile,**/docker-compose*.yml,**/docker-compose*.yaml,**/.dockerignore"
+alwaysApply: false
+---
+
+# Docker
+
+## Dockerfile
+
+- Use official, minimal base images (`alpine`, `slim`, `distroless`).
+- Use multi-stage builds to separate build and runtime stages.
+- Order layers by change frequency: system deps → app deps → source code.
+- Use `.dockerignore` to exclude `node_modules`, `.git`, `.env`, build artifacts.
+- Don't run as root — create and switch to a non-root user.
+
+```dockerfile
+FROM node:20-alpine AS builder
+WORKDIR /app
+COPY package*.json ./
+RUN npm ci
+COPY . .
+RUN npm run build
+
+FROM node:20-alpine
+RUN addgroup -S app && adduser -S app -G app
+WORKDIR /app
+COPY --from=builder /app/dist ./dist
+COPY --from=builder /app/node_modules ./node_modules
+USER app
+EXPOSE 3000
+CMD ["node", "dist/main.js"]
+```
+
+## Best Practices
+
+- Pin base image versions (`node:20.11-alpine`, not `node:latest`).
+- Combine `RUN` commands to reduce layers: `RUN apt-get update && apt-get install -y ...`.
+- Use `COPY` over `ADD` unless you need tar extraction or URL fetching.
+- Set `HEALTHCHECK` for production containers.
+- Use build args for build-time config, env vars for runtime config.
+
+## Docker Compose
+
+- Use `docker-compose.yml` for local development orchestration.
+- Define named volumes for persistent data (databases).
+- Use `depends_on` with health checks for service startup ordering.
+- Override with `docker-compose.override.yml` for local dev settings.
+- Keep production deployment in separate compose files or use orchestrators.
+
+## Security
+
+- Scan images for vulnerabilities (`docker scout`, `trivy`).
+- Don't store secrets in images — use runtime secrets/env vars.
+- Use read-only file systems where possible (`--read-only`).

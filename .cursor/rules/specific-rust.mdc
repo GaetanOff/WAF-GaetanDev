@@ -1,0 +1,50 @@
+---
+description: Rust coding standards — ownership, error handling, idiomatic patterns
+globs: "**/*.rs"
+alwaysApply: false
+---
+
+# Rust Standards
+
+## Ownership & Borrowing
+
+- Prefer borrowing (`&T`, `&mut T`) over cloning. Clone only when necessary.
+- Use `&str` for function parameters accepting strings, `String` for owned data.
+- Prefer `&[T]` over `&Vec<T>` for function parameters.
+- Use `Cow<'_, str>` when a function may or may not need to allocate.
+
+## Error Handling
+
+- Use `Result<T, E>` for recoverable errors, `panic!` only for unrecoverable bugs.
+- Define custom error types with `thiserror` for libraries, `anyhow` for applications.
+- Use the `?` operator for error propagation — avoid manual `match` on `Result` when not needed.
+- Provide context with `.context("message")` (anyhow) or custom error variants.
+
+## Idiomatic Patterns
+
+- Use iterators and combinators (`map`, `filter`, `collect`) over manual loops.
+- Prefer `match` over `if let` chains for exhaustive pattern matching.
+- Use `Option` methods: `unwrap_or`, `unwrap_or_else`, `map`, `and_then`.
+- Use `impl Trait` in function signatures for cleaner APIs.
+- Derive common traits: `Debug`, `Clone`, `PartialEq` on structs.
+
+## Safety
+
+- Avoid `unsafe` unless absolutely necessary. Document every `unsafe` block with a safety comment.
+- Use `clippy` with `--deny warnings` in CI.
+- Use `rustfmt` for consistent formatting.
+- Prefer `Arc<Mutex<T>>` for shared mutable state across threads.
+
+## Project Structure
+
+- Use workspaces for multi-crate projects.
+- Keep `lib.rs` as the public API surface. Use `mod.rs` or file-based modules.
+- Expose minimal public API — default to private, make public only what's needed.
+- Use `#[cfg(test)]` modules for unit tests colocated with source.
+
+## Performance
+
+- Use `&str` / slices to avoid unnecessary allocations.
+- Use `Vec::with_capacity()` when the size is known upfront.
+- Profile with `cargo flamegraph` or `criterion` before optimizing.
+- Prefer stack allocation over heap when data size is small and known.

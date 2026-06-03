@@ -1,0 +1,46 @@
+---
+description: TypeScript coding standards — types, patterns, strict mode
+globs: "**/*.ts,**/*.tsx"
+alwaysApply: false
+---
+
+# TypeScript Standards
+
+## Type Safety
+
+- Enable `strict: true` in `tsconfig.json`. Never use `// @ts-ignore` without a comment explaining why.
+- Avoid `any` — use `unknown` for truly unknown types, then narrow with type guards.
+- Prefer type inference where the type is obvious. Annotate function signatures explicitly.
+- Use `as const` for literal types and immutable objects.
+
+## Types & Interfaces
+
+- Prefer `interface` for object shapes that may be extended. Use `type` for unions, intersections, and mapped types.
+- Export types from the module that defines them.
+- Use discriminated unions for state modeling:
+
+```typescript
+type Result<T> =
+  | { success: true; data: T }
+  | { success: false; error: Error };
+```
+
+## Patterns
+
+- Use `readonly` for properties that shouldn't change after initialization.
+- Prefer `Map`/`Set` over plain objects for dynamic key collections.
+- Use `satisfies` operator for type validation without widening.
+- Prefer `enum` alternatives: `as const` objects or union types.
+- Use generic constraints (`<T extends Base>`) to enforce contracts.
+
+## Nullability
+
+- Prefer explicit null checks over non-null assertion (`!`).
+- Use optional chaining (`?.`) and nullish coalescing (`??`) over manual checks.
+- Design APIs to avoid returning `null` — use `undefined` for "not present", or Result types.
+
+## Imports
+
+- Use named imports, avoid namespace imports (`import * as`).
+- Organize imports: external → internal → types (use auto-sorting).
+- Use `type` imports for type-only imports: `import type { Foo } from './foo'`.

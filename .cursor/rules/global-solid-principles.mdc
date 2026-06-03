@@ -1,0 +1,48 @@
+---
+description: SOLID principles and design patterns for clean architecture
+alwaysApply: true
+---
+
+# SOLID Principles
+
+## Single Responsibility (SRP)
+
+- Each module/class/function should have one reason to change.
+- If you describe what a class does and use "and", it probably does too much.
+- Extract distinct responsibilities into separate units.
+
+## Open/Closed (OCP)
+
+- Open for extension, closed for modification.
+- Use interfaces, strategy pattern, or composition to extend behavior without modifying existing code.
+- Prefer adding new code over changing existing working code.
+
+## Liskov Substitution (LSP)
+
+- Subtypes must be substitutable for their base types without breaking correctness.
+- Don't override methods in ways that violate the base contract.
+- Prefer composition over inheritance when behavior diverges.
+
+## Interface Segregation (ISP)
+
+- Don't force clients to depend on methods they don't use.
+- Split large interfaces into smaller, focused ones.
+- A class implementing an interface should use all its methods.
+
+## Dependency Inversion (DIP)
+
+- High-level modules should not depend on low-level modules. Both should depend on abstractions.
+- Inject dependencies via constructor/parameters — don't instantiate them internally.
+- Use dependency injection for external services (DB, API clients, file system).
+
+## DRY (Don't Repeat Yourself)
+
+- Extract duplicated logic into shared functions/modules.
+- But avoid premature DRY — wait for 3 occurrences before abstracting (Rule of Three).
+- Shared code should represent the **same concept**, not just similar-looking code.
+
+## KISS & YAGNI
+
+- **KISS**: Choose the simplest solution that meets requirements.
+- **YAGNI**: Don't build features or abstractions you don't need yet.
+- Refactor toward patterns when complexity demands it, not before.

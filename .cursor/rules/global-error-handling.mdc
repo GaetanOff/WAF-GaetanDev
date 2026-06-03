@@ -1,0 +1,110 @@
+---
+description: Error handling taxonomy, propagation, circuit breakers, and standard error envelopes
+alwaysApply: true
+---
+
+# Error Handling
+
+## The Error Handling Philosophy
+
+- Fail early, fail loud: Validate at boundaries and reject bad data immediately.
+- Never swallow errors silently. An empty `catch {}` block is a severe anti-pattern.
+- Distinguish between expected business errors and unexpected system failures.
+- Always provide a path forward (for users and for debuggers).
+
+## Error Taxonomy
+
+Understand the two fundamentally different types of errors:
+
+### 1. Operational Errors (Expected)
+These are runtime problems that represent correctly-written programs operating in unpredictable situations.
+- **Examples**: Network failure, database timeout, invalid user input, file not found, API rate limit exceeded.
+- **Action**: Handle them gracefully. Notify the user, retry the operation, or fallback to a default state. Do NOT crash the application.
+
+### 2. Programmer Errors (Bugs)
+These are bugs in the code.
+- **Examples**: Reading a property of `undefined`, type mismatches, syntax errors, failing to `await` a promise.
+- **Action**: Crash the process (in backend) or trigger an Error Boundary (in frontend). Fix the bug, do not write logic to work around it. Restart the service automatically.
+
+## Standard Error Envelope (Spec-Driven)
+
+All API responses must follow this structure (defined in your OpenAPI shared components):
+
+```json
+{
+  "error": {
+    "code": "VALIDATION_FAILED",
+    "message": "The provided input is invalid.",
+    "requestId": "123e4567-e89b-12d3-a456-426614174000",
+    "timestamp": "2024-03-24T10:00:00Z",
+    "details": [
+      {
+        "field": "email",
+        "message": "Must be a valid email address",
+        "code": "INVALID_FORMAT"
+      }
+    ]
+  }
+}
+```
+
+- **`code`**: Machine-readable, `UPPER_SNAKE_CASE`. Used by frontend to trigger specific UI logic (e.g., `TOKEN_EXPIRED` → redirect to login).
+- **`message`**: Human-readable, developer-friendly message. Usually NOT shown directly to end users (frontend should map `code` to localized UI messages).
+- **`requestId`**: Crucial for tracing the error across distributed systems.
+
+## Error Propagation Patterns
+
+Handle errors at the appropriate layer of your application:
+
+1. **Repository / Data Layer**:
+   - Catch raw database errors (e.g., Postgres unique constraint violation).
+   - Wrap and rethrow as domain-specific exceptions (e.g., `DuplicateUserException`).
+   - Do not leak SQL statements or internal DB structure.
+
+2. **Service / Domain Layer**:
+   - Enforce business rules and throw domain errors (e.g., `InsufficientFundsException`).
+   - Log the error details with relevant context.
+
+3. **Controller / API Layer (Boundary)**:
+   - Catch domain exceptions.
+   - Map them to the Standard Error Envelope and appropriate HTTP status codes (e.g., `DuplicateUserException` → `409 Conflict`, `code: "USER_ALREADY_EXISTS"`).
+   - Log the final response being sent to the client.
+
+## Fallback & Resilience Patterns
+
+For interactions with unreliable external services:
+
+### 1. Retry with Exponential Backoff
+When encountering transient errors (e.g., network blip, 503 Service Unavailable, Rate Limit):
+- Do not retry immediately.
+- Wait longer between each attempt (e.g., 1s, 2s, 4s, 8s).
+- Add "jitter" (randomness) to avoid thundering herd problems.
+- Give up after a max number of attempts or total timeout.
+
+### 2. Circuit Breaker
+When an external service is down, stop hammering it:
+- **Closed**: Requests flow normally. If Failure Rate > Threshold, trip to Open.
+- **Open**: Refuse immediately, return a default/fallback response or fail fast. After a timeout, transition to Half-Open.
+- **Half-Open**: Let a single test request through. If success → transition to Closed. If failure → transition to Open.
+
+## Error Logging Contract
+
+What to log when an error occurs:
+
+✅ **DO LOG**:
+- Standard error shape (name, message, stack trace)
+- `requestId` (correlation ID)
+- Service name and execution environment
+- Non-sensitive context (user ID, resource ID, operation name)
+- The raw error from downstream services (for debugging)
+
+❌ **DO NOT LOG**:
+- Passwords, access tokens, API keys
+- Personally Identifiable Information (PII) like emails, phone numbers, addresses (unless explicitly required and masked)
+- Full request/response bodies blindly (may contain sensitive data)
+
+## Promise and Async/Await Hygiene
+
+- **Always `await` promises** inside `try/catch` blocks. If you return a promise without `await`, the `catch` block will not catch rejected promises.
+- Avoid `.then().catch()` chains mixed with `async/await`. Pick one style (prefer `async/await`).
+- Use `Promise.allSettled()` instead of `Promise.all()` when you need all parallel operations to finish regardless of individual failures.

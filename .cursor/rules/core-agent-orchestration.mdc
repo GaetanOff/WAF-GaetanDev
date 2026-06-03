@@ -1,0 +1,348 @@
+---
+description: Agent orchestration protocol for SDD — context injection, spec-first prompting, handoff sequences, and anti-patterns for all AI coding tools
+alwaysApply: true
+---
+
+# Agent Orchestration (Spec-Driven)
+
+> Never ask an AI to "build a feature" without its specification. AI agents will immediately write code when asked. Your job is to enforce the SDD protocol before any implementation prompt is issued.
+
+---
+
+## Supported Environments
+
+| Tool | Context injection | Spec reference |
+|---|---|---|
+| Cursor | `@specs/api/openapi.yaml` in Composer | `@` file references |
+| Claude Code | `@specs/` directory | Direct file paths |
+| GitHub Copilot | `#file:specs/api/openapi.yaml` | `#file` references |
+| Windsurf | `@specs/` in Cascade | `@` file references |
+| OpenCode / generic | Include spec content in system context | Inline or `@` |
+
+---
+
+## Context Injection Protocol
+
+Before any SDD session, inject the project context into the agent. This prevents the agent from making assumptions about the project.
+
+### Context Injection Template
+
+```
+You are working on [Project Name], a [brief description].
+
+Current project state:
+- Mode: [Greenfield | Legacy]
+- Phase: [Discovery | Specification | Architecture | Implementation | Validation]
+- Spec maturity: [L0 | L1 | L2 | L3 | L4]
+
+Active specs (reference these before writing any code):
+- @specs/api/*.openapi.yaml       ← API contracts
+- @specs/schemas/*.schema.json    ← Data contracts
+- @specs/features/*.feature       ← Behavior contracts
+- @specs/decisions/               ← Architecture decisions
+
+SDD Rules:
+- Do not write implementation code before specs are approved
+- If the request is vague, ask the 5 clarification questions
+- If a spec gap is found, stop and document it before continuing
+- Reference spec IDs in every code comment and test description
+- Promote spec status after each phase completes
+```
+
+---
+
+## SDD Prompting Sequences
+
+Break tasks into strictly ordered prompts. **Do not combine phases into a single prompt.**
+
+### Sequence A — New Feature (Greenfield)
+
+```
+Step 1: Discovery
+─────────────────
+"I want to add [feature]. Before writing any spec or code, run the discovery
+protocol. Ask the 5 minimum questions (WHO, WHAT, WHEN, WHY WRONG, DONE).
+Do not proceed to specification until I answer them."
+
+Step 2: Specification
+─────────────────────
+"Discovery is complete. Write the specs for [feature]:
+1. JSON Schema in specs/schemas/[entity].schema.json (status: draft)
+2. OpenAPI paths in specs/api/[domain].openapi.yaml (status: draft)
+3. Gherkin scenarios in specs/features/[feature].feature (status: draft)
+Use the templates in templates/specs/. Do not write any implementation code."
+
+Step 3: Spec Review
+───────────────────
+[Human reviews and approves specs — sets status: approved]
+
+Step 4: Conformance Scaffolding
+───────────────────────────────
+"Specs are approved. Do not write business logic yet.
+1. Generate TypeScript types from the approved schemas
+2. Scaffold empty route handler and service stubs
+3. Write the conformance test (expect it to fail — no logic yet)
+Confirm the test fails for the right reason before continuing."
+
+Step 5: Implementation
+──────────────────────
+"Now implement [feature] strictly against:
+- @specs/schemas/[entity].schema.json
+- @specs/api/[domain].openapi.yaml (operation: [operationId])
+- @specs/features/[feature].feature (scenarios: [list])
+Run the conformance test after each layer (data → logic → API).
+Do not modify specs unless a gap is found — follow the spec gap protocol."
+
+Step 6: Validation
+──────────────────
+"Run the full gate check: spec:lint, typecheck, test:conformance, test:behavior.
+Report each gate result. If any gate fails, apply the spec-fix workflow."
+```
+
+### Sequence B — Bug Fix
+
+```
+Step 1: Bug Discovery
+─────────────────────
+"Bug reported: [description].
+1. Find the spec that defines the expected behavior for this scenario
+2. If no spec exists, write the spec of the expected behavior first (status: draft)
+3. Write a failing test that reproduces the bug
+Do not fix the code yet."
+
+Step 2: Spec Verification
+─────────────────────────
+"Confirm the failing test accurately reflects the spec.
+Apply the SDD debugging decision tree:
+- Is the spec correct? → fix the code
+- Is the spec missing? → write the spec, get it approved, then fix the code
+- Is the test wrong? → fix the test to match the spec
+Tell me which path applies before writing any fix."
+
+Step 3: Fix
+───────────
+"[Path confirmed]. Implement the fix so the reproduction test passes.
+Do not change the spec unless the spec itself was wrong (in which case get it approved first)."
+```
+
+### Sequence C — Legacy Refactor
+
+```
+Step 1: Retro-Spec
+──────────────────
+"Write retro-specs for [module/file] — describe CURRENT behavior as-is.
+Do not improve or change behavior. Write:
+1. JSON Schema for each entity the module processes
+2. OpenAPI entries for each route (if applicable)
+3. Gherkin scenarios for the most critical behaviors
+Mark all as status: implemented (they describe existing behavior)."
+
+Step 2: Gap Analysis
+────────────────────
+"Analyze the retro-specs against the desired behavior.
+List:
+- Behaviors that should change (delta specs needed)
+- Behaviors that should stay (retro-specs are final)
+- Missing coverage (spec debt)
+Do not refactor yet."
+
+Step 3: Delta Specs
+────────────────────
+"Write delta specs for the changes identified:
+- New/modified OpenAPI entries (status: draft)
+- Modified schemas (status: draft)
+- New Gherkin scenarios for changed behaviors (status: draft)
+These are additive. Do not touch the retro-specs."
+
+Step 4: Refactor
+────────────────
+"Refactor [module] so it:
+1. Still passes all retro-spec conformance tests
+2. Also passes all delta-spec conformance tests
+Commit after every spec-green step. Do not break existing gates."
+```
+
+---
+
+## Prompt Library — Common Scenarios
+
+### Generate Spec From Requirements
+
+```
+Given this requirement: "[paste requirements.md extract]"
+Write the following specs:
+1. JSON Schema for [entity] at specs/schemas/[entity].schema.json
+2. OpenAPI operation for [endpoint] (add to specs/api/[domain].openapi.yaml)
+3. 3 Gherkin scenarios (happy path + 2 error paths) at specs/features/[feature].feature
+
+Rules:
+- All fields must have types, formats, and descriptions
+- Response schema must have additionalProperties: false
+- Error codes must match the project error envelope
+- Status: draft on all files
+Stop and wait for my review before proceeding to implementation.
+```
+
+### ADR Generation
+
+```
+We need to decide between [Option A] and [Option B] for [requirement].
+Draft an ADR at specs/decisions/ADR-[NNN]-[title].md.
+- Context: explain what the requirement is
+- Options: describe each with specific trade-offs against our existing specs
+- Reference: @specs/api/openapi.yaml if the decision affects the API contract
+Do not make the decision for me. Present the analysis.
+```
+
+### Spec Gap Report
+
+```
+Review @specs/api/[domain].openapi.yaml against @src/[module]/.
+List every gap:
+1. Routes in code that have no OpenAPI entry
+2. Response fields in code that are not in the spec schema
+3. Error codes returned by code that are not in the spec
+4. Request validation in code that is not in the spec
+Format as a table: [Gap] | [Location in code] | [Missing spec element] | [Priority]
+```
+
+### Security Audit Against Spec
+
+```
+Audit @src/[module]/ against the security requirements in @specs/api/[domain].openapi.yaml.
+Check:
+1. All endpoints marked with security schemes in the spec are actually protected in code
+2. All endpoints NOT in the spec or without securitySchemes are unreachable from outside
+3. Input validation in code matches the request schema constraints in the spec
+4. PII fields in @specs/schemas/*.schema.json are not appearing in logs
+Report findings as: [PASS | FAIL | WARN] | [Detail] | [Spec reference]
+Do not fix anything yet.
+```
+
+### Conformance Test Generator
+
+```
+Generate conformance tests for @specs/api/[domain].openapi.yaml.
+For each operation:
+1. One test for the success response (correct status code + schema)
+2. One test for the 400 validation error (invalid request body)
+3. One test for the 401 unauthorized response (no auth token)
+4. One test for the 404 not found response (if applicable)
+Tests must use [Vitest/Jest/pytest] and reference the spec operation IDs.
+```
+
+---
+
+## Debugging Decision Tree
+
+When a test fails or a bug is found, explicitly run this tree before writing any fix:
+
+```
+Bug reported or test failed
+          │
+          ▼
+Step 1 — Check the spec
+   Is this behavior defined in the spec?
+   ├── NO → Spec Gap
+   │        Stop. Write the spec (status: draft).
+   │        Get it reviewed and approved.
+   │        Then write the test, then fix the code.
+   └── YES ▼
+
+Step 2 — Check the test
+   Does the test accurately reflect the spec?
+   ├── NO → Test Bug
+   │        Fix the test to match the spec.
+   └── YES ▼
+
+Step 3 — Check the code
+   Does the code match the spec?
+   ├── NO → Code Bug
+   │        Fix the code to satisfy the spec.
+   └── YES → Spec is ambiguous
+             Update spec for clarity (requires review).
+```
+
+**Prompt to run this tree:**
+```
+We have a bug: [description]. Apply the SDD debugging decision tree.
+First, tell me what spec defines this behavior and what it says.
+If the spec is missing or ambiguous, tell me before suggesting any fix.
+```
+
+---
+
+## Agent Handoff Protocol
+
+When switching agents or sessions on a large task, always start with a handoff prompt:
+
+```
+Handoff context for continuing SDD work on [Project]:
+
+Current phase: [phase name]
+Last completed: [what was done]
+Pending: [what remains]
+
+Approved specs in use:
+- @specs/api/[domain].openapi.yaml (v[X.Y.Z], status: approved)
+- @specs/schemas/[entity].schema.json (v[X.Y.Z], status: approved)
+- @specs/features/[feature].feature (status: approved)
+
+Open spec debt:
+- SD-[NNN]: [description] (priority: [high/medium/low])
+
+Open assumptions:
+- A-[NNN]: [assumption] (status: [confirmed/pending/unknown])
+
+Next action: [precise next step]
+```
+
+---
+
+## Agent Anti-Patterns — Interrupt Immediately
+
+Interrupt the agent and reset to SDD protocol when you observe these:
+
+| Anti-Pattern | Signal | Correction |
+|---|---|---|
+| Jumping to code | Agent writes `src/` files before `specs/` exist | "Stop. Write the spec first." |
+| Hallucinated contracts | Agent invents an API endpoint not in the spec | "That endpoint is not in the spec. Reference @specs/api/" |
+| Silent spec changes | Agent modifies schema/OpenAPI without explaining | "Explain the spec change. Is it a breaking change? Does it need a version bump?" |
+| Wrong status code | Agent returns 200 where spec says 201 | "The spec says 201. Fix the implementation." |
+| Extra response fields | Agent adds undocumented fields to response | "Remove fields not in the spec or add them to the spec first." |
+| Spec bypass | Agent uses `as any` or casts to avoid type errors | "Fix the spec gap properly. No type casts." |
+| Vague progress | Agent says "done" without running gates | "Run the full gate check and report each gate result." |
+| All-at-once implementation | Agent implements everything in one shot | "Implement one vertical slice at a time. Show me after each layer." |
+
+---
+
+## Multi-Agent Patterns
+
+For large features, split work across specialized agents:
+
+```
+Agent 1 — Spec Writer
+  Input: requirements.md + discovery answers
+  Output: specs/schemas/, specs/api/, specs/features/ (all status: draft)
+  Boundary: does not write implementation code
+
+Agent 2 — Spec Reviewer
+  Input: draft specs from Agent 1
+  Output: review comments + approved specs (status: approved)
+  Boundary: reviews only, no implementation
+
+Agent 3 — Conformance Test Writer
+  Input: approved specs
+  Output: test/conformance/*.test.ts (all failing — no implementation yet)
+  Boundary: writes tests against spec contracts only
+
+Agent 4 — Implementer
+  Input: approved specs + failing conformance tests
+  Output: implementation code that makes conformance tests pass
+  Boundary: cannot change specs — raises a spec gap if needed
+
+Agent 5 — Validator
+  Input: implemented code + all specs
+  Output: gate check report + spec status promotions
+  Boundary: promotes spec status, does not fix code
+```

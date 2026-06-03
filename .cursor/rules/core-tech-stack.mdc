@@ -1,0 +1,87 @@
+---
+description: Technology selection framework — choosing the right tools for the job
+alwaysApply: true
+---
+
+# Technology Selection
+
+## Decision Criteria
+
+Evaluate every technology choice against:
+
+1. **Fitness**: Does it solve the actual problem well?
+2. **Maturity**: Is it production-proven with a stable API?
+3. **Ecosystem**: Are there good libraries, tools, and integrations?
+4. **Community**: Active maintenance, documentation, Stack Overflow presence?
+5. **Team expertise**: Can the team be productive quickly?
+6. **Scalability**: Will it handle the expected growth?
+7. **Cost**: Licensing, infrastructure, and operational costs.
+
+## Stack Recommendations by Project Type
+
+### SaaS Web App
+
+| Layer | Recommended | Alternatives |
+|-------|------------|--------------|
+| **Frontend** | Next.js + React + TypeScript | Nuxt + Vue, SvelteKit |
+| **Styling** | Tailwind CSS + shadcn/ui | Chakra UI, MUI |
+| **Backend** | Node.js (Fastify/Express) or Next.js API routes | Python (FastAPI), Go (Gin/Fiber) |
+| **Database** | PostgreSQL + Prisma | MySQL, MongoDB |
+| **Auth** | NextAuth.js / Lucia / Clerk | Auth0, Supabase Auth |
+| **Cache** | Redis | Memcached |
+| **Hosting** | Vercel / AWS / GCP | Railway, Fly.io |
+
+### API / Backend Service
+
+| Layer | Recommended | Alternatives |
+|-------|------------|--------------|
+| **Runtime** | Node.js + TypeScript | Python, Go, Rust, Java, C# |
+| **Framework** | Fastify / Hono | Express, FastAPI, Gin, Actix |
+| **Database** | PostgreSQL | MySQL, MongoDB, DynamoDB |
+| **ORM** | Prisma / Drizzle | SQLAlchemy, GORM, Diesel |
+| **Validation** | Zod | Joi, class-validator, Pydantic |
+| **Testing** | Vitest | Jest, pytest, go test |
+
+### Mobile App
+
+| Layer | Recommended | Alternatives |
+|-------|------------|--------------|
+| **Framework** | React Native + Expo | Flutter, Swift/Kotlin native |
+| **Navigation** | Expo Router | React Navigation |
+| **State** | Zustand / TanStack Query | Redux, Riverpod (Flutter) |
+| **Backend** | Supabase / Firebase | Custom API |
+
+### CLI Tool
+
+| Layer | Recommended | Alternatives |
+|-------|------------|--------------|
+| **Language** | Go / Rust | Python, Node.js |
+| **CLI Framework** | Cobra (Go), Clap (Rust) | Click (Python), Commander (Node) |
+| **Distribution** | Single binary (Go/Rust) | pip/npm package |
+
+## Dependency Selection Criteria
+
+Before adding any dependency:
+
+- [ ] Is it actively maintained (commits in last 6 months)?
+- [ ] Does it have adequate documentation?
+- [ ] How many open issues and PRs? Are they addressed?
+- [ ] Are there known security vulnerabilities?
+- [ ] What's the bundle size impact (for frontend)?
+- [ ] Can you implement it yourself in reasonable time? (if yes, consider it)
+- [ ] Is it the most popular/standard solution for this problem?
+
+## Anti-Patterns
+
+- **Resume-Driven Development**: choosing tech to learn, not to ship.
+- **Hype-Driven Development**: choosing the newest/trendiest tool without evaluating fit.
+- **Over-engineering**: microservices for a todo app, Kubernetes for a blog.
+- **Lock-in Blindness**: deep coupling to a vendor without abstraction layer.
+- **Dependency Bloat**: npm-installing a package for a 5-line utility function.
+
+## Version Pinning
+
+- Always pin exact versions for production dependencies.
+- Use lockfiles (`package-lock.json`, `uv.lock`, `go.sum`) and commit them.
+- Update dependencies regularly (weekly or bi-weekly) with automated tools.
+- Run tests after every dependency update. Never blindly bump versions.

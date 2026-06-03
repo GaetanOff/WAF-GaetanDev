@@ -1,0 +1,302 @@
+---
+description: Spec-driven observability — structured logging, metrics, tracing, SLOs, alerting defined as contracts
+alwaysApply: true
+---
+
+# Observability (Spec-Driven)
+
+## Overview
+
+Observability is not an afterthought — it's a **contract**. Define logging, metrics, and tracing specs alongside your API and data contracts. Every observable signal traces back to a spec.
+
+## Structured Logging Contract
+
+### Log Entry Schema
+
+Define a standard log format as a JSON Schema:
+
+```json
+{
+  "title": "LogEntry",
+  "type": "object",
+  "required": ["timestamp", "level", "message", "service"],
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "ISO 8601 timestamp"
+    },
+    "level": {
+      "type": "string",
+      "enum": ["debug", "info", "warn", "error", "fatal"]
+    },
+    "message": {
+      "type": "string",
+      "description": "Human-readable log message"
+    },
+    "service": {
+      "type": "string",
+      "description": "Service name emitting the log"
+    },
+    "requestId": {
+      "type": "string",
+      "format": "uuid",
+      "description": "Correlation ID — traces a request across services"
+    },
+    "traceId": {
+      "type": "string",
+      "description": "Distributed trace ID (W3C Trace Context)"
+    },
+    "spanId": {
+      "type": "string",
+      "description": "Current span ID"
+    },
+    "userId": {
+      "type": "string",
+      "description": "Authenticated user ID (never log PII)"
+    },
+    "context": {
+      "type": "object",
+      "description": "Additional structured context (endpoint, method, duration, etc.)"
+    },
+    "error": {
+      "type": "object",
+      "properties": {
+        "name": { "type": "string" },
+        "message": { "type": "string" },
+        "stack": { "type": "string" }
+      }
+    }
+  }
+}
+```
+
+### Logging Rules
+
+- **Always log**: request start/end, errors, auth failures, business events, performance anomalies.
+- **Never log**: passwords, tokens, PII (email, phone, address), credit card numbers, API keys.
+- **Log levels**:
+  - `debug`: detailed diagnostic info (disabled in production).
+  - `info`: normal operations (request handled, job completed, user action).
+  - `warn`: unexpected but recoverable situations (deprecated API call, retry, degraded service).
+  - `error`: failures that need attention (unhandled exception, external service down).
+  - `fatal`: system cannot continue (missing critical config, database unreachable on startup).
+- Every log entry includes `requestId` for correlation.
+- Use structured logging (JSON) — never `console.log("user: " + user)`.
+
+## Metrics Contract
+
+### RED Method (Request-Driven Services)
+
+Define these metrics for every API endpoint in the spec:
+
+| Metric | Type | Description | Labels |
+|--------|------|-------------|--------|
+| `http_requests_total` | Counter | Total requests received | `method`, `path`, `status` |
+| `http_request_duration_seconds` | Histogram | Request latency | `method`, `path` |
+| `http_request_errors_total` | Counter | Total error responses (4xx, 5xx) | `method`, `path`, `status` |
+
+### USE Method (Resource-Driven Systems)
+
+| Metric | Type | Description |
+|--------|------|-------------|
+| `cpu_utilization_ratio` | Gauge | CPU usage (0-1) |
+| `memory_utilization_bytes` | Gauge | Memory usage |
+| `db_connections_active` | Gauge | Active database connections |
+| `db_connections_pool_size` | Gauge | Connection pool size |
+| `queue_depth` | Gauge | Number of messages waiting in queue |
+| `disk_utilization_ratio` | Gauge | Disk usage (0-1) |
+
+### Business Metrics (From Specs)
+
+Derive business metrics from behavior specs:
+
+```yaml
+# Example: derived from the checkout behavior spec
+business_metrics:
+  - name: orders_created_total
+    type: counter
+    description: Total orders created
+    labels: [payment_method, currency]
+    spec_ref: specs/features/checkout.feature
+
+  - name: order_value_total
+    type: counter
+    description: Total order value in cents
+    labels: [currency]
+
+  - name: checkout_abandonment_total
+    type: counter
+    description: Carts abandoned during checkout
+    labels: [step]
+```
+
+## Distributed Tracing Contract
+
+### Span Naming Convention
+
+Derive span names from API contracts:
+
+| Operation | Span Name |
+|-----------|-----------|
+| HTTP endpoint | `HTTP {METHOD} {path}` (e.g. `HTTP GET /api/v1/users`) |
+| Database query | `DB {operation} {table}` (e.g. `DB SELECT users`) |
+| External API call | `EXT {service} {operation}` (e.g. `EXT Stripe createCharge`) |
+| Message publish | `MSG PUBLISH {channel}` (e.g. `MSG PUBLISH orders.created`) |
+| Message consume | `MSG CONSUME {channel}` |
+| Background job | `JOB {name}` (e.g. `JOB sendWelcomeEmail`) |
+
+### Required Span Attributes
+
+```yaml
+# From OpenAPI spec
+http.method: GET
+http.url: /api/v1/users
+http.status_code: 200
+http.request_id: <uuid>
+
+# From data contracts
+db.system: postgresql
+db.statement: SELECT * FROM users WHERE id = $1
+db.operation: SELECT
+
+# From error contracts
+error: true
+error.code: NOT_FOUND
+error.message: User not found
+```
+
+### Trace Context Propagation
+
+- Use **W3C Trace Context** (`traceparent`, `tracestate` headers) for inter-service propagation.
+- Every HTTP client must forward trace headers.
+- Every message must include trace context in metadata.
+- Every background job must inherit the parent trace.
+
+## SLO/SLI/SLA Definitions
+
+### SLO Spec Format
+
+Define SLOs as formal specs in `specs/slos/`:
+
+```yaml
+# specs/slos/api-performance.yaml
+slos:
+  - name: API Availability
+    description: API responds successfully to requests
+    sli:
+      type: availability
+      metric: http_requests_total{status!~"5.."}
+      total: http_requests_total
+    target: 99.9%    # 3 nines
+    window: 30d
+    error_budget: 0.1%   # ~43 minutes/month
+
+  - name: API Latency (p99)
+    description: API responds within acceptable time
+    sli:
+      type: latency
+      metric: http_request_duration_seconds
+      threshold: 500ms   # p99 under 500ms
+    target: 99%
+    window: 30d
+
+  - name: API Latency (p50)
+    sli:
+      type: latency
+      metric: http_request_duration_seconds
+      threshold: 100ms
+    target: 95%
+    window: 30d
+
+  - name: Error Rate
+    description: Low error rate for client requests
+    sli:
+      type: error_rate
+      metric: http_request_errors_total{status=~"5.."}
+      total: http_requests_total
+    target: 99.5%    # <0.5% server errors
+    window: 7d
+```
+
+### Error Budget Policy
+
+- When error budget is above 50%: ship freely, focus on features.
+- When error budget is 25-50%: slow down, increase testing.
+- When error budget is below 25%: freeze features, focus on reliability.
+- When error budget is exhausted: stop all feature work, fix reliability.
+
+## Alerting Rules (Spec-Derived)
+
+### Alert Priority Levels
+
+| Priority | Response Time | Examples |
+|----------|--------------|---------|
+| **P1 — Critical** | 5 minutes | Service down, data loss, security breach |
+| **P2 — High** | 30 minutes | Error budget burning fast, degraded service |
+| **P3 — Medium** | 4 hours | SLO approaching violation, elevated error rate |
+| **P4 — Low** | Next business day | Non-urgent degradation, capacity planning |
+
+### Alert Rules Template
+
+```yaml
+alerts:
+  - name: HighErrorRate
+    priority: P2
+    condition: error_rate > 1% for 5m
+    slo_ref: specs/slos/api-performance.yaml#Error Rate
+    runbook: docs/runbooks/high-error-rate.md
+    channels: [pagerduty, slack-oncall]
+
+  - name: HighLatency
+    priority: P2
+    condition: p99_latency > 1s for 5m
+    slo_ref: specs/slos/api-performance.yaml#API Latency (p99)
+    runbook: docs/runbooks/high-latency.md
+
+  - name: ErrorBudgetBurn
+    priority: P3
+    condition: error_budget_remaining < 25%
+    slo_ref: specs/slos/api-performance.yaml#API Availability
+    channels: [slack-engineering]
+```
+
+### Alerting Anti-Patterns
+
+- **Alert on symptoms, not causes**: alert on high error rate, not on high CPU.
+- **Avoid flapping**: use sustained conditions (`for 5m`) not instant triggers.
+- **One alert, one action**: every alert should have a clear runbook.
+- **No alert fatigue**: if an alert fires daily and is ignored, fix it or remove it.
+
+## Dashboard Contract
+
+Link dashboards to API contracts:
+
+```yaml
+dashboards:
+  - name: API Overview
+    panels:
+      - title: Request Rate
+        metric: rate(http_requests_total[5m])
+        by: [method, path]
+      - title: Error Rate
+        metric: rate(http_request_errors_total[5m]) / rate(http_requests_total[5m])
+      - title: Latency Distribution
+        metric: histogram_quantile(0.99, http_request_duration_seconds)
+      - title: Active Connections
+        metric: db_connections_active
+    spec_ref: specs/api/openapi.yaml
+```
+
+## Observability Checklist
+
+- [ ] Structured logging implemented with consistent JSON format.
+- [ ] Request correlation ID (`requestId`) propagated across all services.
+- [ ] RED metrics exposed for every API endpoint.
+- [ ] USE metrics exposed for every infrastructure component.
+- [ ] Business metrics derived from behavior specs.
+- [ ] Distributed tracing configured with W3C Trace Context.
+- [ ] SLOs defined in `specs/slos/` with measurable SLIs.
+- [ ] Alerts configured for SLO violations with runbooks.
+- [ ] Dashboards link back to API contracts.
+- [ ] No PII or secrets in logs, traces, or metrics labels.

@@ -1,0 +1,465 @@
+---
+description: Specification authoring — how to write, structure, and manage specs as the single source of truth
+alwaysApply: true
+---
+
+# Specification Authoring
+
+## Principles
+
+- Specs are **the single source of truth** for the system's behavior and contracts.
+- Specs must be **machine-readable** whenever possible — they generate tests, docs, and stubs.
+- Specs must be **human-readable** — any developer should understand the system from specs alone.
+- Specs are **living documents** — they evolve with the project, never become stale.
+- Specs are **versioned** — changes to specs are tracked, reviewed, and approved like code.
+
+## Spec Directory Structure
+
+```
+specs/
+  api/                    # API contracts
+    openapi.yaml          # REST API specification (OpenAPI 3.x)
+    schema.graphql        # GraphQL schema definition
+    service.proto         # gRPC service definition
+    asyncapi.yaml         # Event-driven API specification
+  schemas/                # Data contracts
+    user.schema.json      # JSON Schema for User entity
+    order.schema.json     # JSON Schema for Order entity
+    shared/               # Shared schema definitions ($ref targets)
+      address.schema.json
+      pagination.schema.json
+      error.schema.json
+  contracts/              # Integration contracts
+    payment-api.pact.json # Consumer-driven contract (Pact)
+    email-service.yaml    # External service contract
+  features/               # Behavior specifications
+    auth.feature          # Gherkin / Given-When-Then
+    checkout.feature
+  ui/                     # UI component contracts
+    button.props.ts       # Component prop types and variants
+    form-field.props.ts
+  slos/                   # Performance/reliability specs
+    api-performance.yaml  # SLOs, SLIs, error budgets
+  decisions/              # Architecture Decision Records
+    001-database-choice.md
+    002-auth-strategy.md
+```
+
+## Data Contracts
+
+Define every entity as a formal schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "User",
+  "type": "object",
+  "required": ["id", "email", "name", "role", "createdAt"],
+  "properties": {
+    "id": { "type": "string", "format": "uuid" },
+    "email": { "type": "string", "format": "email" },
+    "name": { "type": "string", "minLength": 1, "maxLength": 100 },
+    "role": { "enum": ["admin", "user", "viewer"] },
+    "createdAt": { "type": "string", "format": "date-time" }
+  },
+  "additionalProperties": false
+}
+```
+
+Rules for data contracts:
+- Every entity has a schema. No untyped data flows through the system.
+- Use `$ref` for shared definitions (address, pagination, error envelope).
+- Define `required` fields explicitly. Default to required, opt-in to optional.
+- Use `additionalProperties: false` to catch unexpected fields.
+- Include format constraints (`email`, `uuid`, `date-time`, `uri`).
+- Define enums for all finite value sets.
+
+## API Contracts
+
+### REST API (OpenAPI)
+
+Define every endpoint in OpenAPI format:
+
+```yaml
+paths:
+  /api/v1/users:
+    get:
+      summary: List users
+      operationId: listUsers
+      parameters:
+        - $ref: '#/components/parameters/PageParam'
+        - $ref: '#/components/parameters/LimitParam'
+      responses:
+        '200':
+          description: Paginated list of users
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+    post:
+      summary: Create a user
+      operationId: createUser
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: User created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+        '400':
+          $ref: '#/components/responses/ValidationError'
+        '409':
+          $ref: '#/components/responses/Conflict'
+```
+
+Rules for REST API contracts:
+- Every endpoint has a full OpenAPI definition BEFORE implementation.
+- Define all response codes (success + every error case).
+- Use `$ref` to reference data schemas — don't duplicate.
+- Include request/response examples for each endpoint.
+- Define shared components: error envelope, pagination, auth headers.
+- Version the API in the spec (`/api/v1/`).
+
+### GraphQL Schema
+
+Define the schema using SDL:
+
+```graphql
+type Query {
+  """List users with pagination"""
+  users(page: Int = 1, limit: Int = 20): UserConnection!
+
+  """Get a single user by ID"""
+  user(id: ID!): User
+}
+
+type Mutation {
+  """Create a new user"""
+  createUser(input: CreateUserInput!): CreateUserPayload!
+
+  """Update an existing user"""
+  updateUser(id: ID!, input: UpdateUserInput!): UpdateUserPayload!
+
+  """Delete a user"""
+  deleteUser(id: ID!): DeleteUserPayload!
+}
+
+type User {
+  id: ID!
+  email: String!
+  name: String!
+  role: UserRole!
+  createdAt: DateTime!
+  updatedAt: DateTime!
+}
+
+enum UserRole {
+  ADMIN
+  USER
+  VIEWER
+}
+
+input CreateUserInput {
+  email: String!
+  name: String!
+  password: String!
+  role: UserRole = USER
+}
+
+type CreateUserPayload {
+  user: User
+  errors: [UserError!]
+}
+
+type UserError {
+  field: String!
+  message: String!
+  code: String!
+}
+
+type UserConnection {
+  nodes: [User!]!
+  pageInfo: PageInfo!
+  totalCount: Int!
+}
+
+type PageInfo {
+  hasNextPage: Boolean!
+  hasPreviousPage: Boolean!
+  currentPage: Int!
+  totalPages: Int!
+}
+```
+
+Rules for GraphQL contracts:
+- Define all types, inputs, and enums before implementing resolvers.
+- Use **Payload types** for mutations (not bare objects) — include `errors` for partial failures.
+- Use **Connection pattern** for paginated lists.
+- Add docstrings to every type, field, and argument.
+- Define custom scalars (`DateTime`, `Email`, `UUID`) with validation.
+
+### gRPC / Protocol Buffers
+
+```protobuf
+syntax = "proto3";
+
+package users.v1;
+
+import "google/protobuf/timestamp.proto";
+
+service UserService {
+  // List users with pagination
+  rpc ListUsers(ListUsersRequest) returns (ListUsersResponse);
+
+  // Get a single user by ID
+  rpc GetUser(GetUserRequest) returns (User);
+
+  // Create a new user
+  rpc CreateUser(CreateUserRequest) returns (User);
+
+  // Update an existing user
+  rpc UpdateUser(UpdateUserRequest) returns (User);
+
+  // Delete a user
+  rpc DeleteUser(DeleteUserRequest) returns (google.protobuf.Empty);
+}
+
+message User {
+  string id = 1;
+  string email = 2;
+  string name = 3;
+  UserRole role = 4;
+  google.protobuf.Timestamp created_at = 5;
+  google.protobuf.Timestamp updated_at = 6;
+}
+
+enum UserRole {
+  USER_ROLE_UNSPECIFIED = 0;
+  USER_ROLE_ADMIN = 1;
+  USER_ROLE_USER = 2;
+  USER_ROLE_VIEWER = 3;
+}
+
+message ListUsersRequest {
+  int32 page = 1;
+  int32 limit = 2;
+}
+
+message ListUsersResponse {
+  repeated User users = 1;
+  int32 total = 2;
+  int32 total_pages = 3;
+}
+```
+
+Rules for gRPC contracts:
+- Use `v1`, `v2` package versioning for breaking changes.
+- Always include `UNSPECIFIED = 0` for enums.
+- Define request/response messages per RPC — don't reuse across RPCs.
+- Use `google.protobuf.Timestamp` for dates, not strings.
+- Add comments to every service, RPC, message, and field.
+
+### WebSocket Contract
+
+```yaml
+# specs/api/websocket.yaml
+websocket:
+  endpoint: /ws
+  auth:
+    type: query_param
+    param: token
+
+  messages:
+    client_to_server:
+      - type: subscribe
+        description: Subscribe to a channel
+        payload:
+          channel: { type: string, required: true }
+          filters: { type: object }
+
+      - type: unsubscribe
+        payload:
+          channel: { type: string, required: true }
+
+      - type: ping
+        payload: null
+
+    server_to_client:
+      - type: data
+        description: Real-time data push
+        payload:
+          channel: { type: string }
+          data: { type: object }
+          timestamp: { type: string, format: date-time }
+
+      - type: error
+        payload:
+          code: { type: string }
+          message: { type: string }
+
+      - type: pong
+        payload: null
+
+  channels:
+    notifications:
+      description: User notifications in real time
+      payload_schema: { $ref: 'schemas/notification.schema.json' }
+
+    orders.{orderId}:
+      description: Order status updates
+      payload_schema: { $ref: 'schemas/order-event.schema.json' }
+```
+
+Rules for WebSocket contracts:
+- Define all message types (client → server and server → client).
+- Specify authentication mechanism (token in query, header, or first message).
+- Define channel naming conventions and payload schemas.
+- Include heartbeat/ping-pong contract.
+- Define reconnection behavior and message buffering rules.
+
+## Behavior Specifications
+
+Define feature behavior in Given-When-Then format:
+
+```gherkin
+Feature: User Registration
+
+  Scenario: Successful registration
+    Given no user exists with email "alice@example.com"
+    When POST /api/v1/auth/register with:
+      | email    | alice@example.com |
+      | password | SecureP@ss1       |
+      | name     | Alice             |
+    Then response status is 201
+    And response body matches schema "User"
+    And a verification email is sent to "alice@example.com"
+
+  Scenario: Registration with existing email
+    Given a user exists with email "alice@example.com"
+    When POST /api/v1/auth/register with:
+      | email    | alice@example.com |
+      | password | SecureP@ss1       |
+      | name     | Alice             |
+    Then response status is 409
+    And response body matches schema "ErrorResponse"
+    And error code is "EMAIL_ALREADY_EXISTS"
+```
+
+Rules for behavior specs:
+- Write scenarios for happy path AND every error path.
+- Reference data contracts by name (`matches schema "User"`).
+- Include edge cases: empty input, boundary values, concurrent access.
+- Behavior specs are executable — they drive integration/E2E tests.
+
+## Error Contracts
+
+Define a standard error envelope used across all APIs:
+
+```json
+{
+  "title": "ErrorResponse",
+  "type": "object",
+  "required": ["error"],
+  "properties": {
+    "error": {
+      "type": "object",
+      "required": ["code", "message"],
+      "properties": {
+        "code": { "type": "string", "description": "Machine-readable error code" },
+        "message": { "type": "string", "description": "Human-readable error message" },
+        "details": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "field": { "type": "string" },
+              "message": { "type": "string" },
+              "code": { "type": "string" }
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+## Spec Dependency Graph
+
+Specs have dependencies — respect the order:
+
+```
+Shared schemas (error, pagination) ← referenced by all
+    ↓
+Entity schemas (user, order)       ← referenced by API + behavior specs
+    ↓
+API contracts (OpenAPI, GraphQL)   ← references entity schemas
+    ↓
+Behavior specs (Gherkin)           ← references API + entity schemas
+    ↓
+Integration contracts (Pact)       ← references API contracts
+    ↓
+UI contracts (component props)     ← references entity schemas
+    ↓
+SLO specs                          ← references API contracts
+```
+
+Rules:
+- Write shared schemas first — they are the foundation.
+- Never create circular spec dependencies.
+- When updating a shared schema, check all specs that `$ref` it.
+- Use `$ref` for shared definitions — single source of truth.
+
+## Spec Review Checklist
+
+Before approving any spec, verify:
+
+### Completeness
+- [ ] All entities have data contracts (JSON Schema/types).
+- [ ] All endpoints have API contracts (OpenAPI/GraphQL/gRPC).
+- [ ] All features have behavior specs (Given-When-Then).
+- [ ] All error cases are defined with error codes.
+- [ ] All integrations have contracts (Pact/consumer-driven).
+
+### Consistency
+- [ ] Naming conventions are consistent across all specs.
+- [ ] Shared schemas are used via `$ref` — no duplication.
+- [ ] Error codes follow the same pattern (`UPPER_SNAKE_CASE`).
+- [ ] Pagination follows the same contract everywhere.
+- [ ] Authentication scheme is consistent across endpoints.
+
+### Backward Compatibility
+- [ ] No required fields removed from responses.
+- [ ] No type changes on existing fields.
+- [ ] New required request fields have defaults or are in new endpoints.
+- [ ] Deprecated fields are marked with sunset dates.
+
+### Quality
+- [ ] Every field has a description.
+- [ ] Examples are provided for request/response payloads.
+- [ ] No `TODO`, `TBD`, or placeholder text in approved specs.
+- [ ] Spec passes linting (`spectral`, `ajv`, `graphql-schema-linter`).
+
+## Spec Lifecycle
+
+1. **Draft**: write the initial spec based on requirements.
+2. **Review**: validate with stakeholders and other developers.
+3. **Approved**: spec is locked for implementation. Changes require a spec update PR.
+4. **Implemented**: code conforms to the spec. Conformance tests pass.
+5. **Evolved**: requirements change → spec is updated first → code follows.
+
+## Anti-Patterns
+
+- **Spec After Code**: writing specs to match existing code defeats the purpose. Spec first.
+- **Vague Specs**: "returns user data" is not a spec. Define the exact schema.
+- **Orphan Specs**: specs that no code references or tests validate. Every spec must be wired.
+- **Spec Drift**: code that diverges from specs without updating them. Conformance tests prevent this.
+- **Over-Specification**: specifying internal implementation details. Specs define contracts, not internals.

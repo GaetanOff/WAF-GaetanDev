@@ -1,0 +1,102 @@
+---
+description: Clean code fundamentals — naming, functions, readability, simplicity, code smells, refactoring patterns
+alwaysApply: true
+---
+
+# Clean Code Fundamentals
+
+## Naming
+
+- Use descriptive, intention-revealing names. A reader should understand purpose without comments.
+- **Booleans**: prefix with `is`, `has`, `should`, `can` (e.g., `isVisible`, `hasPermission`).
+- **Functions**: use verb phrases (`fetchUser`, `calculateTotal`, `validateInput`).
+- **Constants**: `UPPER_SNAKE_CASE` for true compile-time constants only.
+- **Classes**: noun or noun phrases (`Customer`, `AccountParser`).
+- Avoid abbreviations, single-letter variables (except short lambdas/loops), and Hungarian notation.
+- Use the same vocabulary found in the specifications (Domain-Driven Design).
+
+## Functions
+
+- Keep functions short — ideally under 20 lines, max 40.
+- One level of abstraction per function. Extract helpers instead of nesting.
+- Max 3 parameters. Use an options/config object beyond that.
+- Avoid boolean flag parameters (`render(true)`) — split into two functions instead (`renderWithDetails()`, `renderSimple()`).
+- **Command-Query Separation (CQS)**: Functions should either **do** something (Command) or **return** something (Query), not both.
+
+## Readability
+
+- Prefer early returns / guard clauses over deeply nested `if-else`.
+- Avoid magic numbers and strings — extract to named constants.
+- Keep line length under 100 characters.
+- Group related code with blank lines; separate concerns with clear section breaks.
+- Delete dead code — don't comment it out. Version control exists.
+
+## Simplicity & Design Principles
+
+- **YAGNI (You Aren't Gonna Need It)**: Write the simplest code that works now. Don't build for hypothetical future requirements.
+- **Rule of Three**: Avoid premature abstraction. Wait until you see the exact same pattern three times before extracting it into a reusable component.
+- Prefer **composition over inheritance**.
+- Avoid clever one-liners that sacrifice clarity. "Any fool can write code that a computer can understand. Good programmers write code that humans can understand."
+
+## Complexity Metrics
+
+Configure your linter to enforce these limits:
+
+| Metric | Target Limit | Description |
+|--------|--------------|-------------|
+| **Cyclomatic Complexity** | < 10 | Number of independent paths through code. High complexity means hard to test. |
+| **Cognitive Complexity** | < 15 | How hard the code is to understand for a human. Penalizes deep nesting. |
+| **Function Length** | < 40 lines | Lines of executable code per function. |
+| **File Length** | < 300 lines | Total lines per file. Split files when they get too large. |
+| **Parameters** | ≤ 3 | Number of arguments a function accepts. |
+
+## Code Smell Catalog
+
+When you spot these smells during implementation or review, fix them:
+
+### 1. Spec-Implementation Mismatch
+- **Smell**: Code validates input manually that is already defined as required in the JSON Schema.
+- **Fix**: Rely on the schema validator middleware. Remove redundant manual checks.
+
+### 2. Duplicated Logic
+- **Smell**: The exact same block of code appears in 3+ places.
+- **Fix**: Extract to a private helper method or shared utility function.
+
+### 3. Long Method
+- **Smell**: A method is 100+ lines long and does multiple things (fetch data, process it, format it).
+- **Fix**: Apply `Extract Method`. Break it down by levels of abstraction.
+
+### 4. Large Class / Module
+- **Smell**: A file has 1000+ lines and handles unrelated concerns (e.g., Auth, Users, and Emails in one file).
+- **Fix**: Apply `Extract Class` or split into separate modules by domain context.
+
+### 5. Primitive Obsession
+- **Smell**: Passing raw strings/numbers instead of domain objects (e.g., passing `string email` instead of an `Email` value object).
+- **Fix**: Use specific types/classes for domain concepts that have validation rules.
+
+### 6. Data Clumps
+- **Smell**: The same 3-4 parameters are passed together to multiple functions (e.g., `startDate, endDate, timezone`).
+- **Fix**: Extract into a single parameter object (`DateRangeContext`).
+
+### 7. Deep Nesting
+- **Smell**: 3+ levels of `if/else/for` indentation (Arrow Anti-Pattern).
+- **Fix**: Use early returns (guard clauses), extract loop bodies into functions, or use functional array methods (`map/filter/reduce`).
+
+## Refactoring Patterns
+
+Apply these patterns to improve code without changing its external behavior (keep conformance tests passing).
+
+1. **Extract Function/Method**: Move a cohesive block of code into its own named function.
+2. **Inline Function/Method**: Revert a poorly extracted function back into its caller if the indirection adds no value.
+3. **Replace Conditional with Polymorphism**: Convert massive `switch` statements into separate strategy classes or objects.
+4. **Introduce Parameter Object**: Replace a long list of related parameters with a single grouped object/interface.
+5. **Rename Variable**: Change cryptic variable names (`const t = ...`) to intention-revealing names (`const transactionDuration = ...`).
+6. **Replace Magic Number with Constant**: `if (status === 4)` → `if (status === STATUS_COMPLETED)`.
+
+### Refactoring Workflow in SDD
+
+1. Ensure the feature passes all **conformance tests**.
+2. Identify the code smell.
+3. Apply the refactoring pattern (one at a time).
+4. Run tests again. (Green → Refactor → Green).
+5. Commit the refactoring separately from feature changes (`refactor(domain): extract user validation`).

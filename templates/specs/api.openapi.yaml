@@ -1,0 +1,409 @@
+openapi: "3.1.0"
+
+info:
+  title: "[Service Name] API"
+  description: |
+    [One paragraph: what this API does, who uses it, and what domain it covers.]
+
+    ## Spec Metadata
+    - **ID**: api-[domain]-[NNN]
+    - **Status**: draft
+    - **Version**: 1.0.0
+    - **Depends on**: schema-[entity]-[NNN]
+  version: "1.0.0"
+  contact:
+    name: "[Team Name]"
+    email: "[team@example.com]"
+  license:
+    name: "[License]"
+
+servers:
+  - url: "http://localhost:3000/api/v1"
+    description: Local development
+  - url: "https://staging.example.com/api/v1"
+    description: Staging
+  - url: "https://api.example.com/api/v1"
+    description: Production
+
+# ─────────────────────────────────────────────────────────────────
+# Security Schemes — define here, apply via `security` on each operation
+# ─────────────────────────────────────────────────────────────────
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: JWT issued by the auth service. Include in every protected request.
+
+  # ─────────────────────────────────────────────────────────────
+  # Shared Response Schemas
+  # ─────────────────────────────────────────────────────────────
+  schemas:
+    # Standard error envelope — used by ALL 4xx and 5xx responses
+    ErrorResponse:
+      type: object
+      required: [error]
+      additionalProperties: false
+      properties:
+        error:
+          type: object
+          required: [code, message, requestId]
+          additionalProperties: false
+          properties:
+            code:
+              type: string
+              description: Machine-readable error code
+              example: "RESOURCE_NOT_FOUND"
+            message:
+              type: string
+              description: Human-readable error message
+              example: "The requested user was not found."
+            requestId:
+              type: string
+              format: uuid
+              description: Correlation ID for tracing
+            details:
+              type: object
+              description: Optional field-level validation errors
+              additionalProperties: true
+              example:
+                email: "Must be a valid email address"
+
+    # Standard pagination envelope for list responses
+    PaginationMeta:
+      type: object
+      required: [total, page, pageSize, hasNext]
+      additionalProperties: false
+      properties:
+        total:
+          type: integer
+          minimum: 0
+        page:
+          type: integer
+          minimum: 1
+        pageSize:
+          type: integer
+          minimum: 1
+          maximum: 100
+        hasNext:
+          type: boolean
+        cursor:
+          type: string
+          description: Opaque cursor for cursor-based pagination (optional)
+
+    # ── Entity schemas — import from specs/schemas/ or inline here ──
+    # Replace the example below with your actual entity schema.
+    ExampleEntity:
+      $ref: "./schemas/example.schema.json"
+
+  # ─────────────────────────────────────────────────────────────
+  # Reusable Parameters
+  # ─────────────────────────────────────────────────────────────
+  parameters:
+    ResourceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: Unique identifier of the resource
+
+    PageParam:
+      name: page
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        default: 1
+
+    PageSizeParam:
+      name: pageSize
+      in: query
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+
+  # ─────────────────────────────────────────────────────────────
+  # Reusable Response Headers
+  # ─────────────────────────────────────────────────────────────
+  headers:
+    RateLimitLimit:
+      description: Maximum requests per window
+      schema:
+        type: integer
+    RateLimitRemaining:
+      description: Remaining requests in current window
+      schema:
+        type: integer
+    RateLimitReset:
+      description: Unix timestamp when the window resets
+      schema:
+        type: integer
+
+# ─────────────────────────────────────────────────────────────────
+# Tags — group operations by domain
+# ─────────────────────────────────────────────────────────────────
+tags:
+  - name: "[Resource]"
+    description: Operations on [resource] entities
+
+# ─────────────────────────────────────────────────────────────────
+# Paths — define your endpoints below
+# ─────────────────────────────────────────────────────────────────
+paths:
+
+  /[resources]:
+    get:
+      operationId: list[Resources]
+      summary: List all [resources]
+      description: |
+        Returns a paginated list of [resources] accessible to the authenticated actor.
+        Results are sorted by `createdAt` descending by default.
+      tags: ["[Resource]"]
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/PageParam"
+        - $ref: "#/components/parameters/PageSizeParam"
+        - name: q
+          in: query
+          description: Full-text search query
+          schema:
+            type: string
+            maxLength: 100
+      responses:
+        "200":
+          description: Successfully retrieved [resources]
+          headers:
+            X-RateLimit-Limit:
+              $ref: "#/components/headers/RateLimitLimit"
+            X-RateLimit-Remaining:
+              $ref: "#/components/headers/RateLimitRemaining"
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [data, meta]
+                additionalProperties: false
+                properties:
+                  data:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/ExampleEntity"
+                  meta:
+                    $ref: "#/components/schemas/PaginationMeta"
+              example:
+                data:
+                  - id: "550e8400-e29b-41d4-a716-446655440000"
+                    name: "Example"
+                    createdAt: "2024-01-15T10:00:00Z"
+                meta:
+                  total: 1
+                  page: 1
+                  pageSize: 20
+                  hasNext: false
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: "UNAUTHORIZED"
+                  message: "Authentication required."
+                  requestId: "123e4567-e89b-12d3-a456-426614174000"
+        "429":
+          description: Rate limit exceeded
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    post:
+      operationId: create[Resource]
+      summary: Create a new [resource]
+      description: |
+        Creates a new [resource]. The authenticated actor becomes the owner.
+      tags: ["[Resource]"]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [name]
+              additionalProperties: false
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+                  description: Human-readable name for the [resource]
+            example:
+              name: "My Resource"
+      responses:
+        "201":
+          description: "[Resource] created successfully"
+          headers:
+            Location:
+              description: URL of the created resource
+              schema:
+                type: string
+                format: uri
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExampleEntity"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: "VALIDATION_ERROR"
+                  message: "Request body is invalid."
+                  requestId: "123e4567-e89b-12d3-a456-426614174000"
+                  details:
+                    name: "Name is required and must not exceed 100 characters."
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+  /[resources]/{id}:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+
+    get:
+      operationId: get[Resource]ById
+      summary: Get a [resource] by ID
+      tags: ["[Resource]"]
+      security:
+        - BearerAuth: []
+      responses:
+        "200":
+          description: "[Resource] found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExampleEntity"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Authenticated but not authorized to access this resource
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: "FORBIDDEN"
+                  message: "You do not have permission to access this resource."
+                  requestId: "123e4567-e89b-12d3-a456-426614174000"
+        "404":
+          description: "[Resource] not found"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+              example:
+                error:
+                  code: "RESOURCE_NOT_FOUND"
+                  message: "The requested [resource] was not found."
+                  requestId: "123e4567-e89b-12d3-a456-426614174000"
+
+    patch:
+      operationId: update[Resource]
+      summary: Partially update a [resource]
+      tags: ["[Resource]"]
+      security:
+        - BearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              minProperties: 1
+              properties:
+                name:
+                  type: string
+                  minLength: 1
+                  maxLength: 100
+            example:
+              name: "Updated Name"
+      responses:
+        "200":
+          description: "[Resource] updated"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ExampleEntity"
+        "400":
+          description: Invalid request body
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Not authorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+
+    delete:
+      operationId: delete[Resource]
+      summary: Delete a [resource]
+      tags: ["[Resource]"]
+      security:
+        - BearerAuth: []
+      responses:
+        "204":
+          description: "[Resource] deleted successfully. No response body."
+        "401":
+          description: Not authenticated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "403":
+          description: Not authorized
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"
+        "404":
+          description: Not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErrorResponse"

@@ -1,0 +1,43 @@
+---
+description: Next.js App Router patterns, server components, data fetching
+globs: "**/*.tsx,**/*.ts"
+alwaysApply: false
+---
+
+# Next.js (App Router)
+
+## Server vs Client Components
+
+- Default to Server Components. Add `"use client"` only when you need interactivity, hooks, or browser APIs.
+- Push `"use client"` boundary as low as possible in the component tree.
+- Server Components can import Client Components, but not vice versa.
+- Pass serializable props from Server to Client Components.
+
+## Data Fetching
+
+- Fetch data in Server Components using `async/await` directly.
+- Use `fetch()` with Next.js caching: `{ cache: 'force-cache' }`, `{ next: { revalidate: 60 } }`.
+- Colocate data fetching with the component that uses it.
+- Use `loading.tsx` for streaming/suspense fallbacks.
+- Use `error.tsx` for error boundaries at the route level.
+
+## Routing
+
+- Use the `app/` directory with folder-based routing.
+- Leverage layouts (`layout.tsx`) for shared UI. They persist across navigations.
+- Use route groups `(group)` for organization without affecting URLs.
+- Use `generateStaticParams` for static generation of dynamic routes.
+
+## Performance
+
+- Use `<Image>` component for automatic optimization.
+- Use `<Link>` for client-side navigation with prefetching.
+- Implement metadata with `generateMetadata` for SEO.
+- Use Parallel Routes and Intercepting Routes for complex UIs.
+
+## Patterns
+
+- Use Server Actions (`"use server"`) for mutations/form handling.
+- Validate inputs in Server Actions with Zod or similar.
+- Use `middleware.ts` for auth, redirects, and request-level logic.
+- Keep API Routes (`route.ts`) for webhook handlers and external API integrations.

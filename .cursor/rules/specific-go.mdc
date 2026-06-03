@@ -1,0 +1,53 @@
+---
+description: Go coding standards — error handling, concurrency, idiomatic patterns
+globs: "**/*.go"
+alwaysApply: false
+---
+
+# Go Standards
+
+## Style
+
+- Follow `gofmt` — no debates about formatting.
+- Run `golangci-lint` with a strict config in CI.
+- Use `golint`/`staticcheck` for catching common mistakes.
+- Package names: short, lowercase, no underscores (`http`, `json`, not `http_utils`).
+
+## Error Handling
+
+- Always check returned errors. Never discard with `_` unless explicitly justified.
+- Wrap errors with `fmt.Errorf("context: %w", err)` for stack-like tracing.
+- Use sentinel errors (`var ErrNotFound = errors.New(...)`) for expected error conditions.
+- Check errors with `errors.Is()` and `errors.As()`, not string comparison.
+- Return errors, don't panic. Reserve `panic` for truly unrecoverable situations.
+
+## Concurrency
+
+- Prefer channels for communication, mutexes for shared state.
+- Always use `context.Context` for cancellation and timeouts.
+- Start goroutines only when you know how they'll stop — prevent leaks.
+- Use `sync.WaitGroup` to wait for goroutine completion.
+- Use `errgroup.Group` for parallel tasks that can fail.
+
+## Patterns
+
+- Accept interfaces, return structs.
+- Keep interfaces small — 1-2 methods (Go proverb).
+- Use table-driven tests for comprehensive test coverage.
+- Use `struct{}` for signals/sets (zero memory allocation).
+- Use `defer` for cleanup — but be aware of loop pitfalls.
+
+## Project Layout
+
+```
+cmd/            # Entry points (main packages)
+internal/       # Private packages
+pkg/            # Public, reusable packages
+api/            # API definitions (proto, OpenAPI)
+```
+
+## Dependencies
+
+- Use Go modules. Keep `go.mod` tidy with `go mod tidy`.
+- Vendor dependencies for reproducible builds when needed.
+- Minimize external dependencies — Go stdlib is comprehensive.

@@ -1,0 +1,216 @@
+---
+description: Spec-driven project scaffolding — directory structures, spec tooling, CI/CD configuration
+alwaysApply: true
+---
+
+# Scaffolding (Spec-Driven)
+
+## The `specs/` Directory
+
+Every project, regardless of the tech stack, must have a `specs/` directory at the root. This is the single source of truth for the project.
+
+```text
+my-project/
+├── specs/                   # The single source of truth
+│   ├── api/                 # OpenAPI, GraphQL, gRPC specs
+│   ├── schemas/             # JSON Schema data contracts
+│   ├── features/            # Gherkin behavior specs
+│   ├── contracts/           # Pact provider/consumer contracts
+│   ├── ui/                  # Component prop contracts
+│   ├── slos/                # Performance/reliability specs
+│   └── decisions/           # Architecture Decision Records (ADRs)
+├── src/                     # Implementation
+├── tests/                   # Conformance and unit tests
+├── .cursor/rules/           # AI behavior rules
+├── package.json
+└── README.md
+```
+
+## Spec Validation Tooling
+
+When scaffolding a new project, immediately set up tooling to validate the specs themselves.
+
+### Node.js / JavaScript Scaffolding
+
+Add these to your `package.json`:
+
+```json
+{
+  "scripts": {
+    "spec:lint": "spectral lint specs/api/*.yaml",
+    "spec:validate": "ajv validate -s specs/schemas/**/*.json -d specs/schemas/**/*.json",
+    "spec:generate:types": "openapi-typescript specs/api/openapi.yaml -o src/types/api.ts",
+    "spec:test": "prism mock specs/api/openapi.yaml",
+    "test:conformance": "dredd specs/api/openapi.yaml http://localhost:3000",
+    "pre-commit": "npm run spec:lint && npm run spec:validate"
+  },
+  "devDependencies": {
+    "@stoplight/spectral-cli": "^6.0.0",
+    "ajv-cli": "^5.0.0",
+    "openapi-typescript": "^6.0.0",
+    "@stoplight/prism-cli": "^4.0.0",
+    "dredd": "^14.0.0"
+  }
+}
+```
+
+## Architectural Scaffolding Templates
+
+### 1. API Backend (Node/Python/Go)
+
+Organize by feature (vertical slices), not by layer:
+
+```text
+src/
+├── app.ts                 # App entrypoint (wires up modules)
+├── server.ts              # HTTP server (binds ports)
+├── lib/                   # Shared utilities (logger, db connection)
+│   ├── logger.ts
+│   └── db.ts
+└── modules/               # Feature modules
+    ├── auth/              # Auth module (implements specs/api/openapi.yaml#/paths/~1auth)
+    │   ├── api.ts         # Route handlers (must conform to OpenAPI)
+    │   ├── service.ts     # Business logic (must pass Gherkin specs)
+    │   ├── repository.ts  # Data access (must conform to JSON schema)
+    │   └── tests/         # Module-specific tests
+    └── users/
+        ├── api.ts
+        ├── service.ts
+        └── repository.ts
+```
+
+### 2. Frontend Web App (React/Vue/Next.js)
+
+```text
+src/
+├── app/                   # Routing (Next.js/Nuxt) or Pages (React/Vue)
+├── components/            # UI Components
+│   ├── shared/            # Generic components (Button, Input)
+│   └── domain/            # Domain-specific (UserCard, CheckoutForm)
+├── lib/                   # Shared utilities
+│   ├── api-client.generated.ts # GENERATED from OpenAPI
+│   └── query-client.ts    # React Query / SWR setup
+├── types/                 # Type definitions
+│   └── api.generated.ts   # GENERATED from JSON Schemas
+└── features/              # Complex logic grouped by feature
+    └── checkout/
+        ├── hooks.ts
+        └── state.ts
+```
+
+### 3. Mobile App (React Native / Flutter)
+
+```text
+src/
+├── app/                   # Navigation/Routing
+├── screens/               # Screen components
+│   ├── auth/
+│   └── profile/
+├── components/            # Reusable UI elements
+├── core/                  # Core services
+│   ├── api.generated.ts   # GENERATED from OpenAPI
+│   ├── auth.service.ts
+│   └── storage.ts
+├── models/                # Domain models
+│   └── entities.gen.ts    # GENERATED from JSON Schemas
+└── store/                 # State management
+```
+
+### 4. CLI Tool (Go / Rust / Node)
+
+```text
+src/
+├── cmd/                   # Command definitions (CLI entrypoints)
+│   ├── root.ts
+│   ├── get.ts
+│   └── apply.ts
+├── internal/              # Private business logic
+│   ├── config/            # Config parsing & validation
+│   └── executor/          # Core execution logic
+├── pkg/                   # Public APIs (if any)
+└── api/                   # API clients (if it talks to servers)
+    └── client.generated.ts # GENERATED from OpenAPI
+```
+
+## CI/CD Pipeline Scaffolding
+
+Every spec-driven project must have a CI pipeline configured at scaffolding time.
+
+### GitHub Actions Template (`.github/workflows/ci.yml`)
+
+```yaml
+name: CI (Spec-Driven)
+
+on:
+  push:
+    branches: [ main ]
+  pull_request:
+    branches: [ main ]
+
+jobs:
+  validate-specs:
+    name: 1. Validate Specs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+      - run: npm ci
+      - name: Lint OpenAPI
+        run: npm run spec:lint
+      - name: Validate JSON Schemas
+        run: npm run spec:validate
+      - name: Check for breaking spec changes
+        run: npx oasdiff breaking specs/api/openapi-main.yaml specs/api/openapi.yaml || echo "Warning: breaking changes detected"
+
+  type-check:
+    name: 2. Type Check (Contract Validation)
+    needs: validate-specs
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+      - run: npm ci
+      - name: Generate types from spec
+        run: npm run spec:generate:types
+      - name: TypeScript Check
+        run: npx tsc --noEmit
+
+  test:
+    name: 3. Tests & Conformance
+    needs: type-check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - uses: actions/setup-node@v3
+      - run: npm ci
+      - name: Run Unit Tests
+        run: npm run test:unit
+      - name: Start Server
+        run: npm run start & sleep 5
+      - name: Run Spec Conformance Tests
+        run: npm run test:conformance
+```
+
+## First Commit Checklist
+
+Before starting implementation, the first commit ("chore: initial spec-driven scaffolding") must include:
+
+- [ ] `specs/` directory created with initial templates (OpenAPI skeleton, error schema).
+- [ ] `README.md` updated with project description and spec overview.
+- [ ] Package manager initialized (`package.json`, `go.mod`, `Cargo.toml`).
+- [ ] Spec validation tools configured and working (`spectral`, `ajv`).
+- [ ] Code generation tools configured (`openapi-typescript`, `openapi-generator`).
+- [ ] Linter, formatter, and type-checker configured.
+- [ ] CI pipeline file created.
+- [ ] `.gitignore` configured.
+- [ ] `.env.example` created.
+
+## Rules for Code Generation
+
+In a Spec Driven Development workflow, code generation bridges the gap between specs and implementation.
+
+- **Types/Interfaces**: ALWAYS generate them from JSON Schema or OpenAPI. Never write them by hand.
+- **API Clients**: Generates client SDKs or React Query hooks from OpenAPI using tools like `openapi-typescript-codegen` or `orval`.
+- **API Route Stubs**: Optional, but strongly recommended to enforce route signatures.
+- **Do not modify generated files**: Output them to `.generated.ts` or a `__generated__` folder and add them to `.gitignore`.
+- **Run generation on pre-commit**: Ensure the codebase always matches the latest specs.

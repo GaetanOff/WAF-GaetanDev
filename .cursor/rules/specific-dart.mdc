@@ -1,0 +1,74 @@
+---
+description: Dart and Flutter coding standards — null safety, patterns, state management
+globs: "**/*.dart"
+alwaysApply: false
+---
+
+# Dart & Flutter Standards
+
+## Style & Naming
+
+- Follow the official Dart style guide. Use `dart format` (enforced).
+- Classes, enums, typedefs: `PascalCase`. Variables, functions, parameters: `camelCase`.
+- Constants: `camelCase` (Dart convention, not UPPER_SNAKE).
+- Private members: prefix with `_`. Libraries: `snake_case`.
+- File names: `snake_case.dart` matching the primary class/content.
+
+## Null Safety
+
+- Dart is sound null-safe by default. Embrace it fully.
+- Use `?` only when null is a valid semantic value — not as a lazy default.
+- Prefer `late` over nullable for fields guaranteed to be initialized before access.
+- Use `??` (if-null) and `?.` (null-aware) operators to handle nullable values concisely.
+- Avoid `!` (null assertion) — handle the null case explicitly.
+
+## Patterns
+
+- Use enhanced enums with fields and methods for structured constants.
+- Use sealed classes (Dart 3) for exhaustive state modeling.
+- Use pattern matching (`switch` expressions, destructuring) for cleaner branching.
+- Use extension types for zero-cost type wrappers.
+- Prefer `final` variables by default — use `var` only when mutation is needed.
+
+```dart
+// ✅ Sealed class + pattern matching
+sealed class AuthState {}
+class Authenticated extends AuthState { final User user; ... }
+class Unauthenticated extends AuthState {}
+class Loading extends AuthState {}
+
+Widget build(BuildContext context) => switch (state) {
+  Authenticated(:final user) => HomeScreen(user: user),
+  Unauthenticated() => LoginScreen(),
+  Loading() => CircularProgressIndicator(),
+};
+```
+
+## Flutter Widgets
+
+- Extract widgets into separate classes — don't build deep `build()` methods.
+- Use `const` constructors wherever possible for widget reuse optimization.
+- Prefer `StatelessWidget` unless local mutable state is needed.
+- Use `Keys` correctly: `ValueKey` for data identity, `UniqueKey` for forced rebuilds.
+- Keep `build()` methods pure — no side effects.
+
+## State Management
+
+- Use Riverpod, Bloc, or Provider (pick one per project, stay consistent).
+- Separate business logic from UI. Never put logic in `build()`.
+- Use immutable state objects. Create new instances for state changes.
+- Handle loading, error, and data states explicitly (AsyncValue in Riverpod, etc.).
+
+## Async
+
+- Use `async/await` over raw `Future` chaining.
+- Use `Stream` for multiple async events. Prefer `StreamController` broadcast sparingly.
+- Always handle errors in Futures — unhandled errors crash the app.
+- Use `Completer` only when bridging callback-based APIs to Futures.
+
+## Testing
+
+- Use `flutter_test` for widget tests. `test` for pure Dart.
+- Use `mocktail` or `mockito` for mocking. Prefer fakes for simple cases.
+- Widget tests: `pumpWidget`, `pump`, `find`, `expect`. Test interaction flows.
+- Use golden tests for visual regression when UI precision matters.

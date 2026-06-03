@@ -1,0 +1,34 @@
+# Environment
+.env
+.env.local
+.env.*.local
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE
+.vscode/settings.json
+.idea/
+*.swp
+*.swo
+
+# Dependencies
+node_modules/
+__pycache__/
+*.pyc
+vendor/
+.venv/
+venv/
+
+# Build
+dist/
+build/
+out/
+*.o
+*.exe
+
+# Logs
+*.log
+npm-debug.log*

@@ -1,0 +1,122 @@
+---
+description: Spec-first implementation — code derived from specifications, conformance over creativity
+alwaysApply: true
+---
+
+# Spec-First Implementation
+
+## Spec-Driven Vertical Slices
+
+Build features as complete vertical slices, starting from the spec:
+
+```
+❌ Code-first (write code, spec later):    ✅ Spec-first (spec drives code):
+1. Write models                             1. Auth spec → conformance tests → model → service → API → UI
+2. Write services                           2. Users spec → conformance tests → model → service → API → UI
+3. Write controllers                        3. Orders spec → conformance tests → model → service → API → UI
+4. Write UI                                 4. Dashboard spec → conformance tests → model → service → API → UI
+5. Write tests
+6. Write docs
+```
+
+Each slice: **spec → conformance tests → implementation → validation**.
+
+## Implementation Order
+
+1. **Shared contracts**: error envelope, pagination, auth headers, shared schemas.
+2. **Conformance test harness**: set up spec validation tooling and test runners.
+3. **Authentication**: auth contract is usually a dependency for all other contracts.
+4. **Core entities**: implement data contracts as models, schemas, migrations.
+5. **Business logic**: implement behavior specs as services and use cases.
+6. **API layer**: implement API contracts as routes, controllers, middleware.
+7. **UI layer**: implement UI contracts as components, pages, state management.
+8. **Integration layer**: implement integration contracts as external service clients.
+
+## Spec-First Coding Patterns
+
+### Contract-to-Code Flow
+
+For each spec contract:
+
+1. **Read the spec**: understand the exact input/output contract.
+2. **Generate types**: derive TypeScript interfaces / Pydantic models / Go structs from the schema.
+3. **Write conformance tests**: tests that validate the implementation matches the spec.
+4. **Implement**: write the minimal code that passes conformance tests.
+5. **Validate**: run conformance tests. Green = done. Red = fix implementation, not the test.
+
+### Spec Gap Protocol
+
+When implementation reveals something the spec didn't cover:
+
+1. **Stop implementing**. Don't invent behavior not in the spec.
+2. **Document the gap**: what scenario is missing from the spec?
+3. **Update the spec**: add the missing contract/scenario.
+4. **Review the spec change**: get approval if needed.
+5. **Write conformance test**: for the new spec.
+6. **Resume implementation**: now implement the new behavior.
+
+### Error-First from Contracts
+
+- The error contract defines all possible error responses.
+- Implement error handling FIRST — the error envelope is a shared contract.
+- For every endpoint, implement error responses before success responses.
+- Every error code in the spec must be reachable and tested.
+
+## Code Generation from Specs
+
+Leverage specs to generate boilerplate:
+
+| Spec | Generated Code |
+|------|---------------|
+| OpenAPI | Route definitions, request/response types, API client SDK |
+| JSON Schema | TypeScript interfaces, validation functions, DB schema |
+| AsyncAPI | Event handlers, message types, pub/sub boilerplate |
+| Pact contracts | Integration test stubs, mock servers |
+| Gherkin features | E2E test skeletons, step definitions |
+
+Use code generation tools when available:
+- `openapi-generator` / `orval` / `swagger-codegen` for API types and clients.
+- `json-schema-to-typescript` / `quicktype` for data types.
+- `dredd` / `prism` for API contract testing.
+
+## Incremental Delivery
+
+### Conforming Software at Every Step
+
+- Every commit should leave the project in a **spec-conforming** state.
+- Use feature flags to merge incomplete features without exposing non-conforming endpoints.
+- Deploy to a staging environment frequently — validate conformance in realistic conditions.
+
+### Progressive Spec Implementation
+
+- Implement the core contracts first with minimal UI.
+- Add interactivity, animations, and polish incrementally.
+- Optimize only after conformance tests pass and profiling shows a real bottleneck.
+
+## Common Anti-Patterns
+
+- **Code Before Spec**: writing code then retro-fitting a spec to match. Spec first, always.
+- **Spec Ignorance**: implementing behavior not defined in any spec. If it's not spec'd, don't build it.
+- **Test-Last Conformance**: writing conformance tests after implementation. Tests come from specs, before code.
+- **Spec Drift**: implementation diverges from spec without updating the spec. Conformance tests catch this.
+- **Over-Implementation**: building more than the spec requires. The spec is the scope.
+- **Hardcoded Contracts**: embedding contract values in code instead of deriving from spec definitions.
+
+## Code Organization Within Features
+
+```
+features/users/
+  specs/                  # Feature-level specs (if not in top-level specs/)
+  __tests__/
+    conformance/          # Spec conformance tests
+    unit/                 # Unit tests for business logic
+    integration/          # Integration tests
+  components/             # UI components matching UI contracts
+  hooks/                  # Custom hooks for this feature
+  services/               # Business logic matching behavior specs
+  types.ts                # Types generated from data contracts
+  schema.ts               # Validation schemas derived from JSON Schema
+  routes.ts               # Routes derived from API contract
+  constants.ts            # Feature-specific constants
+  index.ts                # Public API of the feature module
+```

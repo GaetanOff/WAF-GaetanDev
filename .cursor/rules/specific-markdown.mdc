@@ -1,0 +1,67 @@
+---
+description: Markdown conventions for documentation and README files
+globs: "**/*.md"
+alwaysApply: true
+---
+
+# Markdown Standards
+
+## Style
+
+- Use descriptive, intention-revealing names. A reader should understand purpose without comments.
+- Booleans: prefix with `is`, `has`, `should`, `can` (e.g. `isVisible`, `hasPermission`).
+- Functions: use verb phrases (`fetchUser`, `calculateTotal`, `validateInput`).
+- Constants: `UPPER_SNAKE_CASE` for true compile-time constants only.
+- Avoid abbreviations, single-letter variables (except short lambdas/loops), and Hungarian notation.
+
+## Structure
+
+- Use a clear, logical structure.
+- Use headings to organize content.
+- Use lists to organize content.
+- Use code blocks to show code.
+- Use tables to show data.
+- Use images to show visuals.
+- Use links to show external content.
+- Use bold and italic to show emphasis.
+- Use strikethrough to show deleted content.
+- Use code to show code.
+- Use blockquotes to show quotes.
+
+## Formatting
+
+- Use 2 spaces for indentation.
+- Use 80 characters per line.
+- Use 1 line break between sections.
+- Use 1 line break between paragraphs.
+- Use 1 line break between lists.
+- Use 1 line break between code blocks.
+- Use 1 line break between blockquotes.
+- Use 1 line break between images.
+- Use 1 line break between links.
+
+## Links
+
+- Use relative links whenever possible.
+- Use external links with `[text](url)`.
+- Use internal links with `[text](path/to/file)`.
+- Use anchor links with `[text](#heading)`.
+- Use image links with `![alt text](path/to/image)`.
+- Use link text that describes the destination.
+- Use link text that is easy to understand.
+- Use link text that is easy to read.
+- Use link text that is easy to write.
+
+## Content
+
+- Use a clear, logical structure.
+- Use headings to organize content.
+- Use lists to organize content.
+- Use code blocks to show code.
+- Use tables to show data.
+- Use images to show visuals.
+- Use links to show external content.
+- Use bold and italic to show emphasis.
+- Use strikethrough to show deleted content.
+- Use code to show code.
+- Use blockquotes to show quotes.
