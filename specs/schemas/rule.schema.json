@@ -1,0 +1,203 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GaetanDev/WAF/schemas/rule.schema.json",
+  "title": "WAFRule",
+  "description": "Règle personnalisée du moteur de règles WAF — DSL YAML/JSON",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["name", "priority", "conditions", "actions"],
+  "properties": {
+    "name": {
+      "type": "string",
+      "description": "Identifiant unique de la règle (snake_case recommandé)",
+      "pattern": "^[a-z0-9_-]+$",
+      "maxLength": 64
+    },
+    "description": {
+      "type": "string",
+      "description": "Description humaine de la règle"
+    },
+    "priority": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 10000,
+      "description": "Ordre d'évaluation — plus petit = évalué en premier"
+    },
+    "enabled": {
+      "type": "boolean",
+      "default": true
+    },
+    "continue": {
+      "type": "boolean",
+      "default": false,
+      "description": "Si true, continuer l'évaluation des règles suivantes même après match"
+    },
+    "domains": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Domaines auxquels cette règle s'applique. Vide = tous les domaines",
+      "default": []
+    },
+    "conditions": {
+      "$ref": "#/definitions/ConditionGroup"
+    },
+    "actions": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "$ref": "#/definitions/Action"
+      }
+    }
+  },
+  "definitions": {
+    "ConditionGroup": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["operator", "items"],
+      "properties": {
+        "operator": {
+          "type": "string",
+          "enum": ["AND", "OR", "NOT"],
+          "description": "Opérateur logique entre les conditions du groupe"
+        },
+        "items": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "oneOf": [
+              { "$ref": "#/definitions/Condition" },
+              { "$ref": "#/definitions/ConditionGroup" }
+            ]
+          }
+        }
+      }
+    },
+    "Condition": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["field", "op"],
+      "properties": {
+        "field": {
+          "type": "string",
+          "enum": [
+            "ip",
+            "ip_cidr",
+            "user_agent",
+            "path",
+            "method",
+            "header",
+            "query_param",
+            "body_param",
+            "country",
+            "asn",
+            "asn_type",
+            "trust_score",
+            "behavioral_score",
+            "ja3_hash",
+            "request_size",
+            "content_type",
+            "hour_of_day",
+            "referer"
+          ],
+          "description": "Champ de la requête à évaluer"
+        },
+        "op": {
+          "type": "string",
+          "enum": [
+            "equals",
+            "not_equals",
+            "contains",
+            "not_contains",
+            "starts_with",
+            "ends_with",
+            "matches_regex",
+            "in_list",
+            "not_in_list",
+            "in_cidr",
+            "lt",
+            "lte",
+            "gt",
+            "gte",
+            "exists",
+            "not_exists",
+            "between"
+          ]
+        },
+        "value": {
+          "description": "Valeur de comparaison (string, number, array ou object selon l'op)"
+        },
+        "header_name": {
+          "type": "string",
+          "description": "Nom du header HTTP (requis si field=header)"
+        },
+        "param_name": {
+          "type": "string",
+          "description": "Nom du paramètre (requis si field=query_param ou body_param)"
+        },
+        "case_sensitive": {
+          "type": "boolean",
+          "default": false,
+          "description": "Comparaison sensible à la casse (s'applique à contains, equals, starts_with, etc.)"
+        }
+      }
+    },
+    "Action": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["type"],
+      "properties": {
+        "type": {
+          "type": "string",
+          "enum": [
+            "block",
+            "challenge",
+            "score_delta",
+            "rate_limit",
+            "redirect",
+            "add_header",
+            "remove_header",
+            "log",
+            "tarpit",
+            "allow"
+          ]
+        },
+        "params": {
+          "type": "object",
+          "description": "Paramètres spécifiques à l'action",
+          "properties": {
+            "status": {
+              "type": "integer",
+              "description": "Code HTTP (block: 403, redirect: 301/302)"
+            },
+            "message": {
+              "type": "string",
+              "description": "Message dans la réponse (block) ou log"
+            },
+            "value": {
+              "description": "Valeur delta pour score_delta (int), URL pour redirect, valeur header"
+            },
+            "header_name": {
+              "type": "string"
+            },
+            "level": {
+              "type": "string",
+              "enum": ["debug", "info", "warn", "error"],
+              "description": "Niveau de log (action log)"
+            },
+            "requests_per_second": {
+              "type": "number",
+              "description": "Limite req/s pour l'action rate_limit"
+            },
+            "burst": {
+              "type": "integer"
+            },
+            "delay_ms": {
+              "type": "integer",
+              "description": "Délai entre chunks pour le tarpit (ms)"
+            }
+          }
+        }
+      }
+    }
+  }
+}

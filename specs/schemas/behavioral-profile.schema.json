@@ -1,0 +1,103 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GaetanDev/WAF/schemas/behavioral-profile.schema.json",
+  "title": "BehavioralProfile",
+  "description": "Profil comportemental d'un visiteur calculé par le module d'analyse comportementale",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ip_hash", "domain", "anomaly_score", "computed_at"],
+  "properties": {
+    "ip_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$"
+    },
+    "domain": {
+      "type": "string"
+    },
+    "anomaly_score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Score d'anomalie comportementale (0=humain, 100=bot certain)"
+    },
+    "computed_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "signals": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Contribution de chaque signal au score d'anomalie",
+      "properties": {
+        "time_uniformity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Score basé sur l'uniformité des intervalles inter-requêtes"
+        },
+        "path_repetition": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "page_velocity": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100
+        },
+        "alpha_order": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Détection de navigation alphabétique (pattern crawler)"
+        },
+        "asset_absence": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 100,
+          "description": "Ratio requêtes HTML vs assets"
+        }
+      }
+    },
+    "stats": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "req_count": {
+          "type": "integer",
+          "description": "Nombre de requêtes analysées dans la fenêtre"
+        },
+        "unique_paths": {
+          "type": "integer"
+        },
+        "avg_interval_ms": {
+          "type": "number",
+          "description": "Intervalle moyen entre requêtes en ms"
+        },
+        "std_dev_interval_ms": {
+          "type": "number",
+          "description": "Écart-type des intervalles"
+        },
+        "paths_per_minute": {
+          "type": "number",
+          "description": "Vélocité de découverte de nouveaux paths"
+        },
+        "max_path_repeat": {
+          "type": "integer",
+          "description": "Nombre de répétitions du path le plus fréquent"
+        },
+        "asset_ratio": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Proportion des requêtes qui sont des assets (CSS/JS/img)"
+        }
+      }
+    },
+    "classified_as": {
+      "type": "string",
+      "enum": ["human", "likely_human", "suspicious", "likely_bot", "bot"],
+      "description": "Classification finale basée sur le score d'anomalie"
+    }
+  }
+}

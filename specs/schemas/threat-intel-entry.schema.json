@@ -1,0 +1,67 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GaetanDev/WAF/schemas/threat-intel-entry.schema.json",
+  "title": "ThreatIntelEntry",
+  "description": "Entrée de réputation IP issue d'une source de threat intelligence",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["ip", "source", "score", "fetched_at", "expires_at"],
+  "properties": {
+    "ip": {
+      "type": "string",
+      "description": "Adresse IP (IPv4 ou IPv6)"
+    },
+    "source": {
+      "type": "string",
+      "enum": ["abuseipdb", "tor_exit", "asn_hosting", "asn_vpn", "local_feed", "ja3_blacklist"],
+      "description": "Source du renseignement"
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Score de confiance source (0=propre, 100=très malveillant)"
+    },
+    "trust_delta": {
+      "type": "integer",
+      "minimum": -100,
+      "maximum": 0,
+      "description": "Delta appliqué au Trust Score WAF (négatif)"
+    },
+    "categories": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "enum": [
+          "DDoS", "Spam", "Port Scan", "SSH Brute Force", "Web Attack",
+          "Bot", "Tor Exit", "VPN", "Hosting", "Proxy", "Exploited Host"
+        ]
+      }
+    },
+    "asn": {
+      "type": ["string", "null"],
+      "description": "Numéro ASN (ex: AS16509)"
+    },
+    "asn_name": {
+      "type": ["string", "null"],
+      "description": "Nom de l'ASN (ex: AMAZON-02)"
+    },
+    "country_code": {
+      "type": ["string", "null"],
+      "pattern": "^[A-Z]{2}$"
+    },
+    "fetched_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "expires_at": {
+      "type": "string",
+      "format": "date-time",
+      "description": "TTL du cache pour cette entrée"
+    },
+    "raw": {
+      "type": ["object", "null"],
+      "description": "Réponse brute de la source (pour debugging)"
+    }
+  }
+}
