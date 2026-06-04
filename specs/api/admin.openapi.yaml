@@ -6,7 +6,7 @@ info:
     API d'administration du WAF Anti-DDoS/Anti-Bot.
     Exposée sur un port séparé (défaut: 9090), protégée par Bearer token.
     Ne jamais exposer ce port publiquement.
-  version: 1.0.0
+  version: 1.0.1
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -45,7 +45,7 @@ components:
       properties:
         ip:
           type: string
-          description: Adresse IP ou CIDR (ex: 1.2.3.4 ou 10.0.0.0/8)
+          description: "Adresse IP ou CIDR (ex: 1.2.3.4 ou 10.0.0.0/8)"
           examples:
             - "1.2.3.4"
             - "192.168.0.0/24"
@@ -205,11 +205,23 @@ components:
         type: string
       description: Filtrer par domaine
 
+  responses:
+    Unauthorized:
+      description: Token Bearer manquant ou invalide
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "unauthorized"
+            message: "Missing or invalid Bearer token"
+
 paths:
   /waf/health:
     get:
       operationId: getHealth
       summary: Health check
+      description: Retourne l'état de santé du WAF et sa version. Endpoint non authentifié, utilisé par les sondes de disponibilité.
       security: []
       tags: [System]
       responses:
@@ -235,6 +247,7 @@ paths:
     get:
       operationId: getStats
       summary: Statistiques globales du WAF
+      description: Retourne les compteurs agrégés du WAF (requêtes, blocages, challenges, visiteurs actifs par état).
       tags: [System]
       responses:
         "200":
@@ -250,6 +263,7 @@ paths:
     get:
       operationId: getConfig
       summary: Récupérer la configuration active
+      description: Retourne la configuration courante du WAF, secrets masqués par "***".
       tags: [Configuration]
       responses:
         "200":
@@ -265,6 +279,7 @@ paths:
     patch:
       operationId: updateConfig
       summary: Mettre à jour des paramètres de configuration (hot-reload)
+      description: Applique à chaud un sous-ensemble de paramètres de configuration sans redémarrer le WAF. Retourne la liste des champs modifiés.
       tags: [Configuration]
       requestBody:
         required: true
@@ -298,6 +313,7 @@ paths:
     get:
       operationId: getWhitelist
       summary: Lister les entrées de la whitelist
+      description: Retourne la liste paginée des IPs et CIDRs autorisés (bypass total des protections).
       tags: [Access Control]
       parameters:
         - $ref: "#/components/parameters/Page"
@@ -323,6 +339,7 @@ paths:
     post:
       operationId: addToWhitelist
       summary: Ajouter une IP ou CIDR en whitelist
+      description: Ajoute une IP ou un CIDR à la whitelist. L'entrée prend effet immédiatement (hot-reload).
       tags: [Access Control]
       requestBody:
         required: true
@@ -352,6 +369,7 @@ paths:
     delete:
       operationId: removeFromWhitelist
       summary: Supprimer une IP de la whitelist
+      description: Retire une IP ou un CIDR de la whitelist. La suppression prend effet immédiatement.
       tags: [Access Control]
       parameters:
         - $ref: "#/components/parameters/IP"
@@ -367,6 +385,7 @@ paths:
     get:
       operationId: getBlacklist
       summary: Lister les entrées de la blacklist
+      description: Retourne la liste paginée des IPs et CIDRs bloqués (réponse HTTP 403).
       tags: [Access Control]
       parameters:
         - $ref: "#/components/parameters/Page"
@@ -392,6 +411,7 @@ paths:
     post:
       operationId: addToBlacklist
       summary: Ajouter une IP ou CIDR en blacklist
+      description: Ajoute une IP ou un CIDR à la blacklist. Les requêtes correspondantes sont rejetées en HTTP 403 immédiatement.
       tags: [Access Control]
       requestBody:
         required: true
@@ -419,6 +439,7 @@ paths:
     delete:
       operationId: removeFromBlacklist
       summary: Supprimer une IP de la blacklist
+      description: Retire une IP ou un CIDR de la blacklist. La suppression prend effet immédiatement.
       tags: [Access Control]
       parameters:
         - $ref: "#/components/parameters/IP"
@@ -434,6 +455,7 @@ paths:
     get:
       operationId: listVisitors
       summary: Lister les visiteurs actifs avec leur score
+      description: Retourne la liste paginée des visiteurs suivis, filtrable par domaine et état, triable par score ou dernière activité.
       tags: [Visitors]
       parameters:
         - $ref: "#/components/parameters/Page"
@@ -472,6 +494,7 @@ paths:
     get:
       operationId: getVisitor
       summary: Détails d'un visiteur par hash IP
+      description: Retourne le score, l'état et les métadonnées d'un visiteur identifié par son hash IP.
       tags: [Visitors]
       parameters:
         - name: ip_hash
@@ -494,6 +517,7 @@ paths:
     delete:
       operationId: resetVisitor
       summary: Réinitialiser le score et l'état d'un visiteur
+      description: Réinitialise le score au score initial et efface l'état du visiteur identifié par son hash IP.
       tags: [Visitors]
       parameters:
         - name: ip_hash
@@ -513,6 +537,7 @@ paths:
     get:
       operationId: listEvents
       summary: Lister les événements de sécurité récents
+      description: Retourne les événements de sécurité récents (max 24h en mémoire), filtrables par domaine, action et date.
       tags: [Events]
       parameters:
         - $ref: "#/components/parameters/Page"
@@ -546,18 +571,6 @@ paths:
                     type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
-
-  components:
-    responses:
-      Unauthorized:
-        description: Token Bearer manquant ou invalide
-        content:
-          application/json:
-            schema:
-              $ref: "#/components/schemas/Error"
-            example:
-              error: "unauthorized"
-              message: "Missing or invalid Bearer token"
 
 tags:
   - name: System

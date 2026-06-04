@@ -58,8 +58,10 @@ func TestMiddlewareVerifySuccessIssuesCookieAndRedirect(t *testing.T) {
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d, want 200 body=%s", response.Code, response.Body.String())
 	}
-	if len(response.Result().Cookies()) != 1 {
-		t.Fatalf("expected one Set-Cookie, got %d", len(response.Result().Cookies()))
+	result := response.Result()
+	defer func() { _ = result.Body.Close() }()
+	if len(result.Cookies()) != 1 {
+		t.Fatalf("expected one Set-Cookie, got %d", len(result.Cookies()))
 	}
 	var payload verifyResponse
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {
