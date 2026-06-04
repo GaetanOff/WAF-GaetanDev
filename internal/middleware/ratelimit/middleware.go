@@ -1,8 +1,6 @@
 package ratelimit
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"net/http"
 	"strconv"
 	"time"
@@ -10,35 +8,28 @@ import (
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/storage"
+	"github.com/gaetandev/waf/internal/trust"
 )
 
 const (
 	defaultBucketTTL = time.Hour
-	rateLimitDelta   = -10
 )
 
 type Middleware struct {
-	store        storage.Store
-	rate         float64
-	capacity     float64
-	initialScore int
-	scoreTTL     time.Duration
-	now          func() time.Time
+	store    storage.Store
+	scores   *trust.ScoreManager
+	rate     float64
+	capacity float64
+	now      func() time.Time
 }
 
-func New(store storage.Store, cfg config.Config) (*Middleware, error) {
-	scoreTTL, err := time.ParseDuration(cfg.Trust.ScoreTTL)
-	if err != nil {
-		return nil, err
-	}
-
+func New(store storage.Store, scores *trust.ScoreManager, cfg config.Config) (*Middleware, error) {
 	return &Middleware{
-		store:        store,
-		rate:         cfg.RateLimit.RequestsPerSecond,
-		capacity:     float64(cfg.RateLimit.Burst),
-		initialScore: cfg.Trust.InitialScore,
-		scoreTTL:     scoreTTL,
-		now:          time.Now,
+		store:    store,
+		scores:   scores,
+		rate:     cfg.RateLimit.RequestsPerSecond,
+		capacity: float64(cfg.RateLimit.Burst),
+		now:      time.Now,
 	}, nil
 }
 
@@ -51,13 +42,19 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 
 		now := m.now()
 		ip := cloudflare.RealIP(r)
-		ipHash := hashIP(ip)
+		ipHash := trust.HashIP(ip)
 		bucket := m.loadBucket(ipHash, now)
 		allowed, retryAfter := bucket.TryConsume(now)
 		m.store.SetBucket(ipHash, toStorageBucket(bucket.Snapshot(now, defaultBucketTTL, ipHash)))
 
 		if !allowed {
-			m.applyScoreDelta(ipHash, r.Host, now)
+			visitor := m.scores.Apply(ip, r.Host, trust.DeltaRateLimit)
+			if m.scores.State(visitor.Score) == trust.StateBlocked {
+				w.Header().Set("X-WAF-Action", "BLOCK")
+				w.Header().Set("X-WAF-Reason", "score_below_block_threshold")
+				http.Error(w, "forbidden", http.StatusForbidden)
+				return
+			}
 			w.Header().Set("Retry-After", strconv.Itoa(maxInt(1, int(retryAfter.Seconds()))))
 			w.Header().Set("X-WAF-Action", "RATE_LIMIT")
 			w.Header().Set("X-WAF-Reason", "rate_limit_exceeded")
@@ -84,23 +81,6 @@ func (m *Middleware) loadBucket(ipHash string, now time.Time) *TokenBucket {
 	return NewTokenBucket(m.rate, m.capacity, now)
 }
 
-func (m *Middleware) applyScoreDelta(ipHash string, domain string, now time.Time) {
-	visitor, ok := m.store.GetVisitor(ipHash)
-	if !ok {
-		visitor = &storage.VisitorState{
-			IPHash:    ipHash,
-			Domain:    domain,
-			Score:     m.initialScore,
-			FirstSeen: now,
-		}
-	}
-	visitor.Score = clamp(visitor.Score+rateLimitDelta, 0, 100)
-	visitor.LastSeen = now
-	visitor.ExpiresAt = now.Add(m.scoreTTL)
-	visitor.ViolationCount++
-	m.store.SetVisitor(ipHash, *visitor)
-}
-
 func toStorageBucket(snapshot BucketSnapshot) storage.RateBucket {
 	return storage.RateBucket{
 		IPHash:     snapshot.IPHash,
@@ -110,21 +90,6 @@ func toStorageBucket(snapshot BucketSnapshot) storage.RateBucket {
 		Capacity:   snapshot.Capacity,
 		ExpiresAt:  snapshot.ExpiresAt,
 	}
-}
-
-func hashIP(ip string) string {
-	sum := sha256.Sum256([]byte(ip))
-	return hex.EncodeToString(sum[:])[:16]
-}
-
-func clamp(value int, minValue int, maxValue int) int {
-	if value < minValue {
-		return minValue
-	}
-	if value > maxValue {
-		return maxValue
-	}
-	return value
 }
 
 func maxInt(a int, b int) int {

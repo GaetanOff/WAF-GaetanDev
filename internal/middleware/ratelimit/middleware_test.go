@@ -8,13 +8,16 @@ import (
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/storage/memory"
+	"github.com/gaetandev/waf/internal/trust"
 )
 
 func TestMiddlewareAllowsConfiguredBurstAndThenRateLimits(t *testing.T) {
 	store := memory.New(100)
 	t.Cleanup(store.Close)
 
-	middleware := newTestMiddleware(t, store, 100, 100)
+	cfg := testConfig(100, 100)
+	cfg.Trust.BlockThreshold = -1
+	middleware := newTestMiddlewareFromConfig(t, store, cfg)
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	middleware.now = func() time.Time { return now }
 
@@ -63,7 +66,7 @@ func TestMiddlewareSetsRetryAfterAndDecrementsScore(t *testing.T) {
 	if response.Header().Get("Retry-After") == "" {
 		t.Fatal("Retry-After header is missing")
 	}
-	visitor, ok := store.GetVisitor(hashIP("5.5.5.5"))
+	visitor, ok := store.GetVisitor(trust.HashIP("5.5.5.5"))
 	if !ok {
 		t.Fatal("expected visitor score to be stored")
 	}
@@ -93,6 +96,32 @@ func TestMiddlewareRecoversAfterRefill(t *testing.T) {
 	}
 }
 
+func TestMiddlewareBlocksWhenRateLimitDropsScoreBelowThreshold(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+
+	middleware := newTestMiddleware(t, store, 1, 1)
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	manager, err := trust.NewScoreManager(store, testConfig(1, 1))
+	if err != nil {
+		t.Fatalf("trust.NewScoreManager() error = %v", err)
+	}
+	manager.Set("12.12.12.12", "example.test", 12)
+	handler := middleware.Handler(countingHandler())
+
+	handler.ServeHTTP(httptest.NewRecorder(), requestFrom("12.12.12.12:1234"))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestFrom("12.12.12.12:1234"))
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", response.Code)
+	}
+	if got := response.Header().Get("X-WAF-Reason"); got != "score_below_block_threshold" {
+		t.Fatalf("X-WAF-Reason = %q, want score_below_block_threshold", got)
+	}
+}
+
 func TestMiddlewareSkipsWhitelistedRequests(t *testing.T) {
 	store := memory.New(100)
 	t.Cleanup(store.Close)
@@ -116,6 +145,24 @@ func TestMiddlewareSkipsWhitelistedRequests(t *testing.T) {
 func newTestMiddleware(t *testing.T, store *memory.Store, rate float64, burst int) *Middleware {
 	t.Helper()
 
+	return newTestMiddlewareFromConfig(t, store, testConfig(rate, burst))
+}
+
+func newTestMiddlewareFromConfig(t *testing.T, store *memory.Store, cfg config.Config) *Middleware {
+	t.Helper()
+
+	scoreManager, err := trust.NewScoreManager(store, cfg)
+	if err != nil {
+		t.Fatalf("trust.NewScoreManager() error = %v", err)
+	}
+	middleware, err := New(store, scoreManager, cfg)
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	return middleware
+}
+
+func testConfig(rate float64, burst int) config.Config {
 	cfg := config.Default()
 	cfg.Version = "1.0"
 	cfg.Server.Listen = ":0"
@@ -124,12 +171,7 @@ func newTestMiddleware(t *testing.T, store *memory.Store, rate float64, burst in
 	cfg.Admin.Enabled = false
 	cfg.RateLimit.RequestsPerSecond = rate
 	cfg.RateLimit.Burst = burst
-
-	middleware, err := New(store, cfg)
-	if err != nil {
-		t.Fatalf("New() error = %v", err)
-	}
-	return middleware
+	return cfg
 }
 
 func requestFrom(remoteAddr string) *http.Request {

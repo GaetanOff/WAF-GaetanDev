@@ -39,6 +39,10 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 1.6 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 1.6 | `go build -o waf ./cmd/waf` | pass | Rate limit middleware wired before proxy and after whitelist/blacklist |
 | 2026-06-04 | Slice 1.6 | Runtime rate limit request | pass | `burst=1`: first request 200, second request 429 with `Retry-After=1` |
+| 2026-06-04 | Slice 2.1 | `go test ./...` | pass | Includes score init, state transitions, delta clamp, TTL reset, trust middleware block/challenge markers |
+| 2026-06-04 | Slice 2.1 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 2.1 | `go build -o waf ./cmd/waf` | pass | TrustScore middleware wired after rate limit and before proxy |
+| 2026-06-04 | Slice 2.1 | Runtime low-score rate-limit request | pass | `initial_score=12`: first request 200, second request 403 reason `score_below_block_threshold` |
 
 ## Quality Gates Checklist
 

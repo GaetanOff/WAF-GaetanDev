@@ -71,9 +71,10 @@ last-updated: 2026-06-04
 ## Sprint 2 — Intelligence (Phase 2)
 
 ### T2.1 — Score de confiance
-- [ ] `trust.ScoreManager` : Get/Set/Apply delta, State(), TTL expiry
-- [ ] Middleware TrustScore : lit état → PASS / CHALLENGE / BLOCK
-- [ ] Tests : transitions d'état, TTL expiry, clamp [0,100]
+- [x] `trust.ScoreManager` : Get/Set/Apply delta, State(), TTL expiry
+- [x] Middleware TrustScore : lit état → PASS / CHALLENGE / BLOCK
+- [x] Tests : transitions d'état, TTL expiry, clamp [0,100]
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. Runtime score initial 12 + rate limit → 403 `score_below_block_threshold`.
 - **Spec** : requirements FR-05, features/trust-score.feature
 
 ### T2.2 — Anti-Bot rules
