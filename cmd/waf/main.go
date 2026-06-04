@@ -11,11 +11,12 @@ import (
 	"os/signal"
 	"syscall"
 	"time"
+
+	"github.com/gaetandev/waf/internal/config"
 )
 
 const (
-	defaultListenAddress = ":8080"
-	shutdownTimeout      = 15 * time.Second
+	defaultConfigPath = "configs/config.example.yaml"
 )
 
 func main() {
@@ -26,16 +27,42 @@ func main() {
 }
 
 func run() error {
-	listenAddress := flag.String("listen", defaultListenAddress, "public HTTP listen address")
+	configPath := flag.String("config", defaultConfigPath, "config YAML path")
+	listenAddress := flag.String("listen", "", "override public HTTP listen address")
 	flag.Parse()
 
+	cfg, err := config.Load(*configPath)
+	if err != nil {
+		return err
+	}
+	if *listenAddress != "" {
+		cfg.Server.Listen = *listenAddress
+	}
+
+	readTimeout, err := parseDuration("server.read_timeout", cfg.Server.ReadTimeout)
+	if err != nil {
+		return err
+	}
+	writeTimeout, err := parseDuration("server.write_timeout", cfg.Server.WriteTimeout)
+	if err != nil {
+		return err
+	}
+	idleTimeout, err := parseDuration("server.idle_timeout", cfg.Server.IdleTimeout)
+	if err != nil {
+		return err
+	}
+	shutdownTimeout, err := parseDuration("server.graceful_shutdown_timeout", cfg.Server.GracefulShutdownTimeout)
+	if err != nil {
+		return err
+	}
+
 	server := &http.Server{
-		Addr:              *listenAddress,
+		Addr:              cfg.Server.Listen,
 		Handler:           routes(),
 		ReadHeaderTimeout: 10 * time.Second,
-		ReadTimeout:       30 * time.Second,
-		WriteTimeout:      30 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout,
+		IdleTimeout:       idleTimeout,
 	}
 
 	errs := make(chan error, 1)
@@ -79,4 +106,13 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(http.StatusOK)
 	_, _ = w.Write([]byte(`{"status":"ok"}`))
+}
+
+func parseDuration(field string, value string) (time.Duration, error) {
+	duration, err := time.ParseDuration(value)
+	if err != nil {
+		return 0, fmt.Errorf("%s must be a valid Go duration: %w", field, err)
+	}
+
+	return duration, nil
 }

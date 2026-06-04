@@ -17,6 +17,11 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 1.1 | `go build -o waf ./cmd/waf` | pass | Build artifact ignored by `.gitignore` |
 | 2026-06-04 | Slice 1.1 | `go build -o waf.exe ./cmd/waf` + `/waf/health` | pass | Local health response: `{"status":"ok"}` |
 | 2026-06-04 | Slice 1.1 | `make build` / `make test` | not run | `make` is not available in local PATH |
+| 2026-06-04 | Slice 1.2 | `go mod tidy` | pass | Added `gopkg.in/yaml.v3` checksum |
+| 2026-06-04 | Slice 1.2 | `go test ./...` | pass | Includes config loader, validation, env overrides, unknown field rejection |
+| 2026-06-04 | Slice 1.2 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 1.2 | `go build -o waf ./cmd/waf` | pass | Config validation wired at startup |
+| 2026-06-04 | Slice 1.2 | `waf.exe -config configs/config.example.yaml -listen 127.0.0.1:18081` + `/waf/health` | pass | Secrets supplied through env vars |
 
 ## Quality Gates Checklist
 

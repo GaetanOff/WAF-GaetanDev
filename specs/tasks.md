@@ -19,12 +19,13 @@ last-updated: 2026-06-04
 - **Spec** : architecture.md
 
 ### T1.2 — Config loader + validation
-- [ ] Définir la struct `Config` (cf. config.schema.json)
-- [ ] `config.Load(path)` : YAML → struct
-- [ ] `config.Validate()` : erreurs explicites par champ
-- [ ] Overrides env vars (`WAF_CHALLENGE_SECRET_KEY`, `WAF_ADMIN_TOKEN`)
-- [ ] Tests unitaires : config valide, config manquante, champs invalides
+- [x] Définir la struct `Config` (cf. config.schema.json)
+- [x] `config.Load(path)` : YAML → struct
+- [x] `config.Validate()` : erreurs explicites par champ
+- [x] Overrides env vars (`WAF_CHALLENGE_SECRET_KEY`, `WAF_ADMIN_TOKEN`)
+- [x] Tests unitaires : config valide, config manquante, champs invalides
 - **Acceptance** : erreur claire si `challenge.secret_key` absent et env var non défini
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. Healthcheck OK avec config exemple et secrets via env.
 - **Spec** : schemas/config.schema.json
 
 ### T1.3 — Reverse proxy + routing domaine
