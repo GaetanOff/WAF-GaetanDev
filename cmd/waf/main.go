@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/proxy"
 )
 
@@ -64,7 +65,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
-		Handler:           routes(proxyHandler),
+		Handler:           routes(*cfg, proxyHandler),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
@@ -102,9 +103,12 @@ func run() error {
 	return <-errs
 }
 
-func routes(proxyHandler http.Handler) http.Handler {
+func routes(cfg config.Config, proxyHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/waf/health", healthHandler)
+	if cfg.Cloudflare.Trusted {
+		proxyHandler = cloudflare.Middleware(proxyHandler)
+	}
 	mux.Handle("/", proxyHandler)
 	return mux
 }

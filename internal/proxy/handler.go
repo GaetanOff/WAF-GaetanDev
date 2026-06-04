@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 )
 
 const defaultWAFScore = "50"
@@ -132,6 +133,10 @@ func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout 
 }
 
 func realIP(r *http.Request) string {
+	if ip := cloudflare.RealIP(r); ip != "" {
+		return ip
+	}
+
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err == nil {
 		return host

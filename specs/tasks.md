@@ -39,11 +39,12 @@ last-updated: 2026-06-04
 - **Spec** : requirements FR-01
 
 ### T1.4 — Middleware Cloudflare IP
-- [ ] Embed statique des plages IPv4/IPv6 Cloudflare (cf. https://www.cloudflare.com/ips-v4)
-- [ ] Extraction `CF-Connecting-IP` si source ∈ ranges CF
-- [ ] Rejet 400 si tentative de forge depuis IP non-CF
-- [ ] Tests : IP CF valide, IP non-CF avec header CF, IP non-CF sans header
+- [x] Embed statique des plages IPv4/IPv6 Cloudflare (cf. https://www.cloudflare.com/ips-v4)
+- [x] Extraction `CF-Connecting-IP` si source ∈ ranges CF
+- [x] Rejet 400 si tentative de forge depuis IP non-CF
+- [x] Tests : IP CF valide, IP non-CF avec header CF, IP non-CF sans header
 - **Acceptance** : `CF-Connecting-IP` utilisé comme IP réelle uniquement si source est Cloudflare
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. Runtime forge `CF-Connecting-IP` depuis localhost → 400.
 - **Spec** : requirements FR-02
 
 ### T1.5 — Store in-memory + Whitelist/Blacklist

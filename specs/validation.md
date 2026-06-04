@@ -26,6 +26,11 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 1.3 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 1.3 | `go build -o waf ./cmd/waf` | pass | Reverse proxy wired into main router |
 | 2026-06-04 | Slice 1.3 | Runtime local proxy request | pass | Upstream received `X-Forwarded-For=127.0.0.1`, `X-Real-IP=127.0.0.1`, `X-WAF-Score=50` |
+| 2026-06-04 | Slice 1.4 | Cloudflare IP range verification | pass | Ranges checked against official `https://www.cloudflare.com/ips-v4` and `https://www.cloudflare.com/ips-v6` |
+| 2026-06-04 | Slice 1.4 | `go test ./...` | pass | Includes CF source extraction, forged header rejection, no-header fallback, IPv6 range coverage |
+| 2026-06-04 | Slice 1.4 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 1.4 | `go build -o waf ./cmd/waf` | pass | Cloudflare middleware wired before proxy when `cloudflare.trusted=true` |
+| 2026-06-04 | Slice 1.4 | Runtime forged `CF-Connecting-IP` request | pass | Local non-CF source returned HTTP 400 |
 
 ## Quality Gates Checklist
 
