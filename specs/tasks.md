@@ -169,8 +169,10 @@ last-updated: 2026-06-04
 ## Sprint 5 — Production (Phase 5)
 
 ### T5.1 — Tests de conformance Gherkin
-- [ ] Tests couvrant tous les scénarios de `specs/features/*.feature`
-- [ ] Coverage ≥ 80% sur packages `trust`, `middleware/challenge`, `middleware/ratelimit`
+- [x] Tests couvrant tous les scénarios de `specs/features/*.feature`
+- [x] Coverage ≥ 80% sur packages `trust`, `middleware/challenge`, `middleware/ratelimit`
+- **Acceptance** : `go test ./...` vert, coverage ≥ 80% sur les 3 packages cibles
+- **Validation 2026-06-04** : conformance_test.go dérivé de js-challenge.feature. Coverage `trust` 88.9%, `challenge` 86.7% (75.4% → 86.7%), `ratelimit` 93.9%. `go test ./...` et `go vet ./...` passent.
 - **Spec** : core-quality-gates.mdc, global-testing.mdc
 
 ### T5.2 — CI GitHub Actions

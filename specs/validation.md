@@ -74,6 +74,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 4.3 | `go test ./...` | pass | Includes admin Bearer auth, blacklist CRUD, whitelist CRUD, visitors, stats, and config secret masking |
 | 2026-06-04 | Slice 4.3 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 4.3 | `go build -o waf ./cmd/waf` | pass | Separate admin server wired on `server.admin_listen` |
+| 2026-06-04 | Slice 5.1 | `go test ./...` | pass | Conformance suite derived from js-challenge.feature added (real template branding/timer, no external resources, forged/expired cookie, malformed/forged submission, NewMiddleware errors) |
+| 2026-06-04 | Slice 5.1 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 5.1 | `go test -cover` (target packages) | pass | `trust` 88.9%, `middleware/challenge` 86.7% (up from 75.4%), `middleware/ratelimit` 93.9% — all ≥ 80% |
 
 ## Quality Gates Checklist
 
