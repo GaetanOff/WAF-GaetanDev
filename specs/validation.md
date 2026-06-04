@@ -8,6 +8,16 @@ last-reviewed: 2026-06-03
 
 > Ce fichier est mis à jour à chaque gate check avant merge/release.
 
+## Gate Check Log
+
+| Date | Scope | Command | Status | Notes |
+|------|-------|---------|--------|-------|
+| 2026-06-04 | Slice 1.1 | `go test ./...` | pass | `cmd/waf` has no test files yet |
+| 2026-06-04 | Slice 1.1 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 1.1 | `go build -o waf ./cmd/waf` | pass | Build artifact ignored by `.gitignore` |
+| 2026-06-04 | Slice 1.1 | `go build -o waf.exe ./cmd/waf` + `/waf/health` | pass | Local health response: `{"status":"ok"}` |
+| 2026-06-04 | Slice 1.1 | `make build` / `make test` | not run | `make` is not available in local PATH |
+
 ## Quality Gates Checklist
 
 ### G1 — Spec Lint

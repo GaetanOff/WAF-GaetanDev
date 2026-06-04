@@ -28,6 +28,8 @@ build/
 out/
 *.o
 *.exe
+/waf
+coverage.out
 
 # Logs
 *.log

@@ -1,7 +1,7 @@
 ---
 status: draft
 sprint: 1
-last-updated: 2026-06-03
+last-updated: 2026-06-04
 ---
 
 # Tasks — WAF Anti-DDoS / Anti-Bot
@@ -9,12 +9,13 @@ last-updated: 2026-06-03
 ## Sprint 1 — Fondations (Phase 1)
 
 ### T1.1 — Bootstrap projet Go
-- [ ] `go mod init github.com/gaetandev/waf`
-- [ ] Créer la structure de dossiers complète (cf. architecture.md)
-- [ ] `Makefile` : `build`, `test`, `lint`, `run`, `docker-build`
-- [ ] `cmd/waf/main.go` : bootstrap + SIGTERM graceful shutdown
-- [ ] `.gitignore` Go standard
+- [x] `go mod init github.com/gaetandev/waf`
+- [x] Créer la structure de dossiers complète (cf. architecture.md)
+- [x] `Makefile` : `build`, `test`, `lint`, `run`, `docker-build`
+- [x] `cmd/waf/main.go` : bootstrap + SIGTERM graceful shutdown
+- [x] `.gitignore` Go standard
 - **Acceptance** : `make build` produit un binaire, `make test` passe
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. `make` non disponible localement.
 - **Spec** : architecture.md
 
 ### T1.2 — Config loader + validation
