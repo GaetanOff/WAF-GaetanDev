@@ -49,6 +49,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 2.3 | `go test ./...` | pass | Includes HMAC sign/verify, signed cookie issue/validate, expiry, forged HMAC, IP/domain mismatch |
 | 2026-06-04 | Slice 2.3 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 2.3 | `go build -o waf ./cmd/waf` | pass | Signing and cookie packages compile into the WAF binary |
+| 2026-06-04 | Slice 2.4 | `go test ./...` | pass | Includes HMAC token generation/validation, TTL expiry, IP/domain mismatch, and PoW known vectors |
+| 2026-06-04 | Slice 2.4 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 2.4 | `go build -o waf ./cmd/waf` | pass | Challenge token and PoW packages compile into the WAF binary |
 
 ## Quality Gates Checklist
 

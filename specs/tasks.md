@@ -95,10 +95,11 @@ last-updated: 2026-06-04
 - **Spec** : requirements FR-06, architecture.md (Cookie structure)
 
 ### T2.4 — Challenge token + PoW validation
-- [ ] `nonce.Generate(ip, domain, key) string` : HMAC signé + TTL 30s
-- [ ] `nonce.Validate(token, ip, domain, key) error`
-- [ ] `pow.Validate(token, nonce string, difficultyBits int) bool`
-- [ ] Tests vecteurs PoW : nonce connu + hash attendu
+- [x] `nonce.Generate(ip, domain, key) string` : HMAC signé + TTL 30s
+- [x] `nonce.Validate(token, ip, domain, key) error`
+- [x] `pow.Validate(token, nonce string, difficultyBits int) bool`
+- [x] Tests vecteurs PoW : nonce connu + hash attendu
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent.
 - **Spec** : requirements FR-06, ADR-003
 
 ### T2.5 — Page challenge + /waf/verify
