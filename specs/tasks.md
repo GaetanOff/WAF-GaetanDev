@@ -48,13 +48,14 @@ last-updated: 2026-06-04
 - **Spec** : requirements FR-02
 
 ### T1.5 — Store in-memory + Whitelist/Blacklist
-- [ ] `storage.Store` interface : `GetVisitor`, `SetVisitor`, `DeleteVisitor`, `GetBucket`, `SetBucket`
-- [ ] `memory.Store` : `sync.Map` + goroutine nettoyage TTL (tick toutes les 60s)
-- [ ] LRU eviction si `max_visitors` atteint
-- [ ] `WhitelistMiddleware` : IP exact + CIDR + user-agent regex
-- [ ] `BlacklistMiddleware` : IP exact + CIDR → HTTP 403
-- [ ] Tests unitaires : matching CIDR, eviction LRU, TTL expiry
+- [x] `storage.Store` interface : `GetVisitor`, `SetVisitor`, `DeleteVisitor`, `GetBucket`, `SetBucket`
+- [x] `memory.Store` : `sync.Map` + goroutine nettoyage TTL (tick toutes les 60s)
+- [x] LRU eviction si `max_visitors` atteint
+- [x] `WhitelistMiddleware` : IP exact + CIDR + user-agent regex
+- [x] `BlacklistMiddleware` : IP exact + CIDR → HTTP 403
+- [x] Tests unitaires : matching CIDR, eviction LRU, TTL expiry
 - **Acceptance** : IP en whitelist passe sans middleware, IP en blacklist → 403
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. Runtime blacklist locale `127.0.0.1` → 403.
 - **Spec** : requirements FR-04, features/whitelist-blacklist.feature
 
 ### T1.6 — Rate Limiting Token Bucket

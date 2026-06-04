@@ -31,6 +31,10 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 1.4 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 1.4 | `go build -o waf ./cmd/waf` | pass | Cloudflare middleware wired before proxy when `cloudflare.trusted=true` |
 | 2026-06-04 | Slice 1.4 | Runtime forged `CF-Connecting-IP` request | pass | Local non-CF source returned HTTP 400 |
+| 2026-06-04 | Slice 1.5 | `go test ./...` | pass | Includes memory store TTL/LRU, IP exact/CIDR lists, UA regex, whitelist priority, hot rule update |
+| 2026-06-04 | Slice 1.5 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 1.5 | `go build -o waf ./cmd/waf` | pass | Access middleware wired after Cloudflare extraction and before proxy |
+| 2026-06-04 | Slice 1.5 | Runtime blacklist request | pass | Local `127.0.0.1` blacklist returned HTTP 403 |
 
 ## Quality Gates Checklist
 
