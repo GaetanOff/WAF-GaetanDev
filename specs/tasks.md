@@ -78,10 +78,11 @@ last-updated: 2026-06-04
 - **Spec** : requirements FR-05, features/trust-score.feature
 
 ### T2.2 — Anti-Bot rules
-- [ ] `antibot.Rules` : patterns headless UA, headers manquants, honeypot paths
-- [ ] Middleware AntiBot : applique les deltas de score
-- [ ] Honeypot : score = 0 + HTTP 403 + log HONEYPOT
-- [ ] Tests : HeadlessChrome -30, python-requests -15, Googlebot → pass
+- [x] `antibot.Rules` : patterns headless UA, headers manquants, honeypot paths
+- [x] Middleware AntiBot : applique les deltas de score
+- [x] Honeypot : score = 0 + HTTP 403 + log HONEYPOT
+- [x] Tests : HeadlessChrome -30, python-requests -15, Googlebot → pass
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. WebGL headless reste couvert par T2.6 Fingerprint.
 - **Spec** : requirements FR-07, features/anti-bot.feature
 
 ### T2.3 — HMAC Signing + Cookie

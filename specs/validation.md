@@ -43,6 +43,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 2.1 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 2.1 | `go build -o waf ./cmd/waf` | pass | TrustScore middleware wired after rate limit and before proxy |
 | 2026-06-04 | Slice 2.1 | Runtime low-score rate-limit request | pass | `initial_score=12`: first request 200, second request 403 reason `score_below_block_threshold` |
+| 2026-06-04 | Slice 2.2 | `go test ./...` | pass | Includes HeadlessChrome -30, python-requests -15, missing UA, missing headers, honeypot 403, Selenium block, whitelist bypass |
+| 2026-06-04 | Slice 2.2 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 2.2 | `go build -o waf ./cmd/waf` | pass | AntiBot middleware wired after rate limit and before TrustScore |
 
 ## Quality Gates Checklist
 

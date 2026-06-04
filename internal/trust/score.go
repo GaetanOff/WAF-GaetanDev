@@ -131,13 +131,19 @@ func (m *ScoreManager) Middleware(next http.Handler) http.Handler {
 
 		if state == StateBlocked {
 			w.Header().Set("X-WAF-Action", "BLOCK")
-			w.Header().Set("X-WAF-Reason", "score_below_block_threshold")
+			if r.Header.Get("X-WAF-Reason") == "" {
+				w.Header().Set("X-WAF-Reason", "score_below_block_threshold")
+			} else {
+				w.Header().Set("X-WAF-Reason", r.Header.Get("X-WAF-Reason"))
+			}
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		if state == StateChallenged {
 			r.Header.Set("X-WAF-Action", "CHALLENGE")
-			r.Header.Set("X-WAF-Reason", "score_below_challenge_threshold")
+			if r.Header.Get("X-WAF-Reason") == "" {
+				r.Header.Set("X-WAF-Reason", "score_below_challenge_threshold")
+			}
 		}
 
 		next.ServeHTTP(w, r)
