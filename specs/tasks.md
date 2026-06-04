@@ -86,11 +86,12 @@ last-updated: 2026-06-04
 - **Spec** : requirements FR-07, features/anti-bot.feature
 
 ### T2.3 — HMAC Signing + Cookie
-- [ ] `signing.Sign(key, payload) string` (HMAC-SHA256 base64url)
-- [ ] `signing.Verify(key, payload, sig) bool`
-- [ ] `cookie.Issue(ip, domain, fpHash, score, ttl) http.Cookie`
-- [ ] `cookie.Validate(cookieValue, ip, domain, key) (*Payload, error)`
-- [ ] Tests : cookie valide, TTL expiré, HMAC forgé, IP mismatch
+- [x] `signing.Sign(key, payload) string` (HMAC-SHA256 base64url)
+- [x] `signing.Verify(key, payload, sig) bool`
+- [x] `cookie.Issue(ip, domain, fpHash, score, ttl) http.Cookie`
+- [x] `cookie.Validate(cookieValue, ip, domain, key) (*Payload, error)`
+- [x] Tests : cookie valide, TTL expiré, HMAC forgé, IP mismatch
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent.
 - **Spec** : requirements FR-06, architecture.md (Cookie structure)
 
 ### T2.4 — Challenge token + PoW validation

@@ -46,6 +46,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 2.2 | `go test ./...` | pass | Includes HeadlessChrome -30, python-requests -15, missing UA, missing headers, honeypot 403, Selenium block, whitelist bypass |
 | 2026-06-04 | Slice 2.2 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 2.2 | `go build -o waf ./cmd/waf` | pass | AntiBot middleware wired after rate limit and before TrustScore |
+| 2026-06-04 | Slice 2.3 | `go test ./...` | pass | Includes HMAC sign/verify, signed cookie issue/validate, expiry, forged HMAC, IP/domain mismatch |
+| 2026-06-04 | Slice 2.3 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 2.3 | `go build -o waf ./cmd/waf` | pass | Signing and cookie packages compile into the WAF binary |
 
 ## Quality Gates Checklist
 
