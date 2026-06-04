@@ -71,6 +71,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 4.2 | `go test ./...` | pass | Includes Prometheus counters, histogram buckets, active visitor gauges, visitor-state gauges, and `/waf/metrics` handler |
 | 2026-06-04 | Slice 4.2 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 4.2 | `go build -o waf ./cmd/waf` | pass | Prometheus metrics middleware and endpoint wired into the public server |
+| 2026-06-04 | Slice 4.3 | `go test ./...` | pass | Includes admin Bearer auth, blacklist CRUD, whitelist CRUD, visitors, stats, and config secret masking |
+| 2026-06-04 | Slice 4.3 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 4.3 | `go build -o waf ./cmd/waf` | pass | Separate admin server wired on `server.admin_listen` |
 
 ## Quality Gates Checklist
 

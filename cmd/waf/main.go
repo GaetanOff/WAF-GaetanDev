@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gaetandev/waf/internal/admin"
 	"github.com/gaetandev/waf/internal/config"
 	waflogger "github.com/gaetandev/waf/internal/logger"
 	wafmetrics "github.com/gaetandev/waf/internal/metrics"
@@ -38,6 +39,7 @@ func main() {
 }
 
 func run() error {
+	startedAt := time.Now()
 	configPath := flag.String("config", defaultConfigPath, "config YAML path")
 	listenAddress := flag.String("listen", "", "override public HTTP listen address")
 	flag.Parse()
@@ -105,6 +107,13 @@ func run() error {
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 	}
+	var adminServer *admin.Server
+	if cfg.Admin.Enabled {
+		adminServer, err = admin.NewServer(*cfg, store, scoreManager, accessRules, startedAt)
+		if err != nil {
+			return err
+		}
+	}
 
 	errs := make(chan error, 1)
 	go func() {
@@ -115,6 +124,14 @@ func run() error {
 		}
 		errs <- nil
 	}()
+	if adminServer != nil {
+		go func() {
+			slog.Info("starting admin api", "listen", cfg.Server.AdminListen)
+			if err := adminServer.ListenAndServe(); err != nil {
+				errs <- err
+			}
+		}()
+	}
 
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
@@ -132,6 +149,11 @@ func run() error {
 
 	if err := server.Shutdown(ctx); err != nil {
 		return fmt.Errorf("shutdown server: %w", err)
+	}
+	if adminServer != nil {
+		if err := adminServer.Shutdown(ctx); err != nil {
+			return fmt.Errorf("shutdown admin server: %w", err)
+		}
 	}
 
 	return <-errs

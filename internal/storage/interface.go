@@ -32,6 +32,7 @@ type Store interface {
 	GetVisitor(key string) (*VisitorState, bool)
 	SetVisitor(key string, visitor VisitorState)
 	DeleteVisitor(key string)
+	ListVisitors() []VisitorState
 	GetBucket(key string) (*RateBucket, bool)
 	SetBucket(key string, bucket RateBucket)
 	Close()

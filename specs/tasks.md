@@ -158,9 +158,10 @@ last-updated: 2026-06-04
 - **Spec** : requirements FR-09
 
 ### T4.3 — API Admin complète
-- [ ] Serveur HTTP séparé `:9090` avec auth Bearer
-- [ ] Tous les endpoints de `specs/api/admin.openapi.yaml`
-- [ ] Tests : auth invalide → 401, opérations CRUD whitelist/blacklist
+- [x] Serveur HTTP séparé `:9090` avec auth Bearer
+- [x] Tous les endpoints de `specs/api/admin.openapi.yaml`
+- [x] Tests : auth invalide → 401, opérations CRUD whitelist/blacklist
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. API admin branchée sur `server.admin_listen`, auth Bearer, config masquée, stats/visiteurs/events, CRUD whitelist/blacklist avec hot update `RuleSet`.
 - **Spec** : requirements FR-10, api/admin.openapi.yaml
 
 ---

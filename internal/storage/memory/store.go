@@ -82,6 +82,29 @@ func (s *Store) DeleteVisitor(key string) {
 	s.deleteVisitorLocked(key)
 }
 
+func (s *Store) ListVisitors() []storage.VisitorState {
+	now := s.now()
+	visitors := make([]storage.VisitorState, 0)
+	s.visitors.Range(func(key, value any) bool {
+		keyString, ok := key.(string)
+		if !ok {
+			return true
+		}
+		visitor, ok := value.(storage.VisitorState)
+		if !ok {
+			s.visitors.Delete(keyString)
+			return true
+		}
+		if isExpired(now, visitor.ExpiresAt) {
+			s.DeleteVisitor(keyString)
+			return true
+		}
+		visitors = append(visitors, *cloneVisitor(visitor))
+		return true
+	})
+	return visitors
+}
+
 func (s *Store) GetBucket(key string) (*storage.RateBucket, bool) {
 	value, ok := s.buckets.Load(key)
 	if !ok {

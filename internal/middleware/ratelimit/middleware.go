@@ -45,7 +45,9 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		ipHash := trust.HashIP(ip)
 		bucket := m.loadBucket(ipHash, now)
 		allowed, retryAfter := bucket.TryConsume(now)
-		m.store.SetBucket(ipHash, toStorageBucket(bucket.Snapshot(now, defaultBucketTTL, ipHash)))
+		snapshot := bucket.Snapshot(now, defaultBucketTTL, ipHash)
+		snapshot.ExpiresAt = time.Now().Add(defaultBucketTTL)
+		m.store.SetBucket(ipHash, toStorageBucket(snapshot))
 
 		if !allowed {
 			visitor := m.scores.Apply(ip, r.Host, trust.DeltaRateLimit)
