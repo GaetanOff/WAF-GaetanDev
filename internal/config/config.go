@@ -25,6 +25,7 @@ type Config struct {
 	Upstream            UpstreamConfig `yaml:"upstream"`
 	Cloudflare          Cloudflare     `yaml:"cloudflare"`
 	RateLimit           RateLimit      `yaml:"rate_limit"`
+	AntiDDoS            AntiDDoS       `yaml:"antiddos"`
 	Trust               Trust          `yaml:"trust"`
 	Challenge           Challenge      `yaml:"challenge"`
 	Whitelist           []string       `yaml:"whitelist"`
@@ -65,6 +66,13 @@ type RateLimit struct {
 	Burst             int     `yaml:"burst"`
 	RequestsPerMinute int     `yaml:"requests_per_minute"`
 	RequestsPerHour   int     `yaml:"requests_per_hour"`
+}
+
+type AntiDDoS struct {
+	Enabled                 bool   `yaml:"enabled"`
+	GlobalRequestsPerSecond int    `yaml:"global_requests_per_second"`
+	GlobalWindow            string `yaml:"global_window"`
+	RetryAfterSeconds       int    `yaml:"retry_after_seconds"`
 }
 
 type Trust struct {
@@ -183,6 +191,12 @@ func Default() Config {
 			RequestsPerMinute: 1000,
 			RequestsPerHour:   10000,
 		},
+		AntiDDoS: AntiDDoS{
+			Enabled:                 true,
+			GlobalRequestsPerSecond: 50000,
+			GlobalWindow:            "1s",
+			RetryAfterSeconds:       5,
+		},
 		Trust: Trust{
 			InitialScore:       50,
 			ChallengeThreshold: 40,
@@ -244,6 +258,7 @@ func (c *Config) Validate() error {
 	validateDuration(&fields, "server.graceful_shutdown_timeout", c.Server.GracefulShutdownTimeout)
 	validateDuration(&fields, "upstream.timeout", c.Upstream.Timeout)
 	validateDuration(&fields, "cloudflare.update_interval", c.Cloudflare.UpdateInterval)
+	validateDuration(&fields, "antiddos.global_window", c.AntiDDoS.GlobalWindow)
 	validateDuration(&fields, "trust.score_ttl", c.Trust.ScoreTTL)
 	validateDuration(&fields, "challenge.token_ttl", c.Challenge.TokenTTL)
 	validateDuration(&fields, "challenge.cookie_ttl", c.Challenge.CookieTTL)
@@ -256,6 +271,12 @@ func (c *Config) Validate() error {
 	}
 	if c.RateLimit.Burst < 1 {
 		fields = append(fields, "rate_limit.burst must be >= 1")
+	}
+	if c.AntiDDoS.GlobalRequestsPerSecond < 1 {
+		fields = append(fields, "antiddos.global_requests_per_second must be >= 1")
+	}
+	if c.AntiDDoS.RetryAfterSeconds < 1 {
+		fields = append(fields, "antiddos.retry_after_seconds must be >= 1")
 	}
 	validateRange(&fields, "trust.initial_score", c.Trust.InitialScore, 0, 100)
 	validateRange(&fields, "trust.challenge_threshold", c.Trust.ChallengeThreshold, 0, 100)

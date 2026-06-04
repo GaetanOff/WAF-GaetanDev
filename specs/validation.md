@@ -62,6 +62,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 3.1 | `go test ./...` | pass | Includes circuit breaker open after 5 violations, middleware 403 `CIRCUIT_BREAK`, and 300s expiry |
 | 2026-06-04 | Slice 3.1 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 3.1 | `go build -o waf ./cmd/waf` | pass | AntiDDoS circuit breaker wired into the public middleware pipeline |
+| 2026-06-04 | Slice 3.2 | `go test ./...` | pass | Includes global sliding-window detector, config validation, 503 degraded response for new visitors, and known-visitor bypass |
+| 2026-06-04 | Slice 3.2 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 3.2 | `go build -o waf ./cmd/waf` | pass | Global degraded mode wired before the challenge middleware |
 
 ## Quality Gates Checklist
 

@@ -107,6 +107,32 @@ func TestRoutesAppliesAntiBotHoneypot(t *testing.T) {
 	}
 }
 
+func TestRoutesAppliesGlobalDegradedModeBeforeChallenge(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.AntiDDoS.GlobalRequestsPerSecond = 1
+	cfg.AntiDDoS.GlobalWindow = "1s"
+	cfg.AntiDDoS.RetryAfterSeconds = 5
+
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestAntiDDoSFromConfig(t, cfg), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("proxy should not be called")
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), requestFrom("198.51.100.10:443"))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestFrom("198.51.100.11:443"))
+
+	if response.Code != http.StatusServiceUnavailable {
+		t.Fatalf("status = %d, want 503", response.Code)
+	}
+	if response.Header().Get("Retry-After") != "5" {
+		t.Fatalf("Retry-After = %q, want 5", response.Header().Get("Retry-After"))
+	}
+	if response.Header().Get("X-WAF-Reason") != "global_rate_exceeded" {
+		t.Fatalf("X-WAF-Reason = %q, want global_rate_exceeded", response.Header().Get("X-WAF-Reason"))
+	}
+}
+
 func newTestRules(t *testing.T, whitelist []string, blacklist []string, userAgents []string) *access.RuleSet {
 	t.Helper()
 
@@ -144,7 +170,19 @@ func newTestAntiDDoS(t *testing.T) antiddos.Middleware {
 
 	store := memory.New(100)
 	t.Cleanup(store.Close)
-	return antiddos.New(antiddos.NewCircuitBreaker(store, antiddos.DefaultViolationThreshold, antiddos.DefaultOpenDuration))
+	return antiddos.New(antiddos.NewCircuitBreaker(store, antiddos.DefaultViolationThreshold, antiddos.DefaultOpenDuration), nil, antiddos.DefaultRetryAfterSeconds)
+}
+
+func newTestAntiDDoSFromConfig(t *testing.T, cfg config.Config) antiddos.Middleware {
+	t.Helper()
+
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	middleware, err := antiddos.NewFromConfig(store, cfg)
+	if err != nil {
+		t.Fatalf("antiddos.NewFromConfig() error = %v", err)
+	}
+	return middleware
 }
 
 func newTestScoreManager(t *testing.T, cfg config.Config) *trust.ScoreManager {

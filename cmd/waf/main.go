@@ -79,7 +79,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	antiDDoS := antiddos.New(antiddos.NewCircuitBreaker(store, antiddos.DefaultViolationThreshold, antiddos.DefaultOpenDuration))
+	antiDDoS, err := antiddos.NewFromConfig(store, *cfg)
+	if err != nil {
+		return err
+	}
 	rateLimiter, err := ratelimit.New(store, scoreManager, *cfg)
 	if err != nil {
 		return err
@@ -138,10 +141,10 @@ func routes(cfg config.Config, accessRules *access.RuleSet, antiDDoS antiddos.Mi
 	if cfg.RateLimit.Enabled {
 		proxyHandler = rateLimiter.Handler(proxyHandler)
 	}
-	proxyHandler = antiDDoS.Handler(proxyHandler)
 	if cfg.Challenge.Enabled {
 		proxyHandler = challengeMiddleware.Handler(proxyHandler)
 	}
+	proxyHandler = antiDDoS.Handler(proxyHandler)
 	proxyHandler = access.Middleware(accessRules, proxyHandler)
 	if cfg.Cloudflare.Trusted {
 		proxyHandler = cloudflare.Middleware(proxyHandler)

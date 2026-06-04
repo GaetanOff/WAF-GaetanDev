@@ -132,8 +132,9 @@ last-updated: 2026-06-04
 - **Spec** : requirements FR-08, features/anti-ddos.feature
 
 ### T3.2 — Mode dégradé global
-- [ ] `antiddos.GlobalRateDetector` : sliding window, compteur req/s global
-- [ ] Si dépassement seuil : nouveaux visiteurs → 503 + Retry-After
+- [x] `antiddos.GlobalRateDetector` : sliding window, compteur req/s global
+- [x] Si dépassement seuil : nouveaux visiteurs → 503 + Retry-After
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. Seuil global configurable via `antiddos.global_requests_per_second`, nouveaux visiteurs rejetés avec `503`, `Retry-After: 5`, reason `global_rate_exceeded`.
 - **Spec** : requirements FR-08
 
 ---

@@ -8,8 +8,11 @@ import (
 )
 
 const (
-	DefaultViolationThreshold = 5
-	DefaultOpenDuration       = 300 * time.Second
+	DefaultViolationThreshold      = 5
+	DefaultOpenDuration            = 300 * time.Second
+	DefaultGlobalRequestsPerSecond = 50000
+	DefaultGlobalWindow            = time.Second
+	DefaultRetryAfterSeconds       = 5
 )
 
 type CircuitBreaker struct {

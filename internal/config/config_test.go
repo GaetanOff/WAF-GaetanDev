@@ -36,6 +36,9 @@ upstream:
 	if cfg.RateLimit.Burst != 100 {
 		t.Fatalf("expected default burst 100, got %d", cfg.RateLimit.Burst)
 	}
+	if cfg.AntiDDoS.GlobalRequestsPerSecond != 50000 {
+		t.Fatalf("expected default global threshold 50000, got %d", cfg.AntiDDoS.GlobalRequestsPerSecond)
+	}
 }
 
 func TestLoadExampleConfig(t *testing.T) {
@@ -115,6 +118,37 @@ rate_limit:
 	}
 	if len(validationError.Fields) < 2 {
 		t.Fatalf("expected multiple field errors, got %v", validationError.Fields)
+	}
+}
+
+func TestLoadRejectsInvalidAntiDDoSConfig(t *testing.T) {
+	t.Setenv(envChallengeSecretKey, testSecret)
+	t.Setenv(envAdminToken, testSecret)
+
+	path := writeConfig(t, `
+version: "1.0"
+server:
+  listen: ":8080"
+upstream:
+  address: "http://example.test"
+antiddos:
+  global_requests_per_second: 0
+  global_window: "not-a-duration"
+  retry_after_seconds: 0
+`)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() expected an error")
+	}
+	if !strings.Contains(err.Error(), "antiddos.global_requests_per_second") {
+		t.Fatalf("expected antiddos.global_requests_per_second message, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "antiddos.global_window") {
+		t.Fatalf("expected antiddos.global_window message, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "antiddos.retry_after_seconds") {
+		t.Fatalf("expected antiddos.retry_after_seconds message, got %v", err)
 	}
 }
 

@@ -36,6 +36,13 @@ rate_limit:
   requests_per_minute: 1000
   requests_per_hour: 10000
 
+# Protection Anti-DDoS globale
+antiddos:
+  enabled: true
+  global_requests_per_second: 50000  # Seuil global avant mode dégradé
+  global_window: "1s"                # Fenêtre glissante du compteur global
+  retry_after_seconds: 5             # Header Retry-After en mode dégradé
+
 # Système de confiance et challenge
 trust:
   initial_score: 50

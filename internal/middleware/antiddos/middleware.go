@@ -1,22 +1,56 @@
 package antiddos
 
 import (
+	"fmt"
 	"log/slog"
 	"net/http"
+	"time"
 
+	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
+	"github.com/gaetandev/waf/internal/storage"
+	"github.com/gaetandev/waf/internal/trust"
 )
 
 type Middleware struct {
-	breaker CircuitBreaker
+	enabled           bool
+	breaker           CircuitBreaker
+	global            *GlobalRateDetector
+	retryAfterSeconds int
 }
 
-func New(breaker CircuitBreaker) Middleware {
-	return Middleware{breaker: breaker}
+func New(breaker CircuitBreaker, global *GlobalRateDetector, retryAfterSeconds int) Middleware {
+	if retryAfterSeconds < 1 {
+		retryAfterSeconds = DefaultRetryAfterSeconds
+	}
+	return Middleware{
+		enabled:           true,
+		breaker:           breaker,
+		global:            global,
+		retryAfterSeconds: retryAfterSeconds,
+	}
+}
+
+func NewFromConfig(store storage.Store, cfg config.Config) (Middleware, error) {
+	window, err := time.ParseDuration(cfg.AntiDDoS.GlobalWindow)
+	if err != nil {
+		return Middleware{}, fmt.Errorf("parse antiddos.global_window: %w", err)
+	}
+	middleware := New(
+		NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration),
+		NewGlobalRateDetector(cfg.AntiDDoS.GlobalRequestsPerSecond, window),
+		cfg.AntiDDoS.RetryAfterSeconds,
+	)
+	middleware.enabled = cfg.AntiDDoS.Enabled
+	return middleware, nil
 }
 
 func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !m.enabled {
+			next.ServeHTTP(w, r)
+			return
+		}
 		if r.Header.Get("X-WAF-Action") == "PASS" {
 			next.ServeHTTP(w, r)
 			return
@@ -30,6 +64,14 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
+		if m.isGlobalRateExceededForNewVisitor(ip) {
+			slog.Warn("waf security event", "ip", ip, "domain", r.Host, "path", r.URL.Path, "action", "DEGRADED", "reason", "global_rate_exceeded")
+			w.Header().Set("Retry-After", fmt.Sprintf("%d", m.retryAfterSeconds))
+			w.Header().Set("X-WAF-Action", "DEGRADED")
+			w.Header().Set("X-WAF-Reason", "global_rate_exceeded")
+			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
+			return
+		}
 
 		recorder := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(recorder, r)
@@ -39,6 +81,18 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		}
 		m.breaker.Reset(ip)
 	})
+}
+
+func (m Middleware) isGlobalRateExceededForNewVisitor(ip string) bool {
+	if m.global == nil {
+		return false
+	}
+	isNewVisitor := true
+	if m.breaker.store != nil {
+		_, known := m.breaker.store.GetVisitor(trust.HashIP(ip))
+		isNewVisitor = !known
+	}
+	return m.global.RecordAndIsExceeded() && isNewVisitor
 }
 
 type statusRecorder struct {

@@ -126,6 +126,33 @@
         }
       }
     },
+    "antiddos": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": {
+          "type": "boolean",
+          "default": true
+        },
+        "global_requests_per_second": {
+          "type": "integer",
+          "default": 50000,
+          "minimum": 1,
+          "description": "Seuil global de trafic en req/s avant activation du mode dégradé"
+        },
+        "global_window": {
+          "type": "string",
+          "default": "1s",
+          "description": "Fenêtre glissante utilisée pour compter le trafic global"
+        },
+        "retry_after_seconds": {
+          "type": "integer",
+          "default": 5,
+          "minimum": 1,
+          "description": "Valeur du header Retry-After en mode dégradé"
+        }
+      }
+    },
     "trust": {
       "type": "object",
       "additionalProperties": false,
