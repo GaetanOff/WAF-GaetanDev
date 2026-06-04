@@ -1,9 +1,6 @@
 package logger
 
-import (
-	"encoding/json"
-	"fmt"
-)
+import "log/slog"
 
 const (
 	ActionPass         = "PASS"
@@ -33,17 +30,18 @@ type SecurityEvent struct {
 	CFCountry      *string
 }
 
-func nullableInt(value *int) json.RawMessage {
+// nullableInt rend un attribut entier, ou JSON null si la valeur est absente.
+func nullableInt(key string, value *int) slog.Attr {
 	if value == nil {
-		return json.RawMessage("null")
+		return slog.Any(key, nil)
 	}
-	return json.RawMessage(fmt.Sprintf("%d", *value))
+	return slog.Int(key, *value)
 }
 
-func nullableString(value *string) json.RawMessage {
+// nullableString rend un attribut chaîne, ou JSON null si absente ou vide.
+func nullableString(key string, value *string) slog.Attr {
 	if value == nil || *value == "" {
-		return json.RawMessage("null")
+		return slog.Any(key, nil)
 	}
-	raw, _ := json.Marshal(*value)
-	return raw
+	return slog.String(key, *value)
 }

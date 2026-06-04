@@ -43,8 +43,8 @@ Première version : WAF reverse proxy de base, fonctionnel et testé
   suspects, chemins honeypot.
 - **Anti-DDoS** : circuit breaker par IP + mode dégradé global (`503`) au-delà
   d'un seuil de trafic.
-- **Observabilité** : logs JSON structurés (zerolog) corrélés par `request_id`,
-  métriques Prometheus sur `/waf/metrics`.
+- **Observabilité** : logs JSON structurés (`log/slog`, stdlib) corrélés par
+  `request_id`, métriques Prometheus sur `/waf/metrics`.
 - **API d'administration** REST authentifiée par Bearer sur un port séparé
   (CRUD whitelist/blacklist, visiteurs, stats, events).
 - **Configuration** YAML validée au démarrage, secrets via variables

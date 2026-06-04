@@ -87,6 +87,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 5.4 | README + nginx guide + changelog authored | n/a | README (archi, quick start, Cloudflare deploy, admin, tests, layout), `deploy/nginx/upstream.conf.example`, `specs/changelog.md` [0.1.0] |
 | 2026-06-04 | CI fix | `spectral lint specs/api/admin.openapi.yaml --ruleset .spectral.yaml` | pass | Was 3 errors + 14 warnings. Fixed: quoted description with inline colon (L48), moved `components.responses.Unauthorized` from under `paths` to top-level `components`, added `description` to all 14 operations. Now "No results with a severity of 'error' found!". OpenAPI `info.version` 1.0.0 → 1.0.1 |
 | 2026-06-04 | CI fix | `golangci-lint run` (bodyclose) | pass (local proxy) | `response.Result()` body now captured and closed in `middleware_test.go`; `go test ./...` + `go vet ./...` green locally (golangci runs in CI) |
+| 2026-06-04 | ADR-014 | `go test ./internal/logger/...` | pass | Migration zerolog → `log/slog`. New conformance test asserts emitted keys ⊆ security-event schema and that `time`/`level`/`msg` are stripped |
+| 2026-06-04 | ADR-014 | `go mod tidy` + `go build ./cmd/waf` | pass | `github.com/rs/zerolog` (+ transitive `mattn/go-colorable`, `mattn/go-isatty`) removed from go.mod/go.sum |
+| 2026-06-04 | ADR-014 | `go test ./...` + `go vet ./...` | pass | Full suite green after logging migration |
 
 ## Quality Gates Checklist
 

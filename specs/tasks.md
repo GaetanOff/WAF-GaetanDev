@@ -142,12 +142,13 @@ last-updated: 2026-06-04
 ## Sprint 4 — Observabilité (Phase 4)
 
 ### T4.1 — Logger structuré
-- [x] Wrapper `zerolog` avec `request_id` UUID v4 par requête
+- [x] Wrapper `log/slog` (stdlib, voir ADR-014) avec `request_id` UUID v4 par requête
 - [x] Middleware de logging : log JSON conforme au schéma security-event.schema.json
 - [x] Pas de query string dans les logs INFO (seulement path)
 - [x] Tests : format JSON valide, champs requis présents
 - **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. Logs JSON sans champs hors schéma, `request_id` UUID v4, `path` sans query string, actions/reasons WAF capturées.
-- **Spec** : requirements FR-09, schemas/security-event.schema.json
+- **Révision 2026-06-04 (ADR-014)** : migration de `zerolog` vers `log/slog` (stdlib). Clés intégrées slog (`time`/`level`/`msg`) retirées via `ReplaceAttr`, champs nullables émis en `null`, événement toujours émis (niveau configuré). Test de conformance ajouté (clés ⊂ schéma). zerolog retiré de go.mod.
+- **Spec** : requirements FR-09, schemas/security-event.schema.json, ADR-014
 
 ### T4.2 — Métriques Prometheus
 - [x] Counters : `waf_requests_total`, `waf_blocked_total`, `waf_challenged_total`

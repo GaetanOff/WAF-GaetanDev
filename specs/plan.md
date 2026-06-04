@@ -130,7 +130,7 @@ last-reviewed: 2026-06-03
 ### Phase 4 — Observabilité (E6)
 
 **Slice 4.1 — Logger structuré**
-- `internal/logger/logger.go` : wrapper `zerolog`, injection `request_id` (UUID v4)
+- `internal/logger/logger.go` : wrapper `log/slog` (stdlib, voir ADR-014), injection `request_id` (UUID v4)
 - Middleware de logging : log structuré par requête avec tous les champs du schéma `SecurityEvent`
 - Spec references : requirements FR-09, schemas/security-event.schema.json
 
@@ -194,7 +194,7 @@ Chaque slice laisse le projet dans un état compilable, testé et spec-conforman
 ## Dépendances Go recommandées
 
 ```
-github.com/rs/zerolog              # Logging structuré haute performance
+log/slog                           # Logging structuré (bibliothèque standard, voir ADR-014)
 github.com/prometheus/client_golang # Métriques Prometheus
 github.com/google/uuid             # UUID v4 pour request_id
 golang.org/x/crypto                # HMAC (stdlib suffit pour SHA-256)

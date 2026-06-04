@@ -80,7 +80,7 @@ internal/
 │   ├── memory/      sync.Map + LRU eviction, TTL cleanup goroutine
 │   └── redis/       Redis adapter (optionnel, même interface)
 ├── signing/         HMAC-SHA256 cookie signing/validation
-├── logger/          Structured JSON logger (zerolog), request_id injection
+├── logger/          Structured JSON logger (log/slog, stdlib), request_id injection
 └── metrics/         Prometheus counters/histograms, /waf/metrics handler
 ```
 
@@ -328,7 +328,7 @@ waf/
 │   │   ├── hmac.go              # HMAC-SHA256 sign/verify
 │   │   └── hmac_test.go
 │   ├── logger/
-│   │   ├── logger.go            # zerolog wrapper, request_id injection
+│   │   ├── logger.go            # log/slog wrapper, request_id injection
 │   │   └── fields.go            # Log field constants
 │   └── metrics/
 │       ├── metrics.go           # Prometheus metrics definitions

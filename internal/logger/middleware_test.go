@@ -94,6 +94,44 @@ func TestMiddlewareLogsRateLimitActionFromResponseHeaders(t *testing.T) {
 	}
 }
 
+// TestSecurityEventJSONStaysWithinSchema vérifie que la sortie slog ne contient
+// aucune clé hors de security-event.schema.json (additionalProperties: false),
+// notamment les clés intégrées de slog (time, level, msg).
+func TestSecurityEventJSONStaysWithinSchema(t *testing.T) {
+	// Propriétés autorisées par specs/schemas/security-event.schema.json.
+	allowed := map[string]bool{
+		"timestamp": true, "request_id": true, "ip": true, "ip_hash": true,
+		"domain": true, "method": true, "path": true, "user_agent": true,
+		"action": true, "reason": true, "trust_score": true, "score_delta": true,
+		"latency_ms": true, "waf_latency_ms": true, "upstream_status": true,
+		"cf_ray": true, "cf_country": true,
+	}
+
+	var output bytes.Buffer
+	log := NewWithWriter(config.Default().Logging, &output)
+	scores, store := newTestScoreManager(t)
+	defer store.Close()
+	handler := log.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
+	request.RemoteAddr = "1.2.3.4:1234"
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	event := decodeEvent(t, output.String())
+	for key := range event {
+		if !allowed[key] {
+			t.Fatalf("emitted non-schema key %q in %v", key, event)
+		}
+	}
+	for _, builtin := range []string{"time", "level", "msg"} {
+		if _, ok := event[builtin]; ok {
+			t.Fatalf("slog builtin key %q must be stripped", builtin)
+		}
+	}
+}
+
 func decodeEvent(t *testing.T, raw string) map[string]any {
 	t.Helper()
 

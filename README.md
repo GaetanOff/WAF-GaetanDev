@@ -13,7 +13,7 @@ Reverse proxy de protection écrit en Go, conçu pour s'intercaler entre
                               ├─ challenge JavaScript (PoW + fingerprint, sans CAPTCHA)
                               ├─ anti-bot (headless, headers, honeypot)
                               ├─ anti-DDoS (circuit breaker + mode dégradé global)
-                              ├─ logs structurés (zerolog) + métriques Prometheus
+                              ├─ logs structurés (log/slog) + métriques Prometheus
                               └─ API d'administration REST (port séparé)
 ```
 
@@ -210,7 +210,7 @@ internal/
   fingerprint/       scoring des signaux navigateur
   signing/           HMAC-SHA256
   storage/           interface Store + backend mémoire
-  logger/            logs structurés (zerolog)
+  logger/            logs structurés (log/slog, stdlib)
   metrics/           métriques Prometheus
   admin/             API d'administration REST
 web/challenge.html   page de challenge (branding "Protected by GaetanDev.fr")

@@ -21,7 +21,7 @@ Le WAF doit gérer du trafic HTTP à haute fréquence (objectif > 50 000 req/s) 
 - Binaire statique unique (CGO_ENABLED=0) : déploiement trivial
 - `sync.Map` et atomic ops : state management haute performance sans locks coûteux
 - Gestion mémoire prévisible avec GC à faibles pauses (< 1 ms)
-- Écosystème mature pour proxy HTTP : `github.com/valyala/fasthttp`, `zerolog`, `go-redis`
+- Écosystème mature pour proxy HTTP : `github.com/valyala/fasthttp`, `go-redis`, et un logger structuré dans la stdlib (`log/slog`)
 - `golangci-lint` + `gofmt` + `go vet` : outillage code quality robuste
 - Compilation croisée triviale (GOOS=linux GOARCH=amd64/arm64)
 
@@ -59,7 +59,7 @@ Les raisons déterminantes :
 ## Consequences
 
 - Le projet est développé en Go 1.22+
-- Les dépendances clés : `zerolog` (logging), `prometheus/client_golang` (métriques), `go-redis/redis` (optionnel), `golang.org/x/crypto` (HMAC/hash)
+- Les dépendances clés : `log/slog` (logging structuré, stdlib — voir ADR-014), `prometheus/client_golang` (métriques), `go-redis/redis` (optionnel), `golang.org/x/crypto` (HMAC/hash)
 - Pas de dépendances à des frameworks web lourds (Gin, Echo) — `net/http` stdlib suffit
 - La spec `specific-go.mdc` du projet s'applique intégralement
 
