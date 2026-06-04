@@ -77,6 +77,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 5.1 | `go test ./...` | pass | Conformance suite derived from js-challenge.feature added (real template branding/timer, no external resources, forged/expired cookie, malformed/forged submission, NewMiddleware errors) |
 | 2026-06-04 | Slice 5.1 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 5.1 | `go test -cover` (target packages) | pass | `trust` 88.9%, `middleware/challenge` 86.7% (up from 75.4%), `middleware/ratelimit` 93.9% — all ≥ 80% |
+| 2026-06-04 | Slice 5.2 | `.github/workflows/ci.yml` authored | n/a | Jobs: lint (golangci-lint v1.62.2), test (`-race -coverprofile`), build (static linux), spec-lint (spectral) |
+| 2026-06-04 | Slice 5.2 | `CGO_ENABLED=0 GOOS=linux go build ./cmd/waf` | pass | Mirrors the CI build job locally |
+| 2026-06-04 | Slice 5.2 | golangci-lint / spectral | not run | Tools not installed locally; executed by the CI jobs on push/PR |
 
 ## Quality Gates Checklist
 

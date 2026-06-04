@@ -176,10 +176,12 @@ last-updated: 2026-06-04
 - **Spec** : core-quality-gates.mdc, global-testing.mdc
 
 ### T5.2 — CI GitHub Actions
-- [ ] Job lint : `golangci-lint run`
-- [ ] Job test : `go test ./... -race -coverprofile=coverage.out`
-- [ ] Job build : `CGO_ENABLED=0 GOOS=linux go build -o waf ./cmd/waf`
-- [ ] Job spec-lint : `spectral lint specs/api/admin.openapi.yaml`
+- [x] Job lint : `golangci-lint run` (action pinnée v1.62.2, config `.golangci.yml`)
+- [x] Job test : `go test ./... -race -coverprofile=coverage.out` + upload artifact
+- [x] Job build : `CGO_ENABLED=0 GOOS=linux go build -o waf ./cmd/waf`
+- [x] Job spec-lint : `spectral lint specs/api/admin.openapi.yaml --ruleset .spectral.yaml`
+- **Acceptance** : 4 jobs sur push/PR vers main, Go lu depuis `go.mod`
+- **Validation 2026-06-04** : workflow `.github/workflows/ci.yml` (lint, test, build, spec-lint). `.golangci.yml` et `.spectral.yaml` (extends spectral:oas) ajoutés. Build statique Linux vérifié localement ; jobs lint/spec-lint exécutés en CI (golangci-lint/spectral non installés localement).
 - **Spec** : core-devops.mdc
 
 ### T5.3 — Docker

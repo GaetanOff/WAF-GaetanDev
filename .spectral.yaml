@@ -1,0 +1,13 @@
+# Spectral ruleset — WAF Admin API (OpenAPI 3.1)
+# Extends the built-in OpenAPI ruleset; tightens a few contract rules
+# in line with .cursor/rules/specific-api-rest.mdc.
+extends: ["spectral:oas"]
+
+rules:
+  # Every operation must declare an operationId (Critical Invariant #2).
+  operation-operationId: error
+  operation-operationId-unique: error
+  # Descriptions improve generated docs but should not block merges.
+  operation-description: warn
+  info-contact: off
+  oas3-api-servers: warn
