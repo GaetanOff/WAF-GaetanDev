@@ -22,6 +22,10 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 1.2 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 1.2 | `go build -o waf ./cmd/waf` | pass | Config validation wired at startup |
 | 2026-06-04 | Slice 1.2 | `waf.exe -config configs/config.example.yaml -listen 127.0.0.1:18081` + `/waf/health` | pass | Secrets supplied through env vars |
+| 2026-06-04 | Slice 1.3 | `go test ./...` | pass | Includes proxy routing, headers, timeout config, and 502 upstream-down tests |
+| 2026-06-04 | Slice 1.3 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 1.3 | `go build -o waf ./cmd/waf` | pass | Reverse proxy wired into main router |
+| 2026-06-04 | Slice 1.3 | Runtime local proxy request | pass | Upstream received `X-Forwarded-For=127.0.0.1`, `X-Real-IP=127.0.0.1`, `X-WAF-Score=50` |
 
 ## Quality Gates Checklist
 

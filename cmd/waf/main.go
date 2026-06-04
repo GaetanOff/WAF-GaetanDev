@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/proxy"
 )
 
 const (
@@ -56,9 +57,14 @@ func run() error {
 		return err
 	}
 
+	proxyHandler, err := proxy.NewHandler(*cfg)
+	if err != nil {
+		return err
+	}
+
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
-		Handler:           routes(),
+		Handler:           routes(proxyHandler),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
@@ -96,9 +102,10 @@ func run() error {
 	return <-errs
 }
 
-func routes() http.Handler {
+func routes(proxyHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/waf/health", healthHandler)
+	mux.Handle("/", proxyHandler)
 	return mux
 }
 

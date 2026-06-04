@@ -29,12 +29,13 @@ last-updated: 2026-06-04
 - **Spec** : schemas/config.schema.json
 
 ### T1.3 — Reverse proxy + routing domaine
-- [ ] `proxy.Handler` : wrap `httputil.ReverseProxy` avec routing par Host header
-- [ ] Ajout headers : `X-Forwarded-For`, `X-Real-IP`, `X-WAF-Score`
-- [ ] Timeout configurable sur l'upstream
-- [ ] Gestion 502 si upstream down (pas de panic)
-- [ ] Tests avec `httptest.NewServer`
+- [x] `proxy.Handler` : wrap `httputil.ReverseProxy` avec routing par Host header
+- [x] Ajout headers : `X-Forwarded-For`, `X-Real-IP`, `X-WAF-Score`
+- [x] Timeout configurable sur l'upstream
+- [x] Gestion 502 si upstream down (pas de panic)
+- [x] Tests avec `httptest.NewServer`
 - **Acceptance** : une requête GET proxifiée → upstream reçoit les bons headers
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. Runtime proxy local OK avec headers `X-Forwarded-For`, `X-Real-IP`, `X-WAF-Score`.
 - **Spec** : requirements FR-01
 
 ### T1.4 — Middleware Cloudflare IP
