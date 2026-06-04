@@ -157,6 +157,36 @@ func TestRoutesExposesPrometheusMetricsEndpoint(t *testing.T) {
 	}
 }
 
+func TestRunHealthCheck(t *testing.T) {
+	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer healthy.Close()
+	unhealthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusServiceUnavailable)
+	}))
+	defer unhealthy.Close()
+
+	tests := []struct {
+		name    string
+		url     string
+		wantErr bool
+	}{
+		{name: "healthy", url: healthy.URL, wantErr: false},
+		{name: "unhealthy status", url: unhealthy.URL, wantErr: true},
+		{name: "unreachable", url: "http://127.0.0.1:0/waf/health", wantErr: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := runHealthCheck(tt.url)
+			if (err != nil) != tt.wantErr {
+				t.Fatalf("runHealthCheck() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
 func newTestRules(t *testing.T, whitelist []string, blacklist []string, userAgents []string) *access.RuleSet {
 	t.Helper()
 

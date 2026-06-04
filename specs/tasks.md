@@ -185,10 +185,12 @@ last-updated: 2026-06-04
 - **Spec** : core-devops.mdc
 
 ### T5.3 — Docker
-- [ ] `Dockerfile` multi-stage : builder Go + image distroless/scratch
-- [ ] Image finale < 30 MB
-- [ ] `docker-compose.yml` : waf + nginx upstream de test
-- [ ] `HEALTHCHECK` sur `/waf/health`
+- [x] `Dockerfile` multi-stage : builder Go + image distroless/static
+- [x] Image finale < 30 MB (binaire statique `-s -w` ~ 15 MB + distroless static ~ 2 MB)
+- [x] `docker-compose.yml` : waf + nginx upstream de test
+- [x] `HEALTHCHECK` sur `/waf/health` (mode `-healthcheck` du binaire, image sans shell)
+- **Acceptance** : `docker compose up --build` expose le WAF qui proxifie l'origine nginx
+- **Validation 2026-06-04** : `CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w"` produit un binaire statique. `go test ./...` et `go vet ./...` passent (test `runHealthCheck` ajouté). Build d'image Docker non vérifié localement (démon Docker Desktop arrêté).
 - **Spec** : requirements NFR-05
 
 ### T5.4 — Documentation

@@ -1,0 +1,25 @@
+# Build artifacts
+waf
+waf.exe
+*.exe
+*.o
+coverage.out
+
+# Git & CI
+.git
+.github
+.gitignore
+.gitattributes
+
+# Docs & specs (not needed in the runtime image)
+docs
+specs
+examples
+templates
+.cursor
+
+# Editor / OS noise
+.idea
+.vscode
+*.log
+.DS_Store

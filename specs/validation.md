@@ -80,6 +80,10 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 5.2 | `.github/workflows/ci.yml` authored | n/a | Jobs: lint (golangci-lint v1.62.2), test (`-race -coverprofile`), build (static linux), spec-lint (spectral) |
 | 2026-06-04 | Slice 5.2 | `CGO_ENABLED=0 GOOS=linux go build ./cmd/waf` | pass | Mirrors the CI build job locally |
 | 2026-06-04 | Slice 5.2 | golangci-lint / spectral | not run | Tools not installed locally; executed by the CI jobs on push/PR |
+| 2026-06-04 | Slice 5.3 | `CGO_ENABLED=0 GOOS=linux go build -trimpath -ldflags="-s -w" ./cmd/waf` | pass | Static Linux binary builds for the distroless runtime stage |
+| 2026-06-04 | Slice 5.3 | `go test ./...` | pass | Added `runHealthCheck` test (200 → ok, 503 → error, unreachable → error) |
+| 2026-06-04 | Slice 5.3 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 5.3 | `docker build` | not run | Docker Desktop Linux engine not running locally; Dockerfile/compose authored against the verified static build |
 
 ## Quality Gates Checklist
 

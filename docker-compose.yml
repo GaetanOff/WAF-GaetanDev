@@ -1,0 +1,50 @@
+# Local test stack: WAF (Go) in front of an nginx origin.
+#
+#   docker compose up --build
+#   curl -i http://localhost:8080/        # proxied through the WAF
+#   curl -i http://localhost:8080/waf/health
+#
+# The challenge/admin secrets below are DEV-ONLY. Provide real values via a
+# .env file or your secrets manager in any real deployment.
+
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    volumes:
+      - ./deploy/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1:80/healthz"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    networks:
+      - waf
+
+  waf:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    command: ["-config", "/app/config.docker.yaml"]
+    volumes:
+      - ./deploy/config.docker.yaml:/app/config.docker.yaml:ro
+    environment:
+      WAF_CHALLENGE_SECRET_KEY: "dev-only-challenge-secret-change-me-32c"
+      WAF_ADMIN_TOKEN: "dev-only-admin-token-change-me-32chars!"
+    ports:
+      - "8080:8080"            # public WAF endpoint
+      # Admin API (:9090) is intentionally NOT published to the host.
+    depends_on:
+      nginx:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "/app/waf", "-healthcheck"]
+      interval: 30s
+      timeout: 5s
+      start_period: 5s
+      retries: 3
+    networks:
+      - waf
+
+networks:
+  waf:
+    driver: bridge

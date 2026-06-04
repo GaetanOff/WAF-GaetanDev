@@ -28,7 +28,8 @@ import (
 )
 
 const (
-	defaultConfigPath = "configs/config.example.yaml"
+	defaultConfigPath     = "configs/config.example.yaml"
+	defaultHealthCheckURL = "http://127.0.0.1:8080/waf/health"
 )
 
 func main() {
@@ -42,7 +43,13 @@ func run() error {
 	startedAt := time.Now()
 	configPath := flag.String("config", defaultConfigPath, "config YAML path")
 	listenAddress := flag.String("listen", "", "override public HTTP listen address")
+	healthCheck := flag.Bool("healthcheck", false, "probe the health endpoint and exit (for container HEALTHCHECK)")
+	healthCheckURL := flag.String("health-url", defaultHealthCheckURL, "health endpoint URL probed by -healthcheck")
 	flag.Parse()
+
+	if *healthCheck {
+		return runHealthCheck(*healthCheckURL)
+	}
 
 	cfg, err := config.Load(*configPath)
 	if err != nil {
@@ -198,4 +205,21 @@ func parseDuration(field string, value string) (time.Duration, error) {
 	}
 
 	return duration, nil
+}
+
+// runHealthCheck probes the health endpoint and returns an error on any
+// non-200 response. It powers the container HEALTHCHECK without requiring a
+// shell or curl in the (distroless/scratch) runtime image.
+func runHealthCheck(url string) error {
+	client := &http.Client{Timeout: 3 * time.Second}
+	response, err := client.Get(url)
+	if err != nil {
+		return fmt.Errorf("healthcheck request: %w", err)
+	}
+	defer func() { _ = response.Body.Close() }()
+
+	if response.StatusCode != http.StatusOK {
+		return fmt.Errorf("healthcheck status %d", response.StatusCode)
+	}
+	return nil
 }
