@@ -65,6 +65,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 3.2 | `go test ./...` | pass | Includes global sliding-window detector, config validation, 503 degraded response for new visitors, and known-visitor bypass |
 | 2026-06-04 | Slice 3.2 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 3.2 | `go build -o waf ./cmd/waf` | pass | Global degraded mode wired before the challenge middleware |
+| 2026-06-04 | Slice 4.1 | `go test ./...` | pass | Includes structured JSON security events, UUID request IDs, required schema fields, action/reason capture, and query-string redaction |
+| 2026-06-04 | Slice 4.1 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 4.1 | `go build -o waf ./cmd/waf` | pass | Zerolog-based security logger wired into the public middleware pipeline |
 
 ## Quality Gates Checklist
 

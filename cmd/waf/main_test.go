@@ -2,11 +2,13 @@ package main
 
 import (
 	"html/template"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/gaetandev/waf/internal/config"
+	waflogger "github.com/gaetandev/waf/internal/logger"
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/antibot"
 	"github.com/gaetandev/waf/internal/middleware/antiddos"
@@ -25,7 +27,7 @@ func TestRoutesRejectsForgedCloudflareHeaderWhenTrusted(t *testing.T) {
 	request.Header.Set("CF-Connecting-IP", "198.51.100.25")
 	response := httptest.NewRecorder()
 
-	routes(cfg, newTestRules(t, nil, nil, nil), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("proxy should not be called")
 	})).ServeHTTP(response, request)
 
@@ -44,7 +46,7 @@ func TestRoutesSkipsCloudflareValidationWhenNotTrusted(t *testing.T) {
 	response := httptest.NewRecorder()
 
 	cfg.Challenge.Enabled = false
-	routes(cfg, newTestRules(t, nil, nil, nil), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})).ServeHTTP(response, request)
 
@@ -61,7 +63,7 @@ func TestRoutesAppliesWhitelistBeforeBlacklist(t *testing.T) {
 	request.RemoteAddr = "172.16.0.1:443"
 	response := httptest.NewRecorder()
 
-	routes(cfg, newTestRules(t, []string{"172.16.0.1"}, []string{"172.16.0.1"}, nil), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	routes(cfg, newTestRules(t, []string{"172.16.0.1"}, []string{"172.16.0.1"}, nil), newTestLogger(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})).ServeHTTP(response, request)
 
@@ -77,7 +79,7 @@ func TestRoutesAppliesRateLimitAfterAccessRules(t *testing.T) {
 	cfg.RateLimit.Burst = 1
 
 	cfg.Challenge.Enabled = false
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -96,7 +98,7 @@ func TestRoutesAppliesAntiBotHoneypot(t *testing.T) {
 	cfg.RateLimit.Enabled = false
 	cfg.Challenge.Enabled = false
 
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("proxy should not be called")
 	}))
 	response := httptest.NewRecorder()
@@ -114,7 +116,7 @@ func TestRoutesAppliesGlobalDegradedModeBeforeChallenge(t *testing.T) {
 	cfg.AntiDDoS.GlobalWindow = "1s"
 	cfg.AntiDDoS.RetryAfterSeconds = 5
 
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestAntiDDoSFromConfig(t, cfg), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestAntiDDoSFromConfig(t, cfg), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("proxy should not be called")
 	}))
 
@@ -141,6 +143,10 @@ func newTestRules(t *testing.T, whitelist []string, blacklist []string, userAgen
 		t.Fatalf("NewRuleSet() error = %v", err)
 	}
 	return rules
+}
+
+func newTestLogger() waflogger.Logger {
+	return waflogger.NewWithWriter(config.Default().Logging, io.Discard)
 }
 
 func newTestRateLimiter(t *testing.T, cfg config.Config) *ratelimit.Middleware {

@@ -142,10 +142,11 @@ last-updated: 2026-06-04
 ## Sprint 4 — Observabilité (Phase 4)
 
 ### T4.1 — Logger structuré
-- [ ] Wrapper `zerolog` avec `request_id` UUID v4 par requête
-- [ ] Middleware de logging : log JSON conforme au schéma security-event.schema.json
-- [ ] Pas de query string dans les logs INFO (seulement path)
-- [ ] Tests : format JSON valide, champs requis présents
+- [x] Wrapper `zerolog` avec `request_id` UUID v4 par requête
+- [x] Middleware de logging : log JSON conforme au schéma security-event.schema.json
+- [x] Pas de query string dans les logs INFO (seulement path)
+- [x] Tests : format JSON valide, champs requis présents
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. Logs JSON sans champs hors schéma, `request_id` UUID v4, `path` sans query string, actions/reasons WAF capturées.
 - **Spec** : requirements FR-09, schemas/security-event.schema.json
 
 ### T4.2 — Métriques Prometheus

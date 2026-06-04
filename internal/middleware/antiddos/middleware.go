@@ -2,7 +2,6 @@ package antiddos
 
 import (
 	"fmt"
-	"log/slog"
 	"net/http"
 	"time"
 
@@ -58,14 +57,12 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 
 		ip := cloudflare.RealIP(r)
 		if m.breaker.IsOpen(ip) {
-			slog.Warn("waf security event", "ip", ip, "domain", r.Host, "path", r.URL.Path, "action", "CIRCUIT_BREAK", "reason", "circuit_breaker_open")
 			w.Header().Set("X-WAF-Action", "CIRCUIT_BREAK")
 			w.Header().Set("X-WAF-Reason", "circuit_breaker_open")
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		if m.isGlobalRateExceededForNewVisitor(ip) {
-			slog.Warn("waf security event", "ip", ip, "domain", r.Host, "path", r.URL.Path, "action", "DEGRADED", "reason", "global_rate_exceeded")
 			w.Header().Set("Retry-After", fmt.Sprintf("%d", m.retryAfterSeconds))
 			w.Header().Set("X-WAF-Action", "DEGRADED")
 			w.Header().Set("X-WAF-Reason", "global_rate_exceeded")

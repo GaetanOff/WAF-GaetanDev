@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
+	waflogger "github.com/gaetandev/waf/internal/logger"
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/antibot"
 	"github.com/gaetandev/waf/internal/middleware/antiddos"
@@ -92,10 +93,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	securityLogger := waflogger.New(cfg.Logging)
 
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
-		Handler:           routes(*cfg, accessRules, antiDDoS, rateLimiter, antiBot, challengeMiddleware, scoreManager, proxyHandler),
+		Handler:           routes(*cfg, accessRules, securityLogger, antiDDoS, rateLimiter, antiBot, challengeMiddleware, scoreManager, proxyHandler),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
@@ -133,7 +135,7 @@ func run() error {
 	return <-errs
 }
 
-func routes(cfg config.Config, accessRules *access.RuleSet, antiDDoS antiddos.Middleware, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, proxyHandler http.Handler) http.Handler {
+func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflogger.Logger, antiDDoS antiddos.Middleware, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, proxyHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/waf/health", healthHandler)
 	proxyHandler = scoreManager.Middleware(proxyHandler)
@@ -147,7 +149,10 @@ func routes(cfg config.Config, accessRules *access.RuleSet, antiDDoS antiddos.Mi
 	proxyHandler = antiDDoS.Handler(proxyHandler)
 	proxyHandler = access.Middleware(accessRules, proxyHandler)
 	if cfg.Cloudflare.Trusted {
+		proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
 		proxyHandler = cloudflare.Middleware(proxyHandler)
+	} else {
+		proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
 	}
 	mux.Handle("/", proxyHandler)
 	return mux
