@@ -15,7 +15,9 @@ import (
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
+	"github.com/gaetandev/waf/internal/middleware/ratelimit"
 	"github.com/gaetandev/waf/internal/proxy"
+	"github.com/gaetandev/waf/internal/storage/memory"
 )
 
 const (
@@ -67,10 +69,16 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	store := memory.New(cfg.Trust.MaxVisitors)
+	defer store.Close()
+	rateLimiter, err := ratelimit.New(store, *cfg)
+	if err != nil {
+		return err
+	}
 
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
-		Handler:           routes(*cfg, accessRules, proxyHandler),
+		Handler:           routes(*cfg, accessRules, rateLimiter, proxyHandler),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
@@ -108,9 +116,12 @@ func run() error {
 	return <-errs
 }
 
-func routes(cfg config.Config, accessRules *access.RuleSet, proxyHandler http.Handler) http.Handler {
+func routes(cfg config.Config, accessRules *access.RuleSet, rateLimiter *ratelimit.Middleware, proxyHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/waf/health", healthHandler)
+	if cfg.RateLimit.Enabled {
+		proxyHandler = rateLimiter.Handler(proxyHandler)
+	}
 	proxyHandler = access.Middleware(accessRules, proxyHandler)
 	if cfg.Cloudflare.Trusted {
 		proxyHandler = cloudflare.Middleware(proxyHandler)

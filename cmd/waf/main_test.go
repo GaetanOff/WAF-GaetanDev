@@ -7,6 +7,8 @@ import (
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/access"
+	"github.com/gaetandev/waf/internal/middleware/ratelimit"
+	"github.com/gaetandev/waf/internal/storage/memory"
 )
 
 func TestRoutesRejectsForgedCloudflareHeaderWhenTrusted(t *testing.T) {
@@ -18,7 +20,7 @@ func TestRoutesRejectsForgedCloudflareHeaderWhenTrusted(t *testing.T) {
 	request.Header.Set("CF-Connecting-IP", "198.51.100.25")
 	response := httptest.NewRecorder()
 
-	routes(cfg, newTestRules(t, nil, nil, nil), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	routes(cfg, newTestRules(t, nil, nil, nil), newTestRateLimiter(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("proxy should not be called")
 	})).ServeHTTP(response, request)
 
@@ -36,7 +38,7 @@ func TestRoutesSkipsCloudflareValidationWhenNotTrusted(t *testing.T) {
 	request.Header.Set("CF-Connecting-IP", "198.51.100.25")
 	response := httptest.NewRecorder()
 
-	routes(cfg, newTestRules(t, nil, nil, nil), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	routes(cfg, newTestRules(t, nil, nil, nil), newTestRateLimiter(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})).ServeHTTP(response, request)
 
@@ -53,12 +55,31 @@ func TestRoutesAppliesWhitelistBeforeBlacklist(t *testing.T) {
 	request.RemoteAddr = "172.16.0.1:443"
 	response := httptest.NewRecorder()
 
-	routes(cfg, newTestRules(t, []string{"172.16.0.1"}, []string{"172.16.0.1"}, nil), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	routes(cfg, newTestRules(t, []string{"172.16.0.1"}, []string{"172.16.0.1"}, nil), newTestRateLimiter(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})).ServeHTTP(response, request)
 
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", response.Code)
+	}
+}
+
+func TestRoutesAppliesRateLimitAfterAccessRules(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.RateLimit.RequestsPerSecond = 1
+	cfg.RateLimit.Burst = 1
+
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestRateLimiter(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), requestFrom("198.51.100.10:443"))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestFrom("198.51.100.10:443"))
+
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", response.Code)
 	}
 }
 
@@ -70,4 +91,28 @@ func newTestRules(t *testing.T, whitelist []string, blacklist []string, userAgen
 		t.Fatalf("NewRuleSet() error = %v", err)
 	}
 	return rules
+}
+
+func newTestRateLimiter(t *testing.T, cfg config.Config) *ratelimit.Middleware {
+	t.Helper()
+
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	cfg.Version = "1.0"
+	cfg.Server.Listen = ":0"
+	cfg.Upstream.Address = "http://example.test"
+	cfg.Challenge.Enabled = false
+	cfg.Admin.Enabled = false
+
+	middleware, err := ratelimit.New(store, cfg)
+	if err != nil {
+		t.Fatalf("ratelimit.New() error = %v", err)
+	}
+	return middleware
+}
+
+func requestFrom(remoteAddr string) *http.Request {
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+	request.RemoteAddr = remoteAddr
+	return request
 }

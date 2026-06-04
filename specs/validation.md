@@ -35,6 +35,10 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 1.5 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 1.5 | `go build -o waf ./cmd/waf` | pass | Access middleware wired after Cloudflare extraction and before proxy |
 | 2026-06-04 | Slice 1.5 | Runtime blacklist request | pass | Local `127.0.0.1` blacklist returned HTTP 403 |
+| 2026-06-04 | Slice 1.6 | `go test ./...` | pass | Includes token bucket burst/refill, 100 OK + 50 429 scenario, score -10, whitelist bypass |
+| 2026-06-04 | Slice 1.6 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 1.6 | `go build -o waf ./cmd/waf` | pass | Rate limit middleware wired before proxy and after whitelist/blacklist |
+| 2026-06-04 | Slice 1.6 | Runtime rate limit request | pass | `burst=1`: first request 200, second request 429 with `Retry-After=1` |
 
 ## Quality Gates Checklist
 

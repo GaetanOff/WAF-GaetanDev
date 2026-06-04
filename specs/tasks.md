@@ -59,10 +59,11 @@ last-updated: 2026-06-04
 - **Spec** : requirements FR-04, features/whitelist-blacklist.feature
 
 ### T1.6 — Rate Limiting Token Bucket
-- [ ] `bucket.TokenBucket` : atomic refill, `TryConsume() bool`
-- [ ] `RateLimitMiddleware` : HTTP 429 + `Retry-After: N` + décrémente score -10
-- [ ] Tests : burst autorisé, burst dépassé, récupération après 1s
+- [x] `bucket.TokenBucket` : atomic refill, `TryConsume() bool`
+- [x] `RateLimitMiddleware` : HTTP 429 + `Retry-After: N` + décrémente score -10
+- [x] Tests : burst autorisé, burst dépassé, récupération après 1s
 - **Acceptance** : 150 req/s sur bucket de 100 → 100 OK + 50 × 429
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. Runtime `burst=1` → première requête 200, deuxième 429 avec `Retry-After=1`.
 - **Spec** : requirements FR-03, features/anti-ddos.feature
 
 ---
