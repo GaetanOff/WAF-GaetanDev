@@ -68,6 +68,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 4.1 | `go test ./...` | pass | Includes structured JSON security events, UUID request IDs, required schema fields, action/reason capture, and query-string redaction |
 | 2026-06-04 | Slice 4.1 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 4.1 | `go build -o waf ./cmd/waf` | pass | Zerolog-based security logger wired into the public middleware pipeline |
+| 2026-06-04 | Slice 4.2 | `go test ./...` | pass | Includes Prometheus counters, histogram buckets, active visitor gauges, visitor-state gauges, and `/waf/metrics` handler |
+| 2026-06-04 | Slice 4.2 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 4.2 | `go build -o waf ./cmd/waf` | pass | Prometheus metrics middleware and endpoint wired into the public server |
 
 ## Quality Gates Checklist
 

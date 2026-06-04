@@ -150,10 +150,11 @@ last-updated: 2026-06-04
 - **Spec** : requirements FR-09, schemas/security-event.schema.json
 
 ### T4.2 — Métriques Prometheus
-- [ ] Counters : `waf_requests_total`, `waf_blocked_total`, `waf_challenged_total`
-- [ ] Histogram : `waf_request_duration_seconds`
-- [ ] Gauges : `waf_active_visitors`, `waf_visitors_by_state{state}`
-- [ ] `GET /waf/metrics` handler
+- [x] Counters : `waf_requests_total`, `waf_blocked_total`, `waf_challenged_total`
+- [x] Histogram : `waf_request_duration_seconds`
+- [x] Gauges : `waf_active_visitors`, `waf_visitors_by_state{state}`
+- [x] `GET /waf/metrics` handler
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. `/waf/metrics` expose les compteurs, histogramme et gauges Prometheus via registre dédié.
 - **Spec** : requirements FR-09
 
 ### T4.3 — API Admin complète
