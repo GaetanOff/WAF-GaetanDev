@@ -1,25 +1,21 @@
 package challenge
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"html/template"
 	"net/http"
 	"os"
-	"regexp"
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
+	browserfp "github.com/gaetandev/waf/internal/fingerprint"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 )
 
 const verifyPath = "/waf/verify"
-
-var screenPattern = regexp.MustCompile(`^\d+x\d+x\d+$`)
 
 type Middleware struct {
 	tokenIssuer  TokenIssuer
@@ -39,22 +35,10 @@ type PageData struct {
 }
 
 type Submission struct {
-	Token       string      `json:"token"`
-	Nonce       string      `json:"nonce"`
-	ElapsedMS   int         `json:"elapsed_ms"`
-	Fingerprint Fingerprint `json:"fingerprint"`
-}
-
-type Fingerprint struct {
-	UA            string `json:"ua"`
-	TZ            int    `json:"tz"`
-	Lang          string `json:"lang"`
-	Screen        string `json:"screen"`
-	CPU           int    `json:"cpu"`
-	Touch         int    `json:"touch"`
-	CanvasHash    string `json:"canvas_hash"`
-	WebGLRenderer string `json:"webgl_renderer"`
-	Plugins       int    `json:"plugins"`
+	Token       string                `json:"token"`
+	Nonce       string                `json:"nonce"`
+	ElapsedMS   int                   `json:"elapsed_ms"`
+	Fingerprint browserfp.Fingerprint `json:"fingerprint"`
 }
 
 type verifyResponse struct {
@@ -173,9 +157,19 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusBadRequest, "challenge_timeout")
 		return
 	}
+	parsedFingerprint, err := browserfp.Parse(submission.Fingerprint)
+	if err != nil {
+		if errors.Is(err, browserfp.ErrHeadlessRenderer) {
+			m.scores.Apply(ip, r.Host, browserfp.HeadlessRendererDelta)
+			writeError(w, http.StatusBadRequest, "headless_webgl_renderer")
+			return
+		}
+		writeError(w, http.StatusBadRequest, "invalid_submission")
+		return
+	}
 
 	visitor := m.scores.Apply(ip, r.Host, trust.DeltaChallengePassed)
-	cookie, err := m.cookieIssuer.Issue(ip, r.Host, fingerprintDigest(submission.Fingerprint), visitor.Score, m.cookieTTL)
+	cookie, err := m.cookieIssuer.Issue(ip, r.Host, browserfp.Hash(parsedFingerprint), visitor.Score, m.cookieTTL)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cookie_issue_failed")
 		return
@@ -222,29 +216,7 @@ func validateSubmission(submission Submission) error {
 	if submission.ElapsedMS < 0 {
 		return errors.New("negative elapsed_ms")
 	}
-	fp := submission.Fingerprint
-	if fp.UA == "" || fp.Lang == "" || fp.Screen == "" || fp.CanvasHash == "" || fp.WebGLRenderer == "" {
-		return errors.New("missing fingerprint field")
-	}
-	if !screenPattern.MatchString(fp.Screen) {
-		return errors.New("invalid screen")
-	}
-	if fp.CPU < 1 || fp.CPU > 256 || fp.Touch < 0 || fp.Plugins < 0 {
-		return errors.New("invalid fingerprint numeric field")
-	}
-	if len(fp.CanvasHash) != 64 {
-		return errors.New("invalid canvas hash")
-	}
-	if _, err := hex.DecodeString(fp.CanvasHash); err != nil {
-		return errors.New("invalid canvas hash")
-	}
 	return nil
-}
-
-func fingerprintDigest(fingerprint Fingerprint) string {
-	raw, _ := json.Marshal(fingerprint)
-	sum := sha256.Sum256(raw)
-	return hex.EncodeToString(sum[:])
 }
 
 func writeTokenError(w http.ResponseWriter, err error) {

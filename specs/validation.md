@@ -56,6 +56,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 2.5 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 2.5 | `go build -o waf ./cmd/waf` | pass | Challenge middleware wired after access and before rate/antibot/trust |
 | 2026-06-04 | Slice 2.5 | Runtime challenge page request | pass | No-cookie request returned 200 challenge page with branding and token |
+| 2026-06-04 | Slice 2.6 | `go test ./...` | pass | Includes fingerprint parsing, canonical hash, invalid shape rejection, and headless WebGL rejection with score -30 |
+| 2026-06-04 | Slice 2.6 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 2.6 | `go build -o waf ./cmd/waf` | pass | Fingerprint validation integrated into `/waf/verify` |
 
 ## Quality Gates Checklist
 

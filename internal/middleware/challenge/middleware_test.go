@@ -2,7 +2,6 @@ package challenge
 
 import (
 	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"html/template"
@@ -119,6 +118,31 @@ func TestMiddlewareVerifyInvalidPowDecrementsScore(t *testing.T) {
 	}
 }
 
+func TestMiddlewareVerifyHeadlessWebGLDecrementsScore(t *testing.T) {
+	middleware, store := newTestChallengeMiddleware(t)
+	defer store.Close()
+	token, err := middleware.tokenIssuer.GenerateForRedirect("3.3.3.3", "example.test", "/page")
+	if err != nil {
+		t.Fatalf("GenerateForRedirect() error = %v", err)
+	}
+	nonce := solvePow(t, token, middleware.difficulty)
+	request := verifyRequest(t, "3.3.3.3:1234", submissionJSONWithRenderer(token, nonce, 1200, "Google SwiftShader"))
+	response := httptest.NewRecorder()
+
+	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), "headless_webgl_renderer") {
+		t.Fatalf("response missing headless_webgl_renderer: %s", response.Body.String())
+	}
+	visitor, ok := store.GetVisitor(trust.HashIP("3.3.3.3"))
+	if !ok || visitor.Score != 20 {
+		t.Fatalf("score = %v ok=%v, want 20", visitor, ok)
+	}
+}
+
 func TestMiddlewareVerifyRejectsTimingErrors(t *testing.T) {
 	middleware, _ := newTestChallengeMiddleware(t)
 	token, err := middleware.tokenIssuer.GenerateForRedirect("3.3.3.3", "example.test", "/page")
@@ -205,6 +229,10 @@ func verifyRequest(t *testing.T, remoteAddr string, body string) *http.Request {
 }
 
 func submissionJSON(token string, nonce string, elapsedMS int) string {
+	return submissionJSONWithRenderer(token, nonce, elapsedMS, "ANGLE")
+}
+
+func submissionJSONWithRenderer(token string, nonce string, elapsedMS int, renderer string) string {
 	return fmt.Sprintf(`{
 		"token": %q,
 		"nonce": %q,
@@ -217,10 +245,10 @@ func submissionJSON(token string, nonce string, elapsedMS int) string {
 			"cpu": 4,
 			"touch": 0,
 			"canvas_hash": "%s",
-			"webgl_renderer": "ANGLE",
+			"webgl_renderer": %q,
 			"plugins": 3
 		}
-	}`, token, nonce, elapsedMS, strings.Repeat("a", 64))
+	}`, token, nonce, elapsedMS, strings.Repeat("a", 64), renderer)
 }
 
 func solvePow(t *testing.T, token string, difficultyBits int) string {
@@ -234,20 +262,4 @@ func solvePow(t *testing.T, token string, difficultyBits int) string {
 	}
 	t.Fatal("could not solve PoW")
 	return ""
-}
-
-func TestFingerprintDigestIsSHA256Hex(t *testing.T) {
-	hash := fingerprintDigest(Fingerprint{
-		UA:            "Mozilla/5.0",
-		TZ:            0,
-		Lang:          "en-US",
-		Screen:        "1920x1080x24",
-		CPU:           4,
-		CanvasHash:    strings.Repeat("a", 64),
-		WebGLRenderer: "ANGLE",
-		Plugins:       3,
-	})
-	if len(hash) != hex.EncodedLen(sha256.Size) {
-		t.Fatalf("hash len = %d, want 64", len(hash))
-	}
 }

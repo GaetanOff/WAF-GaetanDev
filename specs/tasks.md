@@ -113,10 +113,11 @@ last-updated: 2026-06-04
 - **Spec** : requirements FR-06, features/js-challenge.feature, schemas/challenge-submission.schema.json
 
 ### T2.6 — Fingerprint validation
-- [ ] `fingerprint.Parse(submission)` : extrait et valide les signaux
-- [ ] `fingerprint.Hash(fp) string` : SHA-256 des 9 signaux
-- [ ] Détection WebGL headless : SwiftShader, llvmpipe → score -30
-- [ ] Intégration dans le verify handler
+- [x] `fingerprint.Parse(submission)` : extrait et valide les signaux
+- [x] `fingerprint.Hash(fp) string` : SHA-256 des 9 signaux
+- [x] Détection WebGL headless : SwiftShader, llvmpipe → score -30
+- [x] Intégration dans le verify handler
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. WebGL headless rejeté avec erreur `headless_webgl_renderer` et score -30.
 - **Spec** : requirements FR-07, ADR-004
 
 ---
