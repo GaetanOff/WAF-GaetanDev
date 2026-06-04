@@ -1,0 +1,49 @@
+# ---------------------------------------------------------------------------
+# Nginx d'origine derrière le WAF GaetanDev — configuration minimale
+# ---------------------------------------------------------------------------
+# Chaîne : Cloudflare ──▶ WAF (Go, :8080) ──▶ CE nginx (origine)
+#
+# Le WAF transmet l'IP réelle du visiteur dans X-Forwarded-For et X-Real-IP.
+# Ce fichier montre comment l'origine récupère cette IP réelle (real_ip) afin
+# que les logs et l'application voient l'adresse du visiteur, pas celle du WAF.
+#
+# À adapter : root, upstream applicatif, et l'adresse du WAF dans set_real_ip_from.
+# ---------------------------------------------------------------------------
+
+server {
+    listen 80;
+    server_name _;
+
+    # --- Récupération de l'IP réelle transmise par le WAF -------------------
+    # N'autoriser real_ip QUE depuis l'adresse du WAF (jamais depuis Internet).
+    set_real_ip_from 10.0.0.0/8;     # <-- réseau/IP du WAF
+    set_real_ip_from 127.0.0.1;
+    real_ip_header   X-Forwarded-For;
+    real_ip_recursive on;
+
+    # --- Sécurité : ne servir que les requêtes venant du WAF ----------------
+    # Décommentez et renseignez l'IP du WAF pour refuser tout accès direct.
+    # allow 10.0.0.0/8;
+    # deny  all;
+
+    # --- Application statique -----------------------------------------------
+    root /var/www/html;
+    index index.html;
+
+    location / {
+        try_files $uri $uri/ =404;
+    }
+
+    # --- Ou reverse proxy vers une app applicative --------------------------
+    # location / {
+    #     proxy_pass         http://127.0.0.1:3000;
+    #     proxy_set_header   Host              $host;
+    #     proxy_set_header   X-Real-IP         $remote_addr;   # IP réelle (via real_ip)
+    #     proxy_set_header   X-Forwarded-For   $proxy_add_x_forwarded_for;
+    #     proxy_set_header   X-Forwarded-Proto https;          # TLS terminé par Cloudflare
+    # }
+
+    # Log au format combined : $remote_addr contient désormais l'IP du visiteur.
+    access_log /var/log/nginx/origin.access.log combined;
+    error_log  /var/log/nginx/origin.error.log warn;
+}

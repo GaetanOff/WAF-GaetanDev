@@ -84,6 +84,7 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 5.3 | `go test ./...` | pass | Added `runHealthCheck` test (200 → ok, 503 → error, unreachable → error) |
 | 2026-06-04 | Slice 5.3 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 5.3 | `docker build` | not run | Docker Desktop Linux engine not running locally; Dockerfile/compose authored against the verified static build |
+| 2026-06-04 | Slice 5.4 | README + nginx guide + changelog authored | n/a | README (archi, quick start, Cloudflare deploy, admin, tests, layout), `deploy/nginx/upstream.conf.example`, `specs/changelog.md` [0.1.0] |
 
 ## Quality Gates Checklist
 

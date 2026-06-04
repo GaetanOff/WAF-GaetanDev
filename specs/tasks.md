@@ -1,6 +1,6 @@
 ---
 status: draft
-sprint: 1
+sprint: 5
 last-updated: 2026-06-04
 ---
 
@@ -194,7 +194,10 @@ last-updated: 2026-06-04
 - **Spec** : requirements NFR-05
 
 ### T5.4 — Documentation
-- [ ] `README.md` : installation, configuration, déploiement Cloudflare
-- [ ] `configs/config.example.yaml` finalisé
-- [ ] Guide nginx.conf minimal pour l'upstream
-- [ ] Changelog initial v0.1.0
+- [x] `README.md` : installation, configuration, déploiement Cloudflare
+- [x] `configs/config.example.yaml` finalisé (multi-domaine, secrets env, honeypot)
+- [x] Guide nginx.conf minimal pour l'upstream (`deploy/nginx/upstream.conf.example`)
+- [x] Changelog initial v0.1.0 (`specs/changelog.md`, format Keep a Changelog)
+- **Acceptance** : un nouvel arrivant peut builder, configurer et déployer depuis le README
+- **Validation 2026-06-04** : README complet (archi, quick start, Cloudflare, admin, tests, structure). Guide nginx d'origine avec récupération real_ip. Changelog [0.1.0] documentant le périmètre livré.
+- **Spec** : global-documentation.mdc
