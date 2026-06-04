@@ -59,6 +59,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 2.6 | `go test ./...` | pass | Includes fingerprint parsing, canonical hash, invalid shape rejection, and headless WebGL rejection with score -30 |
 | 2026-06-04 | Slice 2.6 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 2.6 | `go build -o waf ./cmd/waf` | pass | Fingerprint validation integrated into `/waf/verify` |
+| 2026-06-04 | Slice 3.1 | `go test ./...` | pass | Includes circuit breaker open after 5 violations, middleware 403 `CIRCUIT_BREAK`, and 300s expiry |
+| 2026-06-04 | Slice 3.1 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 3.1 | `go build -o waf ./cmd/waf` | pass | AntiDDoS circuit breaker wired into the public middleware pipeline |
 
 ## Quality Gates Checklist
 

@@ -125,9 +125,10 @@ last-updated: 2026-06-04
 ## Sprint 3 — Anti-DDoS avancé (Phase 3)
 
 ### T3.1 — Circuit Breaker
-- [ ] `breaker.CircuitBreaker` : `RecordViolation()`, `IsOpen() bool`, TTL fermeture
-- [ ] Middleware AntiDDoS : ouvre le circuit après N violations, HTTP 403
-- [ ] Tests : 5 violations → circuit ouvert, expiration → circuit fermé
+- [x] `breaker.CircuitBreaker` : `RecordViolation()`, `IsOpen() bool`, TTL fermeture
+- [x] Middleware AntiDDoS : ouvre le circuit après N violations, HTTP 403
+- [x] Tests : 5 violations → circuit ouvert, expiration → circuit fermé
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. Circuit ouvert après 5 violations, réponse 403 `CIRCUIT_BREAK`, fermeture après 300s.
 - **Spec** : requirements FR-08, features/anti-ddos.feature
 
 ### T3.2 — Mode dégradé global

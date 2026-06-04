@@ -15,6 +15,7 @@ import (
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/antibot"
+	"github.com/gaetandev/waf/internal/middleware/antiddos"
 	"github.com/gaetandev/waf/internal/middleware/challenge"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/middleware/ratelimit"
@@ -78,6 +79,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	antiDDoS := antiddos.New(antiddos.NewCircuitBreaker(store, antiddos.DefaultViolationThreshold, antiddos.DefaultOpenDuration))
 	rateLimiter, err := ratelimit.New(store, scoreManager, *cfg)
 	if err != nil {
 		return err
@@ -90,7 +92,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
-		Handler:           routes(*cfg, accessRules, rateLimiter, antiBot, challengeMiddleware, scoreManager, proxyHandler),
+		Handler:           routes(*cfg, accessRules, antiDDoS, rateLimiter, antiBot, challengeMiddleware, scoreManager, proxyHandler),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
@@ -128,7 +130,7 @@ func run() error {
 	return <-errs
 }
 
-func routes(cfg config.Config, accessRules *access.RuleSet, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, proxyHandler http.Handler) http.Handler {
+func routes(cfg config.Config, accessRules *access.RuleSet, antiDDoS antiddos.Middleware, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, proxyHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/waf/health", healthHandler)
 	proxyHandler = scoreManager.Middleware(proxyHandler)
@@ -136,6 +138,7 @@ func routes(cfg config.Config, accessRules *access.RuleSet, rateLimiter *ratelim
 	if cfg.RateLimit.Enabled {
 		proxyHandler = rateLimiter.Handler(proxyHandler)
 	}
+	proxyHandler = antiDDoS.Handler(proxyHandler)
 	if cfg.Challenge.Enabled {
 		proxyHandler = challengeMiddleware.Handler(proxyHandler)
 	}
