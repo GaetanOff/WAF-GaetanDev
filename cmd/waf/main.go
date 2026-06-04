@@ -15,6 +15,7 @@ import (
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/antibot"
+	"github.com/gaetandev/waf/internal/middleware/challenge"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/middleware/ratelimit"
 	"github.com/gaetandev/waf/internal/proxy"
@@ -82,10 +83,14 @@ func run() error {
 		return err
 	}
 	antiBot := antibot.New(antibot.NewRules(*cfg), scoreManager)
+	challengeMiddleware, err := challenge.NewMiddleware(*cfg, scoreManager, "web/challenge.html")
+	if err != nil {
+		return err
+	}
 
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
-		Handler:           routes(*cfg, accessRules, rateLimiter, antiBot, scoreManager, proxyHandler),
+		Handler:           routes(*cfg, accessRules, rateLimiter, antiBot, challengeMiddleware, scoreManager, proxyHandler),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
@@ -123,13 +128,16 @@ func run() error {
 	return <-errs
 }
 
-func routes(cfg config.Config, accessRules *access.RuleSet, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, scoreManager *trust.ScoreManager, proxyHandler http.Handler) http.Handler {
+func routes(cfg config.Config, accessRules *access.RuleSet, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, proxyHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/waf/health", healthHandler)
 	proxyHandler = scoreManager.Middleware(proxyHandler)
 	proxyHandler = antiBot.Handler(proxyHandler)
 	if cfg.RateLimit.Enabled {
 		proxyHandler = rateLimiter.Handler(proxyHandler)
+	}
+	if cfg.Challenge.Enabled {
+		proxyHandler = challengeMiddleware.Handler(proxyHandler)
 	}
 	proxyHandler = access.Middleware(accessRules, proxyHandler)
 	if cfg.Cloudflare.Trusted {

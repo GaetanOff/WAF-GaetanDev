@@ -103,12 +103,13 @@ last-updated: 2026-06-04
 - **Spec** : requirements FR-06, ADR-003
 
 ### T2.5 — Page challenge + /waf/verify
-- [ ] `challenge.html` : template Go, injection Token/Difficulty/RedirectURL
-- [ ] Middleware Challenge : sert la page si pas de cookie valide
-- [ ] Handler `POST /waf/verify` : parse ChallengeSubmission, valide tout
-- [ ] On success : émet cookie + `{"redirect_url": "..."}` 200
-- [ ] On failure : erreur 400 avec code machine-readable
-- [ ] Tests d'intégration : flow complet challenge → cookie → pass
+- [x] `challenge.html` : template Go, injection Token/Difficulty/RedirectURL
+- [x] Middleware Challenge : sert la page si pas de cookie valide
+- [x] Handler `POST /waf/verify` : parse ChallengeSubmission, valide tout
+- [x] On success : émet cookie + `{"redirect_url": "..."}` 200
+- [x] On failure : erreur 400 avec code machine-readable
+- [x] Tests d'intégration : flow complet challenge → cookie → pass
+- **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. Runtime sans cookie → page challenge 200 avec token.
 - **Spec** : requirements FR-06, features/js-challenge.feature, schemas/challenge-submission.schema.json
 
 ### T2.6 — Fingerprint validation

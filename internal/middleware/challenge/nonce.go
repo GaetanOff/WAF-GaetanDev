@@ -27,10 +27,11 @@ type TokenIssuer struct {
 }
 
 type TokenPayload struct {
-	IPHash    string `json:"ip_hash"`
-	Domain    string `json:"domain"`
-	IssuedAt  int64  `json:"issued_at"`
-	ExpiresAt int64  `json:"expires_at"`
+	IPHash      string `json:"ip_hash"`
+	Domain      string `json:"domain"`
+	RedirectURL string `json:"redirect_url,omitempty"`
+	IssuedAt    int64  `json:"issued_at"`
+	ExpiresAt   int64  `json:"expires_at"`
 }
 
 func NewTokenIssuer(key string, ttl time.Duration) TokenIssuer {
@@ -50,12 +51,17 @@ func ValidateToken(token string, ip string, domain string, key string) (*TokenPa
 }
 
 func (i TokenIssuer) Generate(ip string, domain string) (string, error) {
+	return i.GenerateForRedirect(ip, domain, "")
+}
+
+func (i TokenIssuer) GenerateForRedirect(ip string, domain string, redirectURL string) (string, error) {
 	now := i.now()
 	payload := TokenPayload{
-		IPHash:    trust.HashIP(ip),
-		Domain:    domain,
-		IssuedAt:  now.Unix(),
-		ExpiresAt: now.Add(i.TTL).Unix(),
+		IPHash:      trust.HashIP(ip),
+		Domain:      domain,
+		RedirectURL: redirectURL,
+		IssuedAt:    now.Unix(),
+		ExpiresAt:   now.Add(i.TTL).Unix(),
 	}
 
 	rawPayload, err := json.Marshal(payload)

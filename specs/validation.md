@@ -52,6 +52,10 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | Slice 2.4 | `go test ./...` | pass | Includes HMAC token generation/validation, TTL expiry, IP/domain mismatch, and PoW known vectors |
 | 2026-06-04 | Slice 2.4 | `go vet ./...` | pass | No vet findings |
 | 2026-06-04 | Slice 2.4 | `go build -o waf ./cmd/waf` | pass | Challenge token and PoW packages compile into the WAF binary |
+| 2026-06-04 | Slice 2.5 | `go test ./...` | pass | Includes challenge page, `/waf/verify` success, Set-Cookie, redirect, valid cookie pass, token/Pow/timing errors |
+| 2026-06-04 | Slice 2.5 | `go vet ./...` | pass | No vet findings |
+| 2026-06-04 | Slice 2.5 | `go build -o waf ./cmd/waf` | pass | Challenge middleware wired after access and before rate/antibot/trust |
+| 2026-06-04 | Slice 2.5 | Runtime challenge page request | pass | No-cookie request returned 200 challenge page with branding and token |
 
 ## Quality Gates Checklist
 
