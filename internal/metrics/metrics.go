@@ -32,6 +32,7 @@ type Metrics struct {
 	verifiedBots    *prometheus.CounterVec
 	activeVisitors  prometheus.Gauge
 	visitorsByState *prometheus.GaugeVec
+	powDifficulty   prometheus.Gauge
 	mu              sync.Mutex
 	visitors        map[string]string
 	now             func() time.Time
@@ -82,11 +83,20 @@ func New() *Metrics {
 			Name: "waf_visitors_by_state",
 			Help: "Number of active visitors by trust state.",
 		}, []string{"state"}),
+		powDifficulty: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "waf_challenge_pow_difficulty",
+			Help: "Current adaptive proof-of-work difficulty in bits.",
+		}),
 		visitors: make(map[string]string),
 		now:      time.Now,
 	}
-	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState)
+	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty)
 	return m
+}
+
+// SetPowDifficulty publie la difficulté courante du PoW adaptatif (FR-14).
+func (m *Metrics) SetPowDifficulty(bits int) {
+	m.powDifficulty.Set(float64(bits))
 }
 
 func (m *Metrics) Handler() http.Handler {

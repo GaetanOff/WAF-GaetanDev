@@ -111,6 +111,12 @@ threat_intel:
     url: "https://api.abuseipdb.com/api/v2/check"
     api_key: ""              # preferer une injection via secret/env
 
+# Difficulte de PoW adaptative (FR-14) : monte sous attaque, redescend (decay)
+adaptive:
+  enabled: true
+  max_difficulty: 24         # plafond de bits sous attaque critique
+  decay_tau: "5m"            # constante de temps de retour au niveau normal
+
 # Challenge JavaScript
 challenge:
   enabled: true

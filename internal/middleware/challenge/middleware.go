@@ -24,8 +24,27 @@ type Middleware struct {
 	template     *template.Template
 	cookieTTL    time.Duration
 	difficulty   int
+	difficultyFn func() int
 	minElapsedMS int
 	maxElapsedMS int
+}
+
+// WithDifficultyProvider branche un fournisseur de difficulté adaptative
+// (FR-14). En son absence, la difficulté statique de config est utilisée.
+func (m Middleware) WithDifficultyProvider(fn func() int) Middleware {
+	m.difficultyFn = fn
+	return m
+}
+
+// currentDifficulty retourne la difficulté adaptative si fournie, sinon la
+// difficulté statique de configuration.
+func (m Middleware) currentDifficulty() int {
+	if m.difficultyFn != nil {
+		if d := m.difficultyFn(); d > 0 {
+			return d
+		}
+	}
+	return m.difficulty
 }
 
 type PageData struct {
@@ -143,7 +162,11 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 		writeTokenError(w, err)
 		return
 	}
-	if !ValidatePow(submission.Token, submission.Nonce, m.difficulty) {
+	powDifficulty := payload.Difficulty
+	if powDifficulty <= 0 {
+		powDifficulty = m.difficulty
+	}
+	if !ValidatePow(submission.Token, submission.Nonce, powDifficulty) {
 		m.scores.Apply(ip, r.Host, trust.DeltaChallengeFailed)
 		writeError(w, http.StatusBadRequest, "invalid_pow")
 		return
@@ -195,7 +218,8 @@ func (m Middleware) hasValidCookie(r *http.Request) bool {
 
 func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
 	redirectURL := r.URL.RequestURI()
-	token, err := m.tokenIssuer.GenerateForRedirect(cloudflare.RealIP(r), r.Host, redirectURL)
+	difficulty := m.currentDifficulty()
+	token, err := m.tokenIssuer.GenerateForRedirectWithDifficulty(cloudflare.RealIP(r), r.Host, redirectURL, difficulty)
 	if err != nil {
 		http.Error(w, "challenge token error", http.StatusInternalServerError)
 		return
@@ -204,7 +228,7 @@ func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 	_ = m.template.Execute(w, PageData{
 		Token:       token,
-		Difficulty:  m.difficulty,
+		Difficulty:  difficulty,
 		RedirectURL: redirectURL,
 	})
 }

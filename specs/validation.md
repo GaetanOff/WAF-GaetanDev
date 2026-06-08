@@ -131,6 +131,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 8.3 | `go test ./...` | pass | New `internal/threatintel` (FR-13): async TTL-cached checker, local CIDR feeds + AbuseIPDB HTTP source; critical→deterministic trigger, else idempotent trust ceiling. 100% stdlib (no maxminddb) |
 | 2026-06-08 | Slice 8.3 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 8.3 | `go build -o waf.exe ./cmd/waf` | pass | Threat-intel wired as opt-in Phase 8 detector |
+| 2026-06-08 | Slice 8.4 | `go test ./...` | pass | New `internal/adaptive` (FR-14): attack-intensity controller, immediate rise + exponential decay, difficulty embedded in signed token (anti-downgrade), `waf_challenge_pow_difficulty` gauge |
+| 2026-06-08 | Slice 8.4 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 8.4 | `go build -o waf.exe ./cmd/waf` | pass | Adaptive difficulty wired into challenge + metrics |
 
 ## Quality Gates Checklist
 

@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gaetandev/waf/internal/adaptive"
 	"github.com/gaetandev/waf/internal/admin"
 	"github.com/gaetandev/waf/internal/behavioral"
 	"github.com/gaetandev/waf/internal/config"
@@ -107,10 +108,27 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	metrics := wafmetrics.New()
 	// Détecteurs avancés : publient des contributions de signal consommées par le
 	// moteur de risque ; exécutés juste avant lui (Phase 8).
 	detectors := []func(http.Handler) http.Handler{
 		integrity.NewAnalyzer(*cfg).Handler,
+	}
+	var adaptiveController *adaptive.Controller
+	if cfg.Adaptive.Enabled {
+		decayTau, err := parseDuration("adaptive.decay_tau", cfg.Adaptive.DecayTau)
+		if err != nil {
+			return err
+		}
+		adaptiveController = adaptive.NewController(cfg.Challenge.PowDifficulty, cfg.Adaptive.MaxDifficulty, decayTau)
+		controller := adaptiveController
+		detectors = append(detectors, func(next http.Handler) http.Handler {
+			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				controller.Observe()
+				metrics.SetPowDifficulty(controller.Snapshot())
+				next.ServeHTTP(w, r)
+			})
+		})
 	}
 	if cfg.Behavioral.Enabled {
 		behavioralTracker := behavioral.New(cfg.Behavioral.MaxRecords)
@@ -140,8 +158,10 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	if adaptiveController != nil {
+		challengeMiddleware = challengeMiddleware.WithDifficultyProvider(adaptiveController.Difficulty)
+	}
 	securityLogger := waflogger.New(cfg.Logging)
-	metrics := wafmetrics.New()
 
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,

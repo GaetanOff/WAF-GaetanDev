@@ -31,6 +31,7 @@ type Config struct {
 	Integrity           Integrity      `yaml:"integrity"`
 	Behavioral          Behavioral     `yaml:"behavioral"`
 	ThreatIntel         ThreatIntel    `yaml:"threat_intel"`
+	Adaptive            Adaptive       `yaml:"adaptive"`
 	Challenge           Challenge      `yaml:"challenge"`
 	Whitelist           []string       `yaml:"whitelist"`
 	Blacklist           []string       `yaml:"blacklist"`
@@ -145,6 +146,12 @@ type AbuseIPDB struct {
 	Enabled bool   `yaml:"enabled"`
 	URL     string `yaml:"url"`
 	APIKey  string `yaml:"api_key"`
+}
+
+type Adaptive struct {
+	Enabled       bool   `yaml:"enabled"`
+	MaxDifficulty int    `yaml:"max_difficulty"`
+	DecayTau      string `yaml:"decay_tau"`
 }
 
 type Challenge struct {
@@ -326,6 +333,11 @@ func Default() Config {
 				URL:     "https://api.abuseipdb.com/api/v2/check",
 			},
 		},
+		Adaptive: Adaptive{
+			Enabled:       true,
+			MaxDifficulty: 24,
+			DecayTau:      "5m",
+		},
 		Challenge: Challenge{
 			Enabled:       true,
 			TokenTTL:      "30s",
@@ -431,6 +443,13 @@ func (c *Config) Validate() error {
 		validateDuration(&fields, "threat_intel.cache_ttl", c.ThreatIntel.CacheTTL)
 		if c.ThreatIntel.AbuseIPDB.Enabled && c.ThreatIntel.AbuseIPDB.URL == "" {
 			fields = append(fields, "threat_intel.abuseipdb.url is required when abuseipdb is enabled")
+		}
+	}
+	if c.Adaptive.Enabled {
+		validateDuration(&fields, "adaptive.decay_tau", c.Adaptive.DecayTau)
+		validateRange(&fields, "adaptive.max_difficulty", c.Adaptive.MaxDifficulty, 8, 32)
+		if c.Adaptive.MaxDifficulty < c.Challenge.PowDifficulty {
+			fields = append(fields, "adaptive.max_difficulty must be >= challenge.pow_difficulty")
 		}
 	}
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {

@@ -30,6 +30,7 @@ type TokenPayload struct {
 	IPHash      string `json:"ip_hash"`
 	Domain      string `json:"domain"`
 	RedirectURL string `json:"redirect_url,omitempty"`
+	Difficulty  int    `json:"difficulty,omitempty"`
 	IssuedAt    int64  `json:"issued_at"`
 	ExpiresAt   int64  `json:"expires_at"`
 }
@@ -55,11 +56,18 @@ func (i TokenIssuer) Generate(ip string, domain string) (string, error) {
 }
 
 func (i TokenIssuer) GenerateForRedirect(ip string, domain string, redirectURL string) (string, error) {
+	return i.GenerateForRedirectWithDifficulty(ip, domain, redirectURL, 0)
+}
+
+// GenerateForRedirectWithDifficulty embarque la difficulté du PoW dans le token
+// signé : la validation utilise cette valeur (anti-rétrogradation, FR-14).
+func (i TokenIssuer) GenerateForRedirectWithDifficulty(ip string, domain string, redirectURL string, difficulty int) (string, error) {
 	now := i.now()
 	payload := TokenPayload{
 		IPHash:      trust.HashIP(ip),
 		Domain:      domain,
 		RedirectURL: redirectURL,
+		Difficulty:  difficulty,
 		IssuedAt:    now.Unix(),
 		ExpiresAt:   now.Add(i.TTL).Unix(),
 	}

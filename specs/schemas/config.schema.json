@@ -310,6 +310,15 @@
         }
       }
     },
+    "adaptive": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "max_difficulty": { "type": "integer", "minimum": 8, "maximum": 32, "default": 24 },
+        "decay_tau": { "type": "string", "default": "5m" }
+      }
+    },
     "challenge": {
       "type": "object",
       "additionalProperties": false,

@@ -363,3 +363,15 @@ last-updated: 2026-06-04
 - **Acceptance** : une IP en feed/AbuseIPDB voit sa reputation degradee (plafond) ou est bloquee (critique) sans bloquer la requete sur le lookup (async)
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-advanced.md FR-13, NFR-08 ; ADR-006 ; features/threat-intelligence.feature ; plan.md Slice 8.3
+
+### T8.4 - Difficulte de PoW adaptative (FR-14)
+- [x] `internal/adaptive` : contrôleur d'intensite (fenetre glissante + baseline EMA), AII = rate/baseline, niveaux Normal/Eleve(+4)/Critique(+8), plafond configurable
+- [x] Montee immediate, retour par decroissance exponentielle (decay, tau defaut 5m) ; `Difficulty()` (avance le decay) et `Snapshot()` (lecture seule)
+- [x] Difficulte embarquee dans le token signe (`TokenPayload.Difficulty`) -> validation cote serveur via la difficulte du token (anti-retrogradation, FR-14)
+- [x] Challenge : `WithDifficultyProvider`, `servePage` embarque la difficulte courante, `verify` valide avec la difficulte du token
+- [x] Metrique `waf_challenge_pow_difficulty` (gauge) exposee
+- [x] Config `adaptive` (enabled, max_difficulty 24, decay_tau 5m) + schema + exemple + validation
+- [x] Tests : mapping AII->bits, montee/decroissance, contrôleur sous attaque, snapshot read-only
+- **Acceptance** : sous attaque la difficulte monte (jusqu'au plafond) puis redescend ; un client legitime n'est jamais rejete par rehaussement (difficulte figee dans le token)
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-advanced.md FR-14 ; ADR-010 ; features/adaptive-protection.feature ; plan.md Slice 8.4
