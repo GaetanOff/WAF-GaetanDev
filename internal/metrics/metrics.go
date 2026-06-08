@@ -33,6 +33,7 @@ type Metrics struct {
 	activeVisitors  prometheus.Gauge
 	visitorsByState *prometheus.GaugeVec
 	powDifficulty   prometheus.Gauge
+	clusterEvents   *prometheus.CounterVec
 	mu              sync.Mutex
 	visitors        map[string]string
 	now             func() time.Time
@@ -87,16 +88,25 @@ func New() *Metrics {
 			Name: "waf_challenge_pow_difficulty",
 			Help: "Current adaptive proof-of-work difficulty in bits.",
 		}),
+		clusterEvents: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_cluster_sync_events_total",
+			Help: "Cluster synchronization events applied, by type.",
+		}, []string{"type"}),
 		visitors: make(map[string]string),
 		now:      time.Now,
 	}
-	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty)
+	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.clusterEvents)
 	return m
 }
 
 // SetPowDifficulty publie la difficulté courante du PoW adaptatif (FR-14).
 func (m *Metrics) SetPowDifficulty(bits int) {
 	m.powDifficulty.Set(float64(bits))
+}
+
+// IncClusterSync compte un événement de synchronisation cluster appliqué (FR-20).
+func (m *Metrics) IncClusterSync(eventType string) {
+	m.clusterEvents.WithLabelValues(eventType).Inc()
 }
 
 func (m *Metrics) Handler() http.Handler {

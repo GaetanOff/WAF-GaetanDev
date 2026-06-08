@@ -52,6 +52,25 @@ func (r *RuleSet) Update(whitelist []string, blacklist []string, userAgents []st
 	return nil
 }
 
+// AddBlacklist ajoute une IP ou un CIDR à la blacklist sans remplacer le jeu
+// existant (utilisé pour appliquer une propagation cluster, FR-20). Idempotent.
+func (r *RuleSet) AddBlacklist(value string) error {
+	matcher, err := compileIPRules([]string{value})
+	if err != nil {
+		return err
+	}
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.blacklist.exact == nil {
+		r.blacklist.exact = make(map[netip.Addr]struct{})
+	}
+	for addr := range matcher.exact {
+		r.blacklist.exact[addr] = struct{}{}
+	}
+	r.blacklist.cidrs = append(r.blacklist.cidrs, matcher.cidrs...)
+	return nil
+}
+
 func (r *RuleSet) IsWhitelisted(ip string, userAgent string) (bool, string) {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {

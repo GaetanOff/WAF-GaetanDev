@@ -435,3 +435,16 @@ last-updated: 2026-06-04
 - **Acceptance** : l'upstream peut rejeter les requetes sans token WAF valide ; le token tourne sans coupure (tolerance 2h)
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-advanced.md FR-19 ; features/origin-protection.feature ; plan.md Slice 8.9
+
+### T8.10 - Backend Redis + synchronisation cluster (FR-20)
+- [x] `internal/cluster` : modele Event (blacklist_add, score_critical, circuit_open, degraded_mode), interface `Bus`, `LocalBus` (mono-noeud/tests), `RedisBus` (go-redis Pub/Sub)
+- [x] `Syncer` applique les events entrants a l'etat local : blacklist -> `access.RuleSet.AddBlacklist` (ajoute) ; score_critical -> `store.SetVisitor`
+- [x] Fallback autonome : erreur de bus silencieuse cote publication ; boucle d'abonnement s'arrete a l'annulation du contexte
+- [x] `access.RuleSet.AddBlacklist` ajoute (incremental, idempotent)
+- [x] Metrique `waf_cluster_sync_events_total{type}`
+- [x] Config `cluster` (enabled opt-in, channel) reutilisant `storage.redis` ; dependance `github.com/redis/go-redis/v9` ajoutee (seule dep externe de la Phase 8) ; schema + exemple + validation (exige storage.redis.address)
+- [x] Tests : LocalBus roundtrip, Syncer applique blacklist + score critique
+- **Note** : emission des events locaux (hooks admin/access) exposee via `Syncer.Publish` mais cablage des emetteurs differe ; RedisBus teste en integration (docker-compose) plutot qu'en unitaire
+- **Acceptance** : un event de blacklist/score critique recu se propage a l'etat local ; le noeud fonctionne sans Redis (degrade)
+- **Validation 2026-06-08** : `go mod tidy`, `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-advanced.md FR-20 ; ADR-002 ; features/multi-node-sync.feature ; plan.md Slice 8.10

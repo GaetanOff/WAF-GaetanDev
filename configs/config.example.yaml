@@ -149,6 +149,11 @@ origin_protection:
   enabled: false             # opt-in
   # secret: "change-me-min-16-chars"  # preferer WAF_ORIGIN_SECRET (env)
 
+# Synchronisation multi-noeuds (FR-20) : Redis Pub/Sub (necessite storage.redis)
+cluster:
+  enabled: false             # opt-in
+  channel: "waf:events"
+
 # Challenge JavaScript
 challenge:
   enabled: true

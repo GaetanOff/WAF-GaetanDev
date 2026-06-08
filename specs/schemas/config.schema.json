@@ -366,6 +366,14 @@
         "secret": { "type": "string" }
       }
     },
+    "cluster": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "channel": { "type": "string", "default": "waf:events" }
+      }
+    },
     "challenge": {
       "type": "object",
       "additionalProperties": false,

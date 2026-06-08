@@ -15,6 +15,7 @@ import (
 	"github.com/gaetandev/waf/internal/adaptive"
 	"github.com/gaetandev/waf/internal/admin"
 	"github.com/gaetandev/waf/internal/behavioral"
+	"github.com/gaetandev/waf/internal/cluster"
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/deception"
 	"github.com/gaetandev/waf/internal/geo"
@@ -190,6 +191,26 @@ func run() error {
 	}
 	if adaptiveController != nil {
 		challengeMiddleware = challengeMiddleware.WithDifficultyProvider(adaptiveController.Difficulty)
+	}
+	// Synchronisation multi-nœuds (FR-20) : applique les événements entrants
+	// (blacklist, scores critiques) à l'état local. Fallback autonome si Redis
+	// est indisponible.
+	if cfg.Cluster.Enabled && cfg.Storage.Redis != nil {
+		channel := cfg.Cluster.Channel
+		if channel == "" {
+			channel = "waf:events"
+		}
+		bus := cluster.NewRedisBus(*cfg.Storage.Redis, channel)
+		defer func() { _ = bus.Close() }()
+		syncer := cluster.NewSyncer(bus, store, accessRules)
+		clusterCtx, clusterCancel := context.WithCancel(context.Background())
+		defer clusterCancel()
+		if err := bus.Subscribe(clusterCtx, func(event cluster.Event) {
+			syncer.Apply(event)
+			metrics.IncClusterSync(event.Type)
+		}); err != nil {
+			return err
+		}
 	}
 	securityLogger := waflogger.New(cfg.Logging)
 

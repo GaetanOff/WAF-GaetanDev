@@ -149,6 +149,10 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 8.9 | `go test ./...` | pass | New `internal/origin` (FR-19): hourly-rotating HMAC origin token (2h tolerance), injector to upstream, `/waf/origin/verify` endpoint, `WAF_ORIGIN_SECRET` env override |
 | 2026-06-08 | Slice 8.9 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 8.9 | `go build -o waf.exe ./cmd/waf` | pass | Origin protection wired in routes() (verify endpoint + injector) |
+| 2026-06-08 | Slice 8.10 | `go mod tidy` | pass | Added `github.com/redis/go-redis/v9` v9.7.0 (+ transitive deps) |
+| 2026-06-08 | Slice 8.10 | `go test ./...` | pass | New `internal/cluster` (FR-20): Event model, Bus iface, LocalBus + RedisBus (Pub/Sub), Syncer applies inbound blacklist/score, `RuleSet.AddBlacklist`, `waf_cluster_sync_events_total` metric |
+| 2026-06-08 | Slice 8.10 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 8.10 | `go build -o waf.exe ./cmd/waf` | pass | Cluster subscriber wired (autonomous fallback if Redis down). Phase 8 complete |
 
 ## Quality Gates Checklist
 

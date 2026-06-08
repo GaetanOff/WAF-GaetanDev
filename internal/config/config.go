@@ -38,6 +38,7 @@ type Config struct {
 	Deception           Deception        `yaml:"deception"`
 	Rules               Rules            `yaml:"rules"`
 	OriginProtection    OriginProtection `yaml:"origin_protection"`
+	Cluster             Cluster          `yaml:"cluster"`
 	Challenge           Challenge        `yaml:"challenge"`
 	Whitelist           []string         `yaml:"whitelist"`
 	Blacklist           []string         `yaml:"blacklist"`
@@ -190,6 +191,11 @@ type Rules struct {
 type OriginProtection struct {
 	Enabled bool   `yaml:"enabled"`
 	Secret  string `yaml:"secret"`
+}
+
+type Cluster struct {
+	Enabled bool   `yaml:"enabled"`
+	Channel string `yaml:"channel"`
 }
 
 type Challenge struct {
@@ -522,6 +528,9 @@ func (c *Config) Validate() error {
 	}
 	if c.OriginProtection.Enabled && len(c.OriginProtection.Secret) < 16 {
 		fields = append(fields, "origin_protection.secret is required (>= 16 chars); set WAF_ORIGIN_SECRET")
+	}
+	if c.Cluster.Enabled && (c.Storage.Redis == nil || c.Storage.Redis.Address == "") {
+		fields = append(fields, "cluster.enabled requires storage.redis.address")
 	}
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")
