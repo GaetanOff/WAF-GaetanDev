@@ -23,6 +23,7 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/middleware/ratelimit"
 	"github.com/gaetandev/waf/internal/proxy"
+	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -99,6 +100,10 @@ func run() error {
 		return err
 	}
 	antiBot := antibot.New(antibot.NewRules(*cfg), scoreManager)
+	riskMiddleware, err := risk.NewMiddleware(store, scoreManager, *cfg)
+	if err != nil {
+		return err
+	}
 	challengeMiddleware, err := challenge.NewMiddleware(*cfg, scoreManager, "web/challenge.html")
 	if err != nil {
 		return err
@@ -108,7 +113,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
-		Handler:           routes(*cfg, accessRules, securityLogger, metrics, antiDDoS, rateLimiter, antiBot, challengeMiddleware, scoreManager, proxyHandler),
+		Handler:           routes(*cfg, accessRules, securityLogger, metrics, antiDDoS, rateLimiter, antiBot, riskMiddleware, challengeMiddleware, scoreManager, proxyHandler),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
@@ -166,11 +171,15 @@ func run() error {
 	return <-errs
 }
 
-func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflogger.Logger, metrics *wafmetrics.Metrics, antiDDoS antiddos.Middleware, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, proxyHandler http.Handler) http.Handler {
+func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflogger.Logger, metrics *wafmetrics.Metrics, antiDDoS antiddos.Middleware, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, riskMiddleware *risk.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, proxyHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/waf/health", healthHandler)
 	mux.Handle("/waf/metrics", metrics.Handler())
-	proxyHandler = scoreManager.Middleware(proxyHandler)
+	if cfg.RiskEngine.Enabled && riskMiddleware != nil {
+		proxyHandler = riskMiddleware.Handler(proxyHandler)
+	} else {
+		proxyHandler = scoreManager.Middleware(proxyHandler)
+	}
 	proxyHandler = antiBot.Handler(proxyHandler)
 	if cfg.RateLimit.Enabled {
 		proxyHandler = rateLimiter.Handler(proxyHandler)

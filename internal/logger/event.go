@@ -23,6 +23,7 @@ type SecurityEvent struct {
 	Action         string
 	Reason         string
 	TrustScore     int
+	ScoreDelta     int
 	LatencyMS      float64
 	WAFLatencyMS   float64
 	UpstreamStatus *int

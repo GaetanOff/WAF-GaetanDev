@@ -275,3 +275,15 @@ last-updated: 2026-06-04
 - **Acceptance** : un humain avec challenge reussi et fingerprint stable obtient `ALLOW` + `sticky_trust=true`, un credit humain empeche un `BLOCK` heuristique, et un trigger deterministe revoque/ne respecte pas le sticky trust
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-detection.md FR-37 ; features/risk-scoring-engine.feature scenarios Credits de preuve humaine ; schemas/visitor.schema.json ; ADR-015 ; plan.md Slice 6.6
+
+### T6.7 - Middleware de decision (integration pipeline)
+- [x] `internal/risk/middleware.go` : middleware HTTP de decision place apres les detecteurs et avant le proxy
+- [x] `cmd/waf/main.go` : `risk.Middleware` cable a la place du mapping direct `ScoreManager.Middleware` quand `risk_engine.enabled=true`
+- [x] Fallback conserve vers `ScoreManager.Middleware` quand le moteur de risque est desactive
+- [x] Le middleware consomme le Trust Score comme signal `reputation` et les headers internes `X-WAF-Risk-*` produits par les detecteurs
+- [x] `RiskAssessment` condensee injectee dans les headers : `X-WAF-Risk-Score`, `X-WAF-Risk-Decision`, `X-WAF-Risk-Confidence`, `X-WAF-Score-Delta`, `X-WAF-Reason`
+- [x] Logger securite : `score_delta` est maintenant emis dans `SecurityEvent`
+- [x] Tests `httptest` : block deterministe avant proxy, block heuristique corrobore, headers condenses, preuve humaine forte, integration routes avant proxy
+- **Acceptance** : le moteur de risque remplace le seuil simple du Trust Score dans le pipeline, bloque avant proxy quand la decision est `BLOCK`, marque les challenges/observations dans les headers, et expose la forme condensee pour logs/metrics
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-detection.md FR-33, FR-34, NFR-17 ; schemas/security-event.schema.json ; ADR-015 ; plan.md Slice 6.7

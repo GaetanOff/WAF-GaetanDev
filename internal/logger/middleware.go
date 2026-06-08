@@ -58,12 +58,23 @@ func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores 
 		Action:         action,
 		Reason:         reason(r, recorder),
 		TrustScore:     trustScore,
+		ScoreDelta:     scoreDelta(r),
 		LatencyMS:      elapsedMS,
 		WAFLatencyMS:   elapsedMS,
 		UpstreamStatus: upstreamStatus(action, recorder.statusCode),
 		CFRay:          optionalHeader(r, "CF-Ray"),
 		CFCountry:      optionalHeader(r, "CF-IPCountry"),
 	}
+}
+
+func scoreDelta(r *http.Request) int {
+	if value := r.Header.Get("X-WAF-Score-Delta"); value != "" {
+		scoreDelta, err := strconv.Atoi(value)
+		if err == nil {
+			return scoreDelta
+		}
+	}
+	return 0
 }
 
 func currentTrustScore(r *http.Request, scores *trust.ScoreManager, ip string) int {

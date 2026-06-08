@@ -109,6 +109,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 6.6 | `go test ./...` | pass | Added human proof credits, sticky trust TTL state, visitor schema field, heuristic BLOCK cap for human credit, deterministic-trigger sticky-trust revocation behavior, and storage-backed tests |
 | 2026-06-08 | Slice 6.6 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 6.6 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after human credit and visitor state changes |
+| 2026-06-08 | Slice 6.7 | `go test ./...` | pass | Added risk decision middleware, pipeline wiring before proxy, Trust Score fallback when disabled, condensed RiskAssessment headers, `score_delta` logging, and httptest route/middleware coverage |
+| 2026-06-08 | Slice 6.7 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 6.7 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after risk middleware pipeline integration |
 
 ## Quality Gates Checklist
 

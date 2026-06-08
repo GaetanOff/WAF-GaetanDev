@@ -16,6 +16,7 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/antiddos"
 	"github.com/gaetandev/waf/internal/middleware/challenge"
 	"github.com/gaetandev/waf/internal/middleware/ratelimit"
+	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -29,7 +30,7 @@ func TestRoutesRejectsForgedCloudflareHeaderWhenTrusted(t *testing.T) {
 	request.Header.Set("CF-Connecting-IP", "198.51.100.25")
 	response := httptest.NewRecorder()
 
-	routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("proxy should not be called")
 	})).ServeHTTP(response, request)
 
@@ -48,7 +49,7 @@ func TestRoutesSkipsCloudflareValidationWhenNotTrusted(t *testing.T) {
 	response := httptest.NewRecorder()
 
 	cfg.Challenge.Enabled = false
-	routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})).ServeHTTP(response, request)
 
@@ -65,7 +66,7 @@ func TestRoutesAppliesWhitelistBeforeBlacklist(t *testing.T) {
 	request.RemoteAddr = "172.16.0.1:443"
 	response := httptest.NewRecorder()
 
-	routes(cfg, newTestRules(t, []string{"172.16.0.1"}, []string{"172.16.0.1"}, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	routes(cfg, newTestRules(t, []string{"172.16.0.1"}, []string{"172.16.0.1"}, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})).ServeHTTP(response, request)
 
@@ -81,7 +82,7 @@ func TestRoutesAppliesRateLimitAfterAccessRules(t *testing.T) {
 	cfg.RateLimit.Burst = 1
 
 	cfg.Challenge.Enabled = false
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -99,8 +100,10 @@ func TestRoutesAppliesAntiBotHoneypot(t *testing.T) {
 	cfg.Cloudflare.Trusted = false
 	cfg.RateLimit.Enabled = false
 	cfg.Challenge.Enabled = false
+	cfg.RiskEngine.Tiers.Tarpit = 70
+	cfg.RiskEngine.Tiers.Block = 75
 
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("proxy should not be called")
 	}))
 	response := httptest.NewRecorder()
@@ -118,7 +121,7 @@ func TestRoutesAppliesGlobalDegradedModeBeforeChallenge(t *testing.T) {
 	cfg.AntiDDoS.GlobalWindow = "1s"
 	cfg.AntiDDoS.RetryAfterSeconds = 5
 
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoSFromConfig(t, cfg), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoSFromConfig(t, cfg), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("proxy should not be called")
 	}))
 
@@ -141,7 +144,7 @@ func TestRoutesExposesPrometheusMetricsEndpoint(t *testing.T) {
 	cfg := config.Default()
 	cfg.Cloudflare.Trusted = false
 	cfg.Challenge.Enabled = false
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	response := httptest.NewRecorder()
@@ -154,6 +157,45 @@ func TestRoutesExposesPrometheusMetricsEndpoint(t *testing.T) {
 	}
 	if !strings.Contains(response.Body.String(), "waf_requests_total") {
 		t.Fatalf("metrics endpoint missing waf_requests_total:\n%s", response.Body.String())
+	}
+}
+
+func TestRoutesAppliesRiskDecisionBeforeProxy(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.RateLimit.Enabled = false
+	cfg.Challenge.Enabled = false
+	cfg.RiskEngine.Tiers.Tarpit = 70
+	cfg.RiskEngine.Tiers.Block = 75
+	store := memory.New(100)
+	defer store.Close()
+	scoreManager, err := trust.NewScoreManager(store, cfg)
+	if err != nil {
+		t.Fatalf("trust.NewScoreManager() error = %v", err)
+	}
+	riskMiddleware, err := risk.NewMiddleware(store, scoreManager, cfg)
+	if err != nil {
+		t.Fatalf("risk.NewMiddleware() error = %v", err)
+	}
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("proxy should not be called")
+	}))
+	request := requestFrom("198.51.100.10:443")
+	request.Header.Set("X-WAF-Risk-Behavioral", "100")
+	request.Header.Set("X-WAF-Risk-TLS", "100")
+	request.Header.Set("X-WAF-Risk-Fingerprint", "100")
+	request.Header.Set("X-WAF-Risk-Integrity", "100")
+	request.Header.Set("X-WAF-Risk-Rate", "100")
+	request.Header.Set("X-WAF-Risk-Geo", "100")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", response.Code)
+	}
+	if response.Header().Get("X-WAF-Reason") != "risk_heuristic" {
+		t.Fatalf("X-WAF-Reason = %q, want risk_heuristic", response.Header().Get("X-WAF-Reason"))
 	}
 }
 
