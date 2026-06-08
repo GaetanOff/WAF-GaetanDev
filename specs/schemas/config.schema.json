@@ -319,6 +319,17 @@
         "decay_tau": { "type": "string", "default": "5m" }
       }
     },
+    "geo": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "allowed_countries": { "type": "array", "items": { "type": "string" } },
+        "blocked_countries": { "type": "array", "items": { "type": "string" } },
+        "challenge_countries": { "type": "array", "items": { "type": "string" } },
+        "challenge_contribution": { "type": "integer", "minimum": 0, "maximum": 100, "default": 60 }
+      }
+    },
     "challenge": {
       "type": "object",
       "additionalProperties": false,

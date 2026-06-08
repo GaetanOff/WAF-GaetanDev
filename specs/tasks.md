@@ -375,3 +375,14 @@ last-updated: 2026-06-04
 - **Acceptance** : sous attaque la difficulte monte (jusqu'au plafond) puis redescend ; un client legitime n'est jamais rejete par rehaussement (difficulte figee dans le token)
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-advanced.md FR-14 ; ADR-010 ; features/adaptive-protection.feature ; plan.md Slice 8.4
+
+### T8.5 - Regles geographiques (FR-16)
+- [x] `internal/geo` : lecture `CF-IPCountry`, ensembles compiles O(1) (allowed/blocked/challenge)
+- [x] Mode whitelist (allowed non vide -> les autres pays en 403), blocage par pays (403), pays a challenge -> contribution `geo` (X-WAF-Risk-geo)
+- [x] Degradation gracieuse : header CF-IPCountry absent -> regles ignorees
+- [x] Config `geo` (enabled opt-in, allowed/blocked/challenge_countries, challenge_contribution) + schema + exemple + validation
+- [x] Cable comme detecteur Phase 8
+- [x] Tests : pays bloque (403), whitelist (FR ok / US 403), pays challenge (contribution 60), header absent -> pass
+- **Acceptance** : les regles par pays bloquent ou renforcent le risque selon CF-IPCountry ; absence de header => aucun effet
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-advanced.md FR-16 ; features/geo-rules.feature ; plan.md Slice 8.5

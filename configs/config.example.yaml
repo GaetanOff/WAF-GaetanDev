@@ -117,6 +117,14 @@ adaptive:
   max_difficulty: 24         # plafond de bits sous attaque critique
   decay_tau: "5m"            # constante de temps de retour au niveau normal
 
+# Regles geographiques (FR-16) : base sur CF-IPCountry (ignore si absent)
+geo:
+  enabled: false             # opt-in
+  allowed_countries: []      # si non vide : mode whitelist (les autres -> 403)
+  blocked_countries: []      # pays -> HTTP 403
+  challenge_countries: []    # pays -> contribution de risque renforcee
+  challenge_contribution: 60
+
 # Challenge JavaScript
 challenge:
   enabled: true

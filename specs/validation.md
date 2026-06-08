@@ -134,6 +134,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 8.4 | `go test ./...` | pass | New `internal/adaptive` (FR-14): attack-intensity controller, immediate rise + exponential decay, difficulty embedded in signed token (anti-downgrade), `waf_challenge_pow_difficulty` gauge |
 | 2026-06-08 | Slice 8.4 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 8.4 | `go build -o waf.exe ./cmd/waf` | pass | Adaptive difficulty wired into challenge + metrics |
+| 2026-06-08 | Slice 8.5 | `go test ./...` | pass | New `internal/geo` (FR-16): CF-IPCountry rules (whitelist/block/challenge), geo risk contribution, graceful no-header pass |
+| 2026-06-08 | Slice 8.5 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 8.5 | `go build -o waf.exe ./cmd/waf` | pass | Geo wired as opt-in Phase 8 detector |
 
 ## Quality Gates Checklist
 

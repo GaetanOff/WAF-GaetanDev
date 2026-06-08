@@ -16,6 +16,7 @@ import (
 	"github.com/gaetandev/waf/internal/admin"
 	"github.com/gaetandev/waf/internal/behavioral"
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/geo"
 	"github.com/gaetandev/waf/internal/integrity"
 	waflogger "github.com/gaetandev/waf/internal/logger"
 	wafmetrics "github.com/gaetandev/waf/internal/metrics"
@@ -153,6 +154,9 @@ func run() error {
 		}
 		threatChecker := threatintel.NewChecker(cacheTTL, sources...)
 		detectors = append(detectors, threatintel.NewMiddleware(threatChecker, scoreManager).Handler)
+	}
+	if cfg.Geo.Enabled {
+		detectors = append(detectors, geo.NewRules(cfg.Geo).Handler)
 	}
 	challengeMiddleware, err := challenge.NewMiddleware(*cfg, scoreManager, "web/challenge.html")
 	if err != nil {

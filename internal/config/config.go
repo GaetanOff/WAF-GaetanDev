@@ -32,6 +32,7 @@ type Config struct {
 	Behavioral          Behavioral     `yaml:"behavioral"`
 	ThreatIntel         ThreatIntel    `yaml:"threat_intel"`
 	Adaptive            Adaptive       `yaml:"adaptive"`
+	Geo                 Geo            `yaml:"geo"`
 	Challenge           Challenge      `yaml:"challenge"`
 	Whitelist           []string       `yaml:"whitelist"`
 	Blacklist           []string       `yaml:"blacklist"`
@@ -152,6 +153,14 @@ type Adaptive struct {
 	Enabled       bool   `yaml:"enabled"`
 	MaxDifficulty int    `yaml:"max_difficulty"`
 	DecayTau      string `yaml:"decay_tau"`
+}
+
+type Geo struct {
+	Enabled               bool     `yaml:"enabled"`
+	AllowedCountries      []string `yaml:"allowed_countries"`
+	BlockedCountries      []string `yaml:"blocked_countries"`
+	ChallengeCountries    []string `yaml:"challenge_countries"`
+	ChallengeContribution int      `yaml:"challenge_contribution"`
 }
 
 type Challenge struct {
@@ -338,6 +347,10 @@ func Default() Config {
 			MaxDifficulty: 24,
 			DecayTau:      "5m",
 		},
+		Geo: Geo{
+			Enabled:               false, // opt-in : nécessite des règles par pays
+			ChallengeContribution: 60,
+		},
 		Challenge: Challenge{
 			Enabled:       true,
 			TokenTTL:      "30s",
@@ -451,6 +464,9 @@ func (c *Config) Validate() error {
 		if c.Adaptive.MaxDifficulty < c.Challenge.PowDifficulty {
 			fields = append(fields, "adaptive.max_difficulty must be >= challenge.pow_difficulty")
 		}
+	}
+	if c.Geo.Enabled && c.Geo.ChallengeContribution != 0 {
+		validateRange(&fields, "geo.challenge_contribution", c.Geo.ChallengeContribution, 0, 100)
 	}
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")
