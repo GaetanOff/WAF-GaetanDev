@@ -374,6 +374,14 @@
         "channel": { "type": "string", "default": "waf:events" }
       }
     },
+    "static_assets": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "extensions": { "type": "array", "items": { "type": "string" } }
+      }
+    },
     "slowloris": {
       "type": "object",
       "additionalProperties": false,

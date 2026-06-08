@@ -474,3 +474,13 @@ last-updated: 2026-06-04
 - **Acceptance** : un client ouvrant trop de connexions concurrentes est limite (429) ; les en-tetes lents expirent (header_timeout)
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-ops.md FR-23, NFR-11 ; features/slowloris-protection.feature ; plan.md Slice 9.2
+
+### T9.3 - Bypass des assets statiques (FR-24)
+- [x] `internal/staticassets` : marque les requetes d'assets (extensions configurables) en `X-WAF-Action=PASS`
+- [x] Court-circuite challenge/trust/rate/antibot/risk (qui honorent PASS) sans desactiver la blacklist (access ne skip pas sur PASS entrant)
+- [x] Cable le plus en amont de la chaine proxy (avant challenge)
+- [x] Config `static_assets` (enabled, extensions par defaut .css/.js/.png/...) + schema + exemple
+- [x] Tests : asset -> PASS, chemin dynamique -> non marque, bypass desactive
+- **Acceptance** : le CSS/JS de la page de challenge n'est pas challenge (pas de deadlock) ; les assets ne sont pas scores
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-ops.md FR-24 ; features/static-assets-bypass.feature ; plan.md Slice 9.3

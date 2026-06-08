@@ -172,6 +172,11 @@ slowloris:
   max_connections_per_ip: 50
   header_timeout: "10s"
 
+# Bypass des assets statiques (FR-24) : evite de challenger le CSS/JS de la page
+static_assets:
+  enabled: true
+  extensions: [".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".map", ".webp"]
+
 # Challenge JavaScript
 challenge:
   enabled: true

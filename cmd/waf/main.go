@@ -34,6 +34,7 @@ import (
 	"github.com/gaetandev/waf/internal/rules"
 	"github.com/gaetandev/waf/internal/secheaders"
 	"github.com/gaetandev/waf/internal/slowloris"
+	"github.com/gaetandev/waf/internal/staticassets"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/threatintel"
 	"github.com/gaetandev/waf/internal/tlsfp"
@@ -320,6 +321,11 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	} else {
 		proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
 		proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
+	}
+	// Bypass des assets statiques (FR-24) : le plus en amont du pipeline pour
+	// marquer PASS avant challenge/trust/détecteurs (la blacklist reste appliquée).
+	if cfg.StaticAssets.Enabled {
+		proxyHandler = staticassets.New(cfg.StaticAssets).Handler(proxyHandler)
 	}
 	mux.Handle("/", proxyHandler)
 	var handler http.Handler = mux

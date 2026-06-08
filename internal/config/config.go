@@ -41,6 +41,7 @@ type Config struct {
 	Cluster             Cluster          `yaml:"cluster"`
 	SecurityHeaders     SecurityHeaders  `yaml:"security_headers"`
 	Slowloris           Slowloris        `yaml:"slowloris"`
+	StaticAssets        StaticAssets     `yaml:"static_assets"`
 	Challenge           Challenge        `yaml:"challenge"`
 	Whitelist           []string         `yaml:"whitelist"`
 	Blacklist           []string         `yaml:"blacklist"`
@@ -198,6 +199,11 @@ type OriginProtection struct {
 type Cluster struct {
 	Enabled bool   `yaml:"enabled"`
 	Channel string `yaml:"channel"`
+}
+
+type StaticAssets struct {
+	Enabled    bool     `yaml:"enabled"`
+	Extensions []string `yaml:"extensions"`
 }
 
 type Slowloris struct {
@@ -416,6 +422,13 @@ func Default() Config {
 			TarpitMaxConns:   500,
 			TarpitChunks:     20,
 			TarpitChunkDelay: "1s",
+		},
+		StaticAssets: StaticAssets{
+			Enabled: true,
+			Extensions: []string{
+				".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
+				".woff", ".woff2", ".ttf", ".eot", ".map", ".webp",
+			},
 		},
 		Slowloris: Slowloris{
 			Enabled:       true,

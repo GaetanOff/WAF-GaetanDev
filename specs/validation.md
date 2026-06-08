@@ -159,6 +159,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 9.2 | `go test ./...` | pass | New `internal/slowloris` (FR-23): per-IP concurrency limiter (429 over limit), configurable ReadHeaderTimeout; per-IP isolation tested |
 | 2026-06-08 | Slice 9.2 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 9.2 | `go build -o waf.exe ./cmd/waf` | pass | Slowloris limiter wired under security headers |
+| 2026-06-08 | Slice 9.3 | `go test ./...` | pass | New `internal/staticassets` (FR-24): asset extensions marked PASS upstream of challenge/trust, blacklist still applied |
+| 2026-06-08 | Slice 9.3 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 9.3 | `go build -o waf.exe ./cmd/waf` | pass | Static bypass wired as outermost proxy-chain middleware |
 
 ## Quality Gates Checklist
 
