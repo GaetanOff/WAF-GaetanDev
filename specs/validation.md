@@ -143,6 +143,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 8.7 | `go test ./...` | pass | New `internal/deception` (FR-15): tarpit (chunked slow fake HTML), connection semaphore (NFR-10, 429 when full), wired via Dispatch wrapping the proxy on TARPIT tier |
 | 2026-06-08 | Slice 8.7 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 8.7 | `go build -o waf.exe ./cmd/waf` | pass | Tarpit dispatch wraps proxy before the risk engine |
+| 2026-06-08 | Slice 8.8 | `go test ./...` | pass | New `internal/rules` (FR-17): YAML DSL compiled to structs (regex/CIDR precompiled), priority + short-circuit, conditions/actions subset, atomic hot-reload |
+| 2026-06-08 | Slice 8.8 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 8.8 | `go build -o waf.exe ./cmd/waf` | pass | Rules engine wired as opt-in Phase 8 detector |
 
 ## Quality Gates Checklist
 

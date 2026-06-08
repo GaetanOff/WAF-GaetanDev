@@ -35,6 +35,7 @@ type Config struct {
 	Geo                 Geo            `yaml:"geo"`
 	TLSFingerprint      TLSFingerprint `yaml:"tls_fingerprint"`
 	Deception           Deception      `yaml:"deception"`
+	Rules               Rules          `yaml:"rules"`
 	Challenge           Challenge      `yaml:"challenge"`
 	Whitelist           []string       `yaml:"whitelist"`
 	Blacklist           []string       `yaml:"blacklist"`
@@ -177,6 +178,11 @@ type Deception struct {
 	TarpitMaxConns   int    `yaml:"tarpit_max_connections"`
 	TarpitChunks     int    `yaml:"tarpit_chunks"`
 	TarpitChunkDelay string `yaml:"tarpit_chunk_delay"`
+}
+
+type Rules struct {
+	Enabled bool   `yaml:"enabled"`
+	File    string `yaml:"file"`
 }
 
 type Challenge struct {
@@ -503,6 +509,9 @@ func (c *Config) Validate() error {
 		if c.Deception.TarpitMaxConns < 1 {
 			fields = append(fields, "deception.tarpit_max_connections must be >= 1")
 		}
+	}
+	if c.Rules.Enabled && c.Rules.File == "" {
+		fields = append(fields, "rules.file is required when rules is enabled")
 	}
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")

@@ -139,6 +139,11 @@ deception:
   tarpit_chunks: 20             # nombre de chunks HTML envoyes
   tarpit_chunk_delay: "1s"      # delai entre chunks
 
+# Moteur de regles personnalisees (FR-17) : DSL YAML (cf. schemas/rule.schema.json)
+rules:
+  enabled: false             # opt-in
+  file: ""                   # chemin du fichier YAML de regles (rechargeable a chaud)
+
 # Challenge JavaScript
 challenge:
   enabled: true

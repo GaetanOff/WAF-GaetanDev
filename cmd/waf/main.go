@@ -29,6 +29,7 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/ratelimit"
 	"github.com/gaetandev/waf/internal/proxy"
 	"github.com/gaetandev/waf/internal/risk"
+	"github.com/gaetandev/waf/internal/rules"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/threatintel"
 	"github.com/gaetandev/waf/internal/tlsfp"
@@ -174,6 +175,13 @@ func run() error {
 	}
 	if cfg.TLSFingerprint.Enabled {
 		detectors = append(detectors, tlsfp.NewMiddleware(cfg.TLSFingerprint).Handler)
+	}
+	if cfg.Rules.Enabled {
+		ruleSet := rules.NewRuleSet()
+		if err := ruleSet.LoadFile(cfg.Rules.File); err != nil {
+			return err
+		}
+		detectors = append(detectors, rules.NewMiddleware(ruleSet, scoreManager).Handler)
 	}
 	challengeMiddleware, err := challenge.NewMiddleware(*cfg, scoreManager, "web/challenge.html")
 	if err != nil {

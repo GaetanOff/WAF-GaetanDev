@@ -350,6 +350,14 @@
         "tarpit_chunk_delay": { "type": "string", "default": "1s" }
       }
     },
+    "rules": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "file": { "type": "string" }
+      }
+    },
     "challenge": {
       "type": "object",
       "additionalProperties": false,

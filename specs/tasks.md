@@ -410,3 +410,15 @@ last-updated: 2026-06-04
 - **Acceptance** : une requete classee TARPIT recoit une reponse lente bornee en concurrence, sans atteindre l'origine
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-advanced.md FR-15, NFR-10 ; ADR-008 ; features/deception-layer.feature ; plan.md Slice 8.7
+
+### T8.8 - Moteur de regles personnalisees (FR-17)
+- [x] `internal/rules` : DSL YAML compile en structs au chargement (regex/CIDR precompiles), tri par priorite, premier match -> short-circuit (sauf `continue: true`)
+- [x] Conditions : ip (equals/in_list/in_cidr), user_agent/path/method/country/header/query_param (equals/contains/starts_with/ends_with/exists/in_list/matches_regex), trust_score (lt/lte/gt/gte)
+- [x] Actions : block, tarpit, score_delta, add_header, log
+- [x] Hot-reload via `atomic.Value` (Load/LoadFile remplacent le jeu sans verrou sur le chemin requete)
+- [x] Config `rules` (enabled opt-in, file) + schema + exemple + validation
+- [x] Tests : priorite + continue, ip_cidr+method, regle desactivee, hot-reload, regex invalide rejetee au load, middleware block
+- **Note** : actions challenge/rate_limit/redirect et conditions ja3/behavioral via header differees (couvertes partiellement par les autres detecteurs) ; exposition admin (hit counts) differee
+- **Acceptance** : un jeu de regles YAML bloque/tarpit/ajuste le score selon des conditions composables, rechargeable a chaud
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-advanced.md FR-17, NFR-09 ; ADR-007 ; schemas/rule.schema.json ; features/rules-engine.feature ; plan.md Slice 8.8
