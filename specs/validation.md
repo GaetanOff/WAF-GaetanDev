@@ -112,6 +112,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 6.7 | `go test ./...` | pass | Added risk decision middleware, pipeline wiring before proxy, Trust Score fallback when disabled, condensed RiskAssessment headers, `score_delta` logging, and httptest route/middleware coverage |
 | 2026-06-08 | Slice 6.7 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 6.7 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after risk middleware pipeline integration |
+| 2026-06-08 | Slice 6.8 | `go test ./...` | pass | Added risk shadow mode, security-event risk fields, bounded feedback weight decay, FR-38 Prometheus counters, and tests for shadow non-application, feedback bounds, and metrics |
+| 2026-06-08 | Slice 6.8 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 6.8 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after shadow/feedback/metrics changes |
 
 ## Quality Gates Checklist
 

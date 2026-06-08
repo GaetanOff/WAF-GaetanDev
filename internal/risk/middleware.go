@@ -19,6 +19,10 @@ const (
 	headerRiskScore            = "X-WAF-Risk-Score"
 	headerRiskDecision         = "X-WAF-Risk-Decision"
 	headerRiskConfidence       = "X-WAF-Risk-Confidence"
+	headerRiskDecisionBasis    = "X-WAF-Risk-Decision-Basis"
+	headerRiskCorroborated     = "X-WAF-Risk-Corroborated"
+	headerRiskVerifiedBot      = "X-WAF-Risk-Verified-Bot"
+	headerRiskShadowMode       = "X-WAF-Risk-Shadow-Mode"
 	headerDeterministicTrigger = "X-WAF-Deterministic-Trigger"
 	headerFingerprintHash      = "X-WAF-Fingerprint-Hash"
 )
@@ -29,6 +33,7 @@ type Middleware struct {
 	decision DecisionConfig
 	humans   *HumanTrustManager
 	bots     *BotVerifier
+	shadow   bool
 }
 
 func NewMiddleware(store storage.Store, scores *trust.ScoreManager, cfg config.Config) (*Middleware, error) {
@@ -46,16 +51,18 @@ func NewMiddleware(store storage.Store, scores *trust.ScoreManager, cfg config.C
 		decision: DecisionConfigFromConfig(cfg.RiskEngine),
 		humans:   NewHumanTrustManager(store, humanConfig),
 		bots:     NewBotVerifier(botConfig, nil),
+		shadow:   cfg.RiskEngine.ShadowMode,
 	}, nil
 }
 
-func NewMiddlewareWithVerifier(scores *trust.ScoreManager, fusion FusionConfig, decision DecisionConfig, humans *HumanTrustManager, bots *BotVerifier) *Middleware {
+func NewMiddlewareWithVerifier(scores *trust.ScoreManager, fusion FusionConfig, decision DecisionConfig, humans *HumanTrustManager, bots *BotVerifier, shadow bool) *Middleware {
 	return &Middleware{
 		scores:   scores,
 		fusion:   fusion,
 		decision: decision,
 		humans:   humans,
 		bots:     bots,
+		shadow:   shadow,
 	}
 }
 
@@ -67,7 +74,14 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		}
 
 		assessment := m.assess(r)
+		if m.shadow {
+			assessment.ShadowMode = true
+		}
 		m.writeHeaders(r, assessment)
+		if assessment.ShadowMode {
+			next.ServeHTTP(w, r)
+			return
+		}
 
 		switch assessment.Decision {
 		case DecisionBlock:
@@ -124,6 +138,18 @@ func (m *Middleware) writeHeaders(r *http.Request, assessment RiskAssessment) {
 	r.Header.Set(headerRiskScore, strconv.Itoa(assessment.RiskScore))
 	r.Header.Set(headerRiskDecision, string(assessment.Decision))
 	r.Header.Set(headerRiskConfidence, strconv.FormatFloat(assessment.Confidence, 'f', 3, 64))
+	if assessment.DecisionBasis != "" {
+		r.Header.Set(headerRiskDecisionBasis, string(assessment.DecisionBasis))
+	}
+	if assessment.CorroboratingFamilies >= m.decision.MinCorroboratingFamilies {
+		r.Header.Set(headerRiskCorroborated, "true")
+	}
+	if assessment.VerifiedGoodBot != nil {
+		r.Header.Set(headerRiskVerifiedBot, *assessment.VerifiedGoodBot)
+	}
+	if assessment.ShadowMode {
+		r.Header.Set(headerRiskShadowMode, "true")
+	}
 	r.Header.Set(headerScoreDelta, strconv.Itoa(assessment.RiskScore-50))
 	if r.Header.Get(headerScore) == "" {
 		r.Header.Set(headerScore, strconv.Itoa(100-assessment.RiskScore))

@@ -287,3 +287,14 @@ last-updated: 2026-06-04
 - **Acceptance** : le moteur de risque remplace le seuil simple du Trust Score dans le pipeline, bloque avant proxy quand la decision est `BLOCK`, marque les challenges/observations dans les headers, et expose la forme condensee pour logs/metrics
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-detection.md FR-33, FR-34, NFR-17 ; schemas/security-event.schema.json ; ADR-015 ; plan.md Slice 6.7
+
+### T6.8 - Mode shadow, boucle de feedback FP & metriques
+- [x] `risk.Middleware` respecte `risk_engine.shadow_mode` : decision calculee et exposee, mais non appliquee
+- [x] Headers shadow/log : `X-WAF-Risk-Shadow-Mode`, `X-WAF-Risk-Decision`, `X-WAF-Risk-Confidence`
+- [x] `SecurityEvent` et `schemas/security-event.schema.json` etendus avec `risk_score`, `risk_decision`, `risk_confidence`, `shadow_mode`
+- [x] `internal/risk/feedback.go` : boucle de feedback locale bornee pour faire decroitre les poids des familles apres challenge reussi
+- [x] Metriques FR-38 : `waf_decisions_total{tier}`, `waf_challenge_pass_after_flag_total`, `waf_hard_blocks_total{corroborated}`, `waf_verified_bot_total{bot}`
+- [x] Tests : shadow non applique mais loggable, decroissance de poids bornee, metriques Prometheus
+- **Acceptance** : une decision `BLOCK` en shadow laisse passer la requete tout en exposant la decision, un challenge reussi apres flag peut reduire le poids local des familles fautives, et les metriques FR-38 sont exposees
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-detection.md FR-38, NFR-15 ; features/risk-scoring-engine.feature scenarios Shadow/Feedback ; schemas/security-event.schema.json ; ADR-015 ; plan.md Slice 6.8

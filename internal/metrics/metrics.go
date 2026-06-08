@@ -26,6 +26,10 @@ type Metrics struct {
 	blocked         *prometheus.CounterVec
 	challenged      *prometheus.CounterVec
 	duration        *prometheus.HistogramVec
+	decisions       *prometheus.CounterVec
+	challengeFP     prometheus.Counter
+	hardBlocks      *prometheus.CounterVec
+	verifiedBots    *prometheus.CounterVec
 	activeVisitors  prometheus.Gauge
 	visitorsByState *prometheus.GaugeVec
 	mu              sync.Mutex
@@ -54,6 +58,22 @@ func New() *Metrics {
 			Help:    "WAF request duration in seconds by action.",
 			Buckets: []float64{0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5},
 		}, []string{"action"}),
+		decisions: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_decisions_total",
+			Help: "Risk engine decisions by mitigation tier.",
+		}, []string{"tier"}),
+		challengeFP: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "waf_challenge_pass_after_flag_total",
+			Help: "Challenges passed after a previous risk flag, proxying probable false positives.",
+		}),
+		hardBlocks: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_hard_blocks_total",
+			Help: "Risk engine hard blocks split by corroboration mode.",
+		}, []string{"corroborated"}),
+		verifiedBots: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_verified_bot_total",
+			Help: "Verified crawler decisions by bot name.",
+		}, []string{"bot"}),
 		activeVisitors: prometheus.NewGauge(prometheus.GaugeOpts{
 			Name: "waf_active_visitors",
 			Help: "Number of active visitors seen by this WAF process.",
@@ -65,7 +85,7 @@ func New() *Metrics {
 		visitors: make(map[string]string),
 		now:      time.Now,
 	}
-	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.activeVisitors, m.visitorsByState)
+	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState)
 	return m
 }
 
@@ -90,8 +110,29 @@ func (m *Metrics) Middleware(scores *trust.ScoreManager, next http.Handler) http
 		if isBlockedAction(action) {
 			m.blocked.WithLabelValues(r.Host, reason).Inc()
 		}
+		m.observeRisk(r, recorder)
 		m.observeVisitor(r, scores)
 	})
+}
+
+func (m *Metrics) observeRisk(r *http.Request, recorder *statusRecorder) {
+	decision := headerValue(r, recorder, "X-WAF-Risk-Decision")
+	if decision != "" {
+		m.decisions.WithLabelValues(decision).Inc()
+	}
+	if headerValue(r, recorder, "X-WAF-Challenge-Pass-After-Flag") == "true" {
+		m.challengeFP.Inc()
+	}
+	if decision == actionBlock {
+		corroborated := headerValue(r, recorder, "X-WAF-Risk-Corroborated")
+		if corroborated != "true" {
+			corroborated = "false"
+		}
+		m.hardBlocks.WithLabelValues(corroborated).Inc()
+	}
+	if bot := headerValue(r, recorder, "X-WAF-Risk-Verified-Bot"); bot != "" {
+		m.verifiedBots.WithLabelValues(bot).Inc()
+	}
 }
 
 func (m *Metrics) observeVisitor(r *http.Request, scores *trust.ScoreManager) {
@@ -157,6 +198,13 @@ func wafReason(r *http.Request, recorder *statusRecorder) string {
 		return value
 	}
 	return "none"
+}
+
+func headerValue(r *http.Request, recorder *statusRecorder, name string) string {
+	if value := recorder.Header().Get(name); value != "" {
+		return value
+	}
+	return r.Header.Get(name)
 }
 
 func isBlockedAction(action string) bool {

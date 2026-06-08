@@ -58,6 +58,27 @@
       "type": "integer",
       "description": "Variation de score appliquée lors de cet événement"
     },
+    "risk_score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Risk Score instantane calcule par le moteur de risque"
+    },
+    "risk_decision": {
+      "type": "string",
+      "enum": ["ALLOW", "OBSERVE", "THROTTLE", "CHALLENGE", "TARPIT", "BLOCK", ""],
+      "description": "Decision calculee par le moteur de risque"
+    },
+    "risk_confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Confiance associee a la decision de risque"
+    },
+    "shadow_mode": {
+      "type": "boolean",
+      "description": "true si la decision de risque etait calculee en log-only"
+    },
     "latency_ms": {
       "type": "number",
       "description": "Latence totale de traitement en millisecondes (WAF + upstream)"

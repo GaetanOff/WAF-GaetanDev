@@ -105,6 +105,33 @@ func TestMiddlewareAllowsStrongHumanProofDespiteHighHeuristicRisk(t *testing.T) 
 	}
 }
 
+func TestMiddlewareShadowModeLogsDecisionWithoutApplyingBlock(t *testing.T) {
+	middleware, _, store := newTestRiskMiddleware(t)
+	defer store.Close()
+	middleware.shadow = true
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+	request.RemoteAddr = "1.2.3.4:1234"
+	setHighRiskHeaders(request)
+	response := httptest.NewRecorder()
+
+	middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(headerRiskShadowMode) != "true" {
+			t.Fatalf("X-WAF-Risk-Shadow-Mode = %q, want true", r.Header.Get(headerRiskShadowMode))
+		}
+		if r.Header.Get(headerRiskDecision) != string(DecisionBlock) {
+			t.Fatalf("X-WAF-Risk-Decision = %q, want BLOCK", r.Header.Get(headerRiskDecision))
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", response.Code)
+	}
+	if response.Header().Get(headerAction) == string(DecisionBlock) {
+		t.Fatal("shadow mode must not apply BLOCK response")
+	}
+}
+
 func newTestRiskMiddleware(t *testing.T) (*Middleware, *HumanTrustManager, *memory.Store) {
 	t.Helper()
 
@@ -132,6 +159,7 @@ func newTestRiskMiddleware(t *testing.T) (*Middleware, *HumanTrustManager, *memo
 		DecisionConfigFromConfig(cfg.RiskEngine),
 		humans,
 		nil,
+		false,
 	)
 	return middleware, humans, store
 }

@@ -24,6 +24,10 @@ type SecurityEvent struct {
 	Reason         string
 	TrustScore     int
 	ScoreDelta     int
+	RiskScore      int
+	RiskDecision   string
+	RiskConfidence float64
+	ShadowMode     bool
 	LatencyMS      float64
 	WAFLatencyMS   float64
 	UpstreamStatus *int

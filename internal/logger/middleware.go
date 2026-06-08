@@ -59,6 +59,10 @@ func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores 
 		Reason:         reason(r, recorder),
 		TrustScore:     trustScore,
 		ScoreDelta:     scoreDelta(r),
+		RiskScore:      riskScore(r),
+		RiskDecision:   r.Header.Get("X-WAF-Risk-Decision"),
+		RiskConfidence: riskConfidence(r),
+		ShadowMode:     r.Header.Get("X-WAF-Risk-Shadow-Mode") == "true",
 		LatencyMS:      elapsedMS,
 		WAFLatencyMS:   elapsedMS,
 		UpstreamStatus: upstreamStatus(action, recorder.statusCode),
@@ -72,6 +76,26 @@ func scoreDelta(r *http.Request) int {
 		scoreDelta, err := strconv.Atoi(value)
 		if err == nil {
 			return scoreDelta
+		}
+	}
+	return 0
+}
+
+func riskScore(r *http.Request) int {
+	if value := r.Header.Get("X-WAF-Risk-Score"); value != "" {
+		score, err := strconv.Atoi(value)
+		if err == nil {
+			return score
+		}
+	}
+	return 0
+}
+
+func riskConfidence(r *http.Request) float64 {
+	if value := r.Header.Get("X-WAF-Risk-Confidence"); value != "" {
+		confidence, err := strconv.ParseFloat(value, 64)
+		if err == nil {
+			return confidence
 		}
 	}
 	return 0

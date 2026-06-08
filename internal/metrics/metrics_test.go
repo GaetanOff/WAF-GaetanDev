@@ -53,6 +53,30 @@ func TestMiddlewareRecordsBlockedCounter(t *testing.T) {
 	assertMetricContains(t, body, `waf_blocked_total{domain="example.test",reason="blacklist_exact"} 1`)
 }
 
+func TestMiddlewareRecordsRiskDecisionMetrics(t *testing.T) {
+	metrics := New()
+	scores, store := newTestScoreManager(t)
+	defer store.Close()
+	handler := metrics.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("X-WAF-Risk-Decision", actionBlock)
+		r.Header.Set("X-WAF-Risk-Corroborated", "true")
+		r.Header.Set("X-WAF-Risk-Verified-Bot", "googlebot")
+		r.Header.Set("X-WAF-Challenge-Pass-After-Flag", "true")
+		w.Header().Set("X-WAF-Action", actionBlock)
+		w.WriteHeader(http.StatusForbidden)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
+	request.RemoteAddr = "1.2.3.4:1234"
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	body := scrape(t, metrics)
+	assertMetricContains(t, body, `waf_decisions_total{tier="BLOCK"} 1`)
+	assertMetricContains(t, body, `waf_hard_blocks_total{corroborated="true"} 1`)
+	assertMetricContains(t, body, `waf_verified_bot_total{bot="googlebot"} 1`)
+	assertMetricContains(t, body, `waf_challenge_pass_after_flag_total 1`)
+}
+
 func scrape(t *testing.T, metrics *Metrics) string {
 	t.Helper()
 
