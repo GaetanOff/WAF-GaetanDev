@@ -39,6 +39,7 @@ import (
 	"github.com/gaetandev/waf/internal/threatintel"
 	"github.com/gaetandev/waf/internal/tlsfp"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/upstream"
 )
 
 const (
@@ -100,6 +101,33 @@ func run() error {
 	proxyHandler, err := proxy.NewHandler(*cfg)
 	if err != nil {
 		return err
+	}
+	// Pool d'upstreams + health checks + load balancing (FR-25/26).
+	if cfg.UpstreamPool.Enabled {
+		members := make([]*upstream.Upstream, 0, len(cfg.UpstreamPool.Upstreams))
+		for _, u := range cfg.UpstreamPool.Upstreams {
+			members = append(members, &upstream.Upstream{Address: u.Address, Weight: u.Weight, Backup: u.Backup})
+		}
+		pool := upstream.NewPool(cfg.UpstreamPool.Strategy, members)
+		upstreamTimeout, err := parseDuration("upstream.timeout", cfg.Upstream.Timeout)
+		if err != nil {
+			return err
+		}
+		if err := proxyHandler.WithPool(pool, cfg.Upstream.TLSVerify, cfg.Upstream.MaxIdleConns, upstreamTimeout); err != nil {
+			return err
+		}
+		hcInterval, err := parseDuration("upstream_pool.health_check.interval", cfg.UpstreamPool.HealthCheck.Interval)
+		if err != nil {
+			return err
+		}
+		hcTimeout, err := parseDuration("upstream_pool.health_check.timeout", cfg.UpstreamPool.HealthCheck.Timeout)
+		if err != nil {
+			return err
+		}
+		checker := upstream.NewHealthChecker(pool, cfg.UpstreamPool.HealthCheck.Path, hcInterval, hcTimeout, cfg.UpstreamPool.HealthCheck.HealthyThreshold, cfg.UpstreamPool.HealthCheck.UnhealthyThreshold)
+		hcCtx, hcCancel := context.WithCancel(context.Background())
+		defer hcCancel()
+		checker.Start(hcCtx)
 	}
 	// originHandler est la cible finale du pipeline (proxy), éventuellement
 	// précédée du tarpit (déception, FR-15) qui intercepte les requêtes classées

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
+	"github.com/gaetandev/waf/internal/upstream"
 )
 
 const defaultWAFScore = "50"
@@ -20,6 +21,32 @@ type Handler struct {
 	defaultUpstream *url.URL
 	domains         []domainRoute
 	proxies         map[string]*httputil.ReverseProxy
+
+	pool        *upstream.Pool
+	poolProxies map[string]*httputil.ReverseProxy
+}
+
+// WithPool active le load balancing : quand un pool est configuré, il sélectionne
+// l'upstream par requête (health-aware, FR-25/26) et prend la priorité sur le
+// routage par domaine. Un upstream qui échoue à la connexion est marqué non sain.
+func (h *Handler) WithPool(pool *upstream.Pool, tlsVerify bool, maxIdleConns int, timeout time.Duration) error {
+	proxies := make(map[string]*httputil.ReverseProxy, len(pool.Upstreams()))
+	for _, u := range pool.Upstreams() {
+		target, err := url.Parse(u.Address)
+		if err != nil {
+			return fmt.Errorf("parse pool upstream %q: %w", u.Address, err)
+		}
+		proxy := newReverseProxy(target, tlsVerify, maxIdleConns, timeout)
+		member := u
+		proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
+			member.SetHealthy(false) // failover : exclure dès l'échec de connexion
+			http.Error(w, "bad gateway", http.StatusBadGateway)
+		}
+		proxies[u.Address] = proxy
+	}
+	h.pool = pool
+	h.poolProxies = proxies
+	return nil
 }
 
 type domainRoute struct {
@@ -71,8 +98,20 @@ func NewHandler(cfg config.Config) (*Handler, error) {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	upstream := h.resolveUpstream(r.Host)
-	proxy := h.proxies[upstream.String()]
+	if h.pool != nil {
+		member, ok := h.pool.Pick(realIP(r))
+		if !ok {
+			http.Error(w, "no healthy upstream", http.StatusBadGateway)
+			return
+		}
+		member.Acquire()
+		defer member.Release()
+		h.poolProxies[member.Address].ServeHTTP(w, r)
+		return
+	}
+
+	target := h.resolveUpstream(r.Host)
+	proxy := h.proxies[target.String()]
 	proxy.ServeHTTP(w, r)
 }
 

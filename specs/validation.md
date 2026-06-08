@@ -162,6 +162,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 9.3 | `go test ./...` | pass | New `internal/staticassets` (FR-24): asset extensions marked PASS upstream of challenge/trust, blacklist still applied |
 | 2026-06-08 | Slice 9.3 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 9.3 | `go build -o waf.exe ./cmd/waf` | pass | Static bypass wired as outermost proxy-chain middleware |
+| 2026-06-08 | Slice 9.4 | `go test ./...` | pass | New `internal/upstream` (FR-25/26): pool with per-upstream health (atomic), round_robin/least_conn/ip_hash/weighted, backup fallback, active HealthChecker; proxy `WithPool` health-aware selection + failover ErrorHandler |
+| 2026-06-08 | Slice 9.4 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 9.4 | `go build -o waf.exe ./cmd/waf` | pass | Upstream pool wired into proxy + boot health checker |
 
 ## Quality Gates Checklist
 

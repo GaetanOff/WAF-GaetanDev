@@ -42,6 +42,7 @@ type Config struct {
 	SecurityHeaders     SecurityHeaders  `yaml:"security_headers"`
 	Slowloris           Slowloris        `yaml:"slowloris"`
 	StaticAssets        StaticAssets     `yaml:"static_assets"`
+	UpstreamPool        UpstreamPool     `yaml:"upstream_pool"`
 	Challenge           Challenge        `yaml:"challenge"`
 	Whitelist           []string         `yaml:"whitelist"`
 	Blacklist           []string         `yaml:"blacklist"`
@@ -204,6 +205,27 @@ type Cluster struct {
 type StaticAssets struct {
 	Enabled    bool     `yaml:"enabled"`
 	Extensions []string `yaml:"extensions"`
+}
+
+type UpstreamPool struct {
+	Enabled     bool                `yaml:"enabled"`
+	Strategy    string              `yaml:"strategy"`
+	Upstreams   []PoolUpstream      `yaml:"upstreams"`
+	HealthCheck UpstreamHealthCheck `yaml:"health_check"`
+}
+
+type PoolUpstream struct {
+	Address string `yaml:"address"`
+	Weight  int    `yaml:"weight"`
+	Backup  bool   `yaml:"backup"`
+}
+
+type UpstreamHealthCheck struct {
+	Path               string `yaml:"path"`
+	Interval           string `yaml:"interval"`
+	Timeout            string `yaml:"timeout"`
+	HealthyThreshold   int    `yaml:"healthy_threshold"`
+	UnhealthyThreshold int    `yaml:"unhealthy_threshold"`
 }
 
 type Slowloris struct {
@@ -584,6 +606,16 @@ func (c *Config) Validate() error {
 		if c.Slowloris.MaxConnsPerIP < 1 {
 			fields = append(fields, "slowloris.max_connections_per_ip must be >= 1")
 		}
+	}
+	if c.UpstreamPool.Enabled {
+		if len(c.UpstreamPool.Upstreams) == 0 {
+			fields = append(fields, "upstream_pool.upstreams must not be empty when enabled")
+		}
+		if c.UpstreamPool.Strategy != "" {
+			validateEnum(&fields, "upstream_pool.strategy", c.UpstreamPool.Strategy, "round_robin", "least_conn", "ip_hash", "weighted")
+		}
+		validateDuration(&fields, "upstream_pool.health_check.interval", c.UpstreamPool.HealthCheck.Interval)
+		validateDuration(&fields, "upstream_pool.health_check.timeout", c.UpstreamPool.HealthCheck.Timeout)
 	}
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")

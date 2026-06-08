@@ -177,6 +177,18 @@ static_assets:
   enabled: true
   extensions: [".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".map", ".webp"]
 
+# Pool d'upstreams + health checks + load balancing (FR-25, FR-26)
+upstream_pool:
+  enabled: false             # opt-in : prend la priorite sur upstream/domains
+  strategy: "round_robin"    # round_robin | least_conn | ip_hash | weighted
+  upstreams: []              # - { address: "http://10.0.0.1:80", weight: 1, backup: false }
+  health_check:
+    path: "/healthz"
+    interval: "10s"
+    timeout: "2s"
+    healthy_threshold: 2
+    unhealthy_threshold: 3
+
 # Challenge JavaScript
 challenge:
   enabled: true

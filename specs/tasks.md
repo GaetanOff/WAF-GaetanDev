@@ -484,3 +484,14 @@ last-updated: 2026-06-04
 - **Acceptance** : le CSS/JS de la page de challenge n'est pas challenge (pas de deadlock) ; les assets ne sont pas scores
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-ops.md FR-24 ; features/static-assets-bypass.feature ; plan.md Slice 9.3
+
+### T9.4 - Health checks upstream + load balancing (FR-25, FR-26)
+- [x] `internal/upstream` : `Pool` avec etat sain par upstream (atomic.Bool), stratégies round_robin / least_conn / ip_hash / weighted, fallback backup si primaires down
+- [x] `HealthChecker` : goroutine de sondage par upstream, seuils succes/echec consecutifs, MAJ atomic
+- [x] Integration proxy : `Handler.WithPool` (selection health-aware par requete, priorite sur le routage par domaine) ; ErrorHandler marque l'upstream non sain au premier echec de connexion (failover)
+- [x] Config `upstream_pool` (enabled, strategy, upstreams[], health_check) + schema + exemple + validation
+- [x] Tests : round-robin, exclusion non-sain, fallback backup, tout down, ip_hash stable, least_conn, weighted
+- **Note** : retry per-requete synchrone (sur 502) approxime par failover health-aware (l'upstream en echec est marque down) ; combinaison pool + routage par domaine differee
+- **Acceptance** : le trafic est reparti sur les upstreams sains selon la stratégie ; un upstream down est exclu et les backups prennent le relais
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-ops.md FR-25, FR-26, NFR-13 ; ADR-012 ; schemas/upstream-pool.schema.json ; features/upstream-health.feature ; plan.md Slice 9.4

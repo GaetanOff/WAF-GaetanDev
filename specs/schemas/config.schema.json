@@ -382,6 +382,37 @@
         "extensions": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "upstream_pool": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "strategy": { "type": "string", "enum": ["round_robin", "least_conn", "ip_hash", "weighted"], "default": "round_robin" },
+        "upstreams": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "address": { "type": "string" },
+              "weight": { "type": "integer", "minimum": 0 },
+              "backup": { "type": "boolean" }
+            }
+          }
+        },
+        "health_check": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "path": { "type": "string", "default": "/healthz" },
+            "interval": { "type": "string", "default": "10s" },
+            "timeout": { "type": "string", "default": "2s" },
+            "healthy_threshold": { "type": "integer", "minimum": 1, "default": 2 },
+            "unhealthy_threshold": { "type": "integer", "minimum": 1, "default": 3 }
+          }
+        }
+      }
+    },
     "slowloris": {
       "type": "object",
       "additionalProperties": false,
