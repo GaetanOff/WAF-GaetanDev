@@ -1,0 +1,99 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GaetanDev/WAF/schemas/risk-assessment.schema.json",
+  "title": "RiskAssessment",
+  "description": "Résultat explicable du moteur de scoring de risque & décision (FR-33..FR-38)",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["risk_score", "confidence", "decision", "corroborating_families", "shadow_mode", "factors"],
+  "properties": {
+    "risk_score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 100,
+      "description": "Score de risque fusionné (0 = humain, 100 = malveillant)"
+    },
+    "confidence": {
+      "type": "number",
+      "minimum": 0,
+      "maximum": 1,
+      "description": "Confiance dans la décision selon la quantité/qualité des signaux"
+    },
+    "decision": {
+      "type": "string",
+      "enum": ["ALLOW", "OBSERVE", "THROTTLE", "CHALLENGE", "TARPIT", "BLOCK"],
+      "description": "Tier de mitigation décidé (échelle graduée FR-34)"
+    },
+    "decision_basis": {
+      "type": "string",
+      "enum": ["heuristic", "deterministic", "verified_bot", "human_credit", "default_allow"],
+      "description": "Nature de la base de décision (FR-35/FR-36/FR-37)"
+    },
+    "corroborating_families": {
+      "type": "integer",
+      "minimum": 0,
+      "description": "Nombre de familles de signaux indépendantes au-dessus de leur seuil (BLOCK heuristique exige >= 2)"
+    },
+    "deterministic_trigger": {
+      "type": ["string", "null"],
+      "enum": ["blacklist", "honeypot", "ja3_blacklist", "threat_intel_critical", "circuit_breaker", null],
+      "description": "Signal déterministe ayant autorisé un BLOCK sans corroboration (null sinon)"
+    },
+    "verified_good_bot": {
+      "type": ["string", "null"],
+      "description": "Nom du crawler vérifié par reverse-DNS forward-confirm (ex: googlebot), null sinon"
+    },
+    "sticky_trust": {
+      "type": "boolean",
+      "description": "Le visiteur bénéficie d'un trust persistant (challenge réussi récemment)"
+    },
+    "shadow_mode": {
+      "type": "boolean",
+      "description": "true = décision calculée et journalisée mais NON appliquée (FR-38)"
+    },
+    "profile": {
+      "type": "string",
+      "enum": ["lenient", "balanced", "strict"],
+      "description": "Profil de pondération/seuils actif"
+    },
+    "factors": {
+      "type": "array",
+      "description": "Facteurs contributifs, un par famille de signaux ayant pesé sur le score",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["family", "contribution", "weight"],
+        "properties": {
+          "family": {
+            "type": "string",
+            "enum": ["reputation", "behavioral", "tls", "fingerprint", "integrity", "rate", "geo", "human_credit"],
+            "description": "Famille de signaux"
+          },
+          "signal": {
+            "type": "string",
+            "description": "Signal précis au sein de la famille (ex: abuseipdb_score, ja3_swap)"
+          },
+          "value": {
+            "type": ["number", "string", "boolean", "null"],
+            "description": "Valeur brute observée du signal"
+          },
+          "contribution": {
+            "type": "integer",
+            "minimum": -100,
+            "maximum": 100,
+            "description": "Contribution normalisée au risk score (négative pour un crédit humain)"
+          },
+          "weight": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Poids configuré de la famille dans la fusion"
+          },
+          "above_threshold": {
+            "type": "boolean",
+            "description": "true si cette famille compte comme corroborante"
+          }
+        }
+      }
+    }
+  }
+}
