@@ -156,6 +156,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 9.1 | `go test ./...` | pass | New `internal/secheaders` (FR-21/22): sanitizing response writer, security headers injected if absent (upstream priority), Server/X-Powered-By stripped, CSP opt-in |
 | 2026-06-08 | Slice 9.1 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 9.1 | `go build -o waf.exe ./cmd/waf` | pass | Security headers wrap the whole mux (outermost) |
+| 2026-06-08 | Slice 9.2 | `go test ./...` | pass | New `internal/slowloris` (FR-23): per-IP concurrency limiter (429 over limit), configurable ReadHeaderTimeout; per-IP isolation tested |
+| 2026-06-08 | Slice 9.2 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 9.2 | `go build -o waf.exe ./cmd/waf` | pass | Slowloris limiter wired under security headers |
 
 ## Quality Gates Checklist
 

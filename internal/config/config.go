@@ -40,6 +40,7 @@ type Config struct {
 	OriginProtection    OriginProtection `yaml:"origin_protection"`
 	Cluster             Cluster          `yaml:"cluster"`
 	SecurityHeaders     SecurityHeaders  `yaml:"security_headers"`
+	Slowloris           Slowloris        `yaml:"slowloris"`
 	Challenge           Challenge        `yaml:"challenge"`
 	Whitelist           []string         `yaml:"whitelist"`
 	Blacklist           []string         `yaml:"blacklist"`
@@ -197,6 +198,12 @@ type OriginProtection struct {
 type Cluster struct {
 	Enabled bool   `yaml:"enabled"`
 	Channel string `yaml:"channel"`
+}
+
+type Slowloris struct {
+	Enabled       bool   `yaml:"enabled"`
+	MaxConnsPerIP int    `yaml:"max_connections_per_ip"`
+	HeaderTimeout string `yaml:"header_timeout"`
 }
 
 type SecurityHeaders struct {
@@ -410,6 +417,11 @@ func Default() Config {
 			TarpitChunks:     20,
 			TarpitChunkDelay: "1s",
 		},
+		Slowloris: Slowloris{
+			Enabled:       true,
+			MaxConnsPerIP: 50,
+			HeaderTimeout: "10s",
+		},
 		SecurityHeaders: SecurityHeaders{
 			Enabled:               true,
 			HSTSMaxAge:            31536000,
@@ -553,6 +565,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Cluster.Enabled && (c.Storage.Redis == nil || c.Storage.Redis.Address == "") {
 		fields = append(fields, "cluster.enabled requires storage.redis.address")
+	}
+	if c.Slowloris.Enabled {
+		validateDuration(&fields, "slowloris.header_timeout", c.Slowloris.HeaderTimeout)
+		if c.Slowloris.MaxConnsPerIP < 1 {
+			fields = append(fields, "slowloris.max_connections_per_ip must be >= 1")
+		}
 	}
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")

@@ -374,6 +374,15 @@
         "channel": { "type": "string", "default": "waf:events" }
       }
     },
+    "slowloris": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "max_connections_per_ip": { "type": "integer", "minimum": 1, "default": 50 },
+        "header_timeout": { "type": "string", "default": "10s" }
+      }
+    },
     "security_headers": {
       "type": "object",
       "additionalProperties": false,

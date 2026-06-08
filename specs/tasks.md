@@ -463,3 +463,14 @@ last-updated: 2026-06-04
 - **Acceptance** : les reponses portent les en-tetes de securite (sans ecraser l'upstream) et ne revelent pas la stack
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-ops.md FR-21, FR-22 ; ADR-011 ; features/security-headers.feature ; plan.md Slice 9.1
+
+### T9.2 - Protection Slowloris / Slow POST (FR-23)
+- [x] `internal/slowloris` : limiteur de requetes concurrentes par IP (429 + Retry-After au-dela)
+- [x] `ReadHeaderTimeout` du http.Server rendu configurable (slowloris.header_timeout)
+- [x] Cable sous les en-tetes de securite (le 429 porte aussi les headers)
+- [x] Config `slowloris` (enabled, max_connections_per_ip 50, header_timeout) + schema + exemple + validation
+- [x] Tests : liberation sequentielle, rejet concurrent au-dela, isolation par IP
+- **Note** : debit minimal du corps approxime par ReadTimeout (configurable) ; limitation au niveau connexion TCP par ConnState differee
+- **Acceptance** : un client ouvrant trop de connexions concurrentes est limite (429) ; les en-tetes lents expirent (header_timeout)
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-ops.md FR-23, NFR-11 ; features/slowloris-protection.feature ; plan.md Slice 9.2

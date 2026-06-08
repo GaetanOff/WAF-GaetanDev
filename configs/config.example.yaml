@@ -166,6 +166,12 @@ security_headers:
   csp: ""                    # opt-in : ne pas activer sans tester
   strip_headers: ["Server", "X-Powered-By"]
 
+# Protection Slowloris / Slow POST (FR-23)
+slowloris:
+  enabled: true
+  max_connections_per_ip: 50
+  header_timeout: "10s"
+
 # Challenge JavaScript
 challenge:
   enabled: true

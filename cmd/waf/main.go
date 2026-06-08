@@ -33,6 +33,7 @@ import (
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/rules"
 	"github.com/gaetandev/waf/internal/secheaders"
+	"github.com/gaetandev/waf/internal/slowloris"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/threatintel"
 	"github.com/gaetandev/waf/internal/tlsfp"
@@ -86,6 +87,13 @@ func run() error {
 	shutdownTimeout, err := parseDuration("server.graceful_shutdown_timeout", cfg.Server.GracefulShutdownTimeout)
 	if err != nil {
 		return err
+	}
+	headerTimeout := 10 * time.Second
+	if cfg.Slowloris.Enabled {
+		headerTimeout, err = parseDuration("slowloris.header_timeout", cfg.Slowloris.HeaderTimeout)
+		if err != nil {
+			return err
+		}
 	}
 
 	proxyHandler, err := proxy.NewHandler(*cfg)
@@ -218,7 +226,7 @@ func run() error {
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           routes(*cfg, accessRules, securityLogger, metrics, antiDDoS, rateLimiter, antiBot, riskMiddleware, challengeMiddleware, scoreManager, detectors, originHandler),
-		ReadHeaderTimeout: 10 * time.Second,
+		ReadHeaderTimeout: headerTimeout,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
@@ -314,11 +322,16 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 		proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
 	}
 	mux.Handle("/", proxyHandler)
-	// En-têtes de sécurité + sanitisation (FR-21/FR-22) : enrobe tout le mux.
-	if cfg.SecurityHeaders.Enabled {
-		return secheaders.New(cfg.SecurityHeaders).Handler(mux)
+	var handler http.Handler = mux
+	// Protection Slowloris (FR-23) : limite les requêtes concurrentes par IP.
+	if cfg.Slowloris.Enabled {
+		handler = slowloris.New(cfg.Slowloris.MaxConnsPerIP).Handler(handler)
 	}
-	return mux
+	// En-têtes de sécurité + sanitisation (FR-21/FR-22) : le plus à l'extérieur.
+	if cfg.SecurityHeaders.Enabled {
+		handler = secheaders.New(cfg.SecurityHeaders).Handler(handler)
+	}
+	return handler
 }
 
 func healthHandler(w http.ResponseWriter, _ *http.Request) {
