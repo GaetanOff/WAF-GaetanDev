@@ -28,6 +28,7 @@ type Config struct {
 	AntiDDoS            AntiDDoS       `yaml:"antiddos"`
 	Trust               Trust          `yaml:"trust"`
 	RiskEngine          RiskEngine     `yaml:"risk_engine"`
+	Integrity           Integrity      `yaml:"integrity"`
 	Challenge           Challenge      `yaml:"challenge"`
 	Whitelist           []string       `yaml:"whitelist"`
 	Blacklist           []string       `yaml:"blacklist"`
@@ -116,6 +117,13 @@ type VerifiedBots struct {
 	SuccessCacheTTL string   `yaml:"success_cache_ttl"`
 	FailureCacheTTL string   `yaml:"failure_cache_ttl"`
 	Crawlers        []string `yaml:"crawlers"`
+}
+
+type Integrity struct {
+	Enabled        bool  `yaml:"enabled"`
+	MaxBodyBytes   int64 `yaml:"max_body_bytes"`
+	MaxPathLength  int   `yaml:"max_path_length"`
+	MaxQueryLength int   `yaml:"max_query_length"`
 }
 
 type Challenge struct {
@@ -279,6 +287,12 @@ func Default() Config {
 				Crawlers:        []string{"googlebot", "bingbot", "duckduckbot", "applebot"},
 			},
 		},
+		Integrity: Integrity{
+			Enabled:        true,
+			MaxBodyBytes:   10 << 20, // 10 MB
+			MaxPathLength:  2048,
+			MaxQueryLength: 4096,
+		},
 		Challenge: Challenge{
 			Enabled:       true,
 			TokenTTL:      "30s",
@@ -366,6 +380,17 @@ func (c *Config) Validate() error {
 		fields = append(fields, "trust.max_visitors must be >= 1")
 	}
 	validateRiskEngine(&fields, c.RiskEngine)
+	if c.Integrity.Enabled {
+		if c.Integrity.MaxBodyBytes < 1 {
+			fields = append(fields, "integrity.max_body_bytes must be >= 1")
+		}
+		if c.Integrity.MaxPathLength < 1 {
+			fields = append(fields, "integrity.max_path_length must be >= 1")
+		}
+		if c.Integrity.MaxQueryLength < 1 {
+			fields = append(fields, "integrity.max_query_length must be >= 1")
+		}
+	}
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")
 	}

@@ -324,3 +324,18 @@ last-updated: 2026-06-04
 - **Acceptance** : le moteur est en shadow par defaut ; les signaux reels des detecteurs sont fusionnes et comptes comme familles corroborantes de bout en bout
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-detection.md FR-35, FR-38, NFR-15 ; plan.md Slice 7.2
+
+---
+
+## Sprint 8 - Detecteurs avances (Phase 8)
+
+### T8.1 - Analyse d'integrite des requetes (FR-18)
+- [x] `internal/integrity/integrity.go` : detection traversal (`../`, `%2e%2e`, `..%2f`), octet nul (`%00`), patterns d'injection (SQL/XSS), longueurs excessives ; analyse aussi une forme decodee (`+`->espace, `%xx`)
+- [x] Contribution de la famille `integrity` publiee via `X-WAF-Risk-integrity` (ne bloque jamais : FR-18 laisse l'app decider, le moteur arbitre)
+- [x] Limite de taille de body configurable (defaut 10 MB) -> HTTP 413 + `http.MaxBytesReader`
+- [x] Config `integrity` (enabled, max_body_bytes, max_path_length, max_query_length) + schema + exemple + validation
+- [x] Refactor `routes()` : parametre `detectors []func(http.Handler) http.Handler` execute juste avant le moteur de risque (reutilise par les slices 8.x suivantes)
+- [x] Tests : detections (traversal/injection/xss/longueur), publication de contribution sans blocage, body 413, bypass sur `X-WAF-Action=PASS`
+- **Acceptance** : les anomalies d'integrite contribuent au score de risque sans bloquer directement ; un body trop volumineux est rejete en 413
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-advanced.md FR-18 ; features/request-integrity.feature ; plan.md Slice 8.1

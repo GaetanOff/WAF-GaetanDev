@@ -14,6 +14,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/admin"
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/integrity"
 	waflogger "github.com/gaetandev/waf/internal/logger"
 	wafmetrics "github.com/gaetandev/waf/internal/metrics"
 	"github.com/gaetandev/waf/internal/middleware/access"
@@ -104,6 +105,11 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	// Détecteurs avancés : publient des contributions de signal consommées par le
+	// moteur de risque ; exécutés juste avant lui (Phase 8).
+	detectors := []func(http.Handler) http.Handler{
+		integrity.NewAnalyzer(*cfg).Handler,
+	}
 	challengeMiddleware, err := challenge.NewMiddleware(*cfg, scoreManager, "web/challenge.html")
 	if err != nil {
 		return err
@@ -113,7 +119,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
-		Handler:           routes(*cfg, accessRules, securityLogger, metrics, antiDDoS, rateLimiter, antiBot, riskMiddleware, challengeMiddleware, scoreManager, proxyHandler),
+		Handler:           routes(*cfg, accessRules, securityLogger, metrics, antiDDoS, rateLimiter, antiBot, riskMiddleware, challengeMiddleware, scoreManager, detectors, proxyHandler),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
@@ -171,7 +177,7 @@ func run() error {
 	return <-errs
 }
 
-func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflogger.Logger, metrics *wafmetrics.Metrics, antiDDoS antiddos.Middleware, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, riskMiddleware *risk.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, proxyHandler http.Handler) http.Handler {
+func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflogger.Logger, metrics *wafmetrics.Metrics, antiDDoS antiddos.Middleware, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, riskMiddleware *risk.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, detectors []func(http.Handler) http.Handler, proxyHandler http.Handler) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/waf/health", healthHandler)
 	mux.Handle("/waf/metrics", metrics.Handler())
@@ -179,6 +185,11 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 		proxyHandler = riskMiddleware.Handler(proxyHandler)
 	} else {
 		proxyHandler = scoreManager.Middleware(proxyHandler)
+	}
+	// Détecteurs avancés exécutés juste avant le moteur de risque (wrap en ordre
+	// inverse pour préserver l'ordre d'exécution detectors[0], detectors[1], ...).
+	for i := len(detectors) - 1; i >= 0; i-- {
+		proxyHandler = detectors[i](proxyHandler)
 	}
 	proxyHandler = antiBot.Handler(proxyHandler)
 	if cfg.RateLimit.Enabled {

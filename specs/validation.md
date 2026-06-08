@@ -121,6 +121,10 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 7.2 | `go test ./...` | pass | Shadow-by-default config; end-to-end tests: shadow not enforced (`X-WAF-Risk-Shadow-Mode`), corroborated block from real reputation+rate signals (`X-WAF-Risk-Corroborated`), enforcement test pins shadow off |
 | 2026-06-08 | Slice 7.2 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 7.2 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after shadow-default + integration tests |
+| 2026-06-08 | fix(risk) | `go test ./internal/risk/...` | pass | Fixed real-clock-dependent human-trust tests (future-dated fixture) |
+| 2026-06-08 | Slice 8.1 | `go test ./...` | pass | New `internal/integrity` (FR-18): traversal/null-byte/injection/length detection, decoded-form analysis, integrity risk contribution, 10MB body limit (413). `routes()` gains a `detectors` chain run before the risk engine |
+| 2026-06-08 | Slice 8.1 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 8.1 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds; integrity wired as first Phase 8 detector |
 
 ## Quality Gates Checklist
 

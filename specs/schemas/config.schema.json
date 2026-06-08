@@ -273,6 +273,16 @@
         }
       }
     },
+    "integrity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "max_body_bytes": { "type": "integer", "minimum": 1, "default": 10485760 },
+        "max_path_length": { "type": "integer", "minimum": 1, "default": 2048 },
+        "max_query_length": { "type": "integer", "minimum": 1, "default": 4096 }
+      }
+    },
     "challenge": {
       "type": "object",
       "additionalProperties": false,
