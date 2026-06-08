@@ -55,7 +55,7 @@ trust:
 risk_engine:
   enabled: true
   profile: "balanced"        # lenient | balanced | strict
-  shadow_mode: false
+  shadow_mode: true          # calibration : calcule/journalise sans appliquer (NFR-15, >= 24h avant enforcement)
   block_min_confidence: 0.6
   min_corroborating_families: 2
   tiers:

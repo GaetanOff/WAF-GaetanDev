@@ -165,6 +165,7 @@ func TestRoutesAppliesRiskDecisionBeforeProxy(t *testing.T) {
 	cfg.Cloudflare.Trusted = false
 	cfg.RateLimit.Enabled = false
 	cfg.Challenge.Enabled = false
+	cfg.RiskEngine.ShadowMode = false // ce test vérifie l'enforcement
 	cfg.RiskEngine.Tiers.Tarpit = 70
 	cfg.RiskEngine.Tiers.Block = 75
 	store := memory.New(100)
@@ -201,6 +202,88 @@ func TestRoutesAppliesRiskDecisionBeforeProxy(t *testing.T) {
 	}
 	if response.Header().Get("X-WAF-Reason") != "risk_heuristic" {
 		t.Fatalf("X-WAF-Reason = %q, want risk_heuristic", response.Header().Get("X-WAF-Reason"))
+	}
+}
+
+func TestRoutesRiskEngineShadowByDefault(t *testing.T) {
+	cfg := config.Default() // shadow_mode = true par défaut (calibration NFR-15)
+	cfg.Cloudflare.Trusted = false
+	cfg.RateLimit.Enabled = false
+	cfg.Challenge.Enabled = false
+	store := memory.New(100)
+	defer store.Close()
+	scoreManager, err := trust.NewScoreManager(store, cfg)
+	if err != nil {
+		t.Fatalf("trust.NewScoreManager() error = %v", err)
+	}
+	riskMiddleware, err := risk.NewMiddleware(store, scoreManager, cfg)
+	if err != nil {
+		t.Fatalf("risk.NewMiddleware() error = %v", err)
+	}
+	proxyCalled := false
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxyCalled = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := requestFrom("198.51.100.10:443")
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+	// Familles synthétiques élevées : sans shadow, ce serait un BLOCK.
+	request.Header.Set("X-WAF-Risk-Behavioral", "100")
+	request.Header.Set("X-WAF-Risk-TLS", "100")
+	request.Header.Set("X-WAF-Risk-Integrity", "100")
+	request.Header.Set("X-WAF-Risk-Geo", "100")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if !proxyCalled || response.Code != http.StatusNoContent {
+		t.Fatalf("shadow mode must not enforce: proxyCalled=%v status=%d", proxyCalled, response.Code)
+	}
+	if request.Header.Get("X-WAF-Risk-Shadow-Mode") != "true" {
+		t.Fatalf("X-WAF-Risk-Shadow-Mode = %q, want true", request.Header.Get("X-WAF-Risk-Shadow-Mode"))
+	}
+}
+
+func TestRoutesCorroboratedBlockFromRealSignals(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.Challenge.Enabled = false
+	cfg.RiskEngine.ShadowMode = false
+	cfg.RiskEngine.BlockMinConfidence = 0.2
+	cfg.RiskEngine.Tiers = config.RiskTiers{Observe: 2, Throttle: 5, Challenge: 8, Tarpit: 12, Block: 20}
+	cfg.RateLimit.Enabled = true
+	cfg.RateLimit.RequestsPerSecond = 1
+	cfg.RateLimit.Burst = 1
+
+	store := memory.New(100)
+	defer store.Close()
+	scoreManager, err := trust.NewScoreManager(store, cfg)
+	if err != nil {
+		t.Fatalf("trust.NewScoreManager() error = %v", err)
+	}
+	// Visiteur à faible confiance → famille reputation élevée (95).
+	scoreManager.Set("198.51.100.10", "example.test", 5)
+	riskMiddleware, err := risk.NewMiddleware(store, scoreManager, cfg)
+	if err != nil {
+		t.Fatalf("risk.NewMiddleware() error = %v", err)
+	}
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("corroborated block must not reach the proxy")
+	}))
+	request := requestFrom("198.51.100.10:443")
+	// UA propre : seules reputation (réelle) + rate (réelle, bucket vidé) corroborent.
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+	request.Header.Set("Accept-Language", "en-US")
+	request.Header.Set("Accept-Encoding", "gzip")
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 (corroborated block)", response.Code)
+	}
+	if request.Header.Get("X-WAF-Risk-Corroborated") != "true" {
+		t.Fatalf("X-WAF-Risk-Corroborated = %q, want true", request.Header.Get("X-WAF-Risk-Corroborated"))
 	}
 }
 

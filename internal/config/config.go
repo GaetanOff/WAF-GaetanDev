@@ -240,9 +240,13 @@ func Default() Config {
 			MaxVisitors:        100000,
 		},
 		RiskEngine: RiskEngine{
-			Enabled:                  true,
-			Profile:                  "balanced",
-			ShadowMode:               false,
+			Enabled: true,
+			Profile: "balanced",
+			// Shadow par défaut : le moteur calcule et journalise ses décisions
+			// sans les appliquer, le temps de la calibration (NFR-15 : >= 24 h de
+			// shadow avant enforcement). Passer à false après observation des
+			// métriques de faux positifs.
+			ShadowMode:               true,
 			BlockMinConfidence:       0.6,
 			MinCorroboratingFamilies: 2,
 			Tiers: RiskTiers{

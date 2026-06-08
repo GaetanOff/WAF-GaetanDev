@@ -313,3 +313,14 @@ last-updated: 2026-06-04
 - **Acceptance** : les detecteurs deja implementes alimentent le moteur de risque ; une famille reelle (fingerprint/rate) s'ajoute a `reputation` pour rendre la corroboration FR-35 possible
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-detection.md FR-33, FR-35 (Articulation) ; plan.md Slice 7.1
+
+### T7.2 - Corroboration effective + deploiement shadow
+- [x] `risk_engine.shadow_mode` passe a `true` par defaut (calibration NFR-15, >= 24h avant enforcement) dans `config.Default()` et `configs/config.example.yaml`
+- [x] Tests d'integration end-to-end via `routes()` :
+  - shadow par defaut : decision calculee/exposee (`X-WAF-Risk-Shadow-Mode`) mais NON appliquee
+  - corroboration de signaux reels (reputation faible + rate du bucket vide) -> `BLOCK` corrobore avec tiers ajustes (`X-WAF-Risk-Corroborated=true`)
+- [x] `TestRoutesAppliesRiskDecisionBeforeProxy` force `shadow_mode=false` (test d'enforcement)
+- **Note de conception** : avec seules 3 familles cablees (reputation/fingerprint/rate), le denominateur de fusion (somme de tous les poids) dilue le score → le moteur produit surtout CHALLENGE/OBSERVE et bloque rarement. C'est la protection anti-FP attendue ; les BLOCK durs deviennent realistes quand les detecteurs de la Phase 8 alimentent plus de familles.
+- **Acceptance** : le moteur est en shadow par defaut ; les signaux reels des detecteurs sont fusionnes et comptes comme familles corroborantes de bout en bout
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-detection.md FR-35, FR-38, NFR-15 ; plan.md Slice 7.2

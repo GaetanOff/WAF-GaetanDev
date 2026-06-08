@@ -16,12 +16,16 @@ Spécifications rédigées et approuvées, implémentation à venir (voir
 - En-têtes de sécurité, protection Slowloris, bypass des assets statiques
 - Health checks upstream + load balancing, audit trail, conformité RGPD
 - Webhooks d'alerte, auto-protection du WAF, ACME/Let's Encrypt
-- Moteur de scoring de risque & décision graduée (approuvé, voir
+- Moteur de scoring de risque & décision graduée (implémenté, voir
   `specs/requirements-detection.md` v1.0.0 et `ADR-015`) : fusion pondérée des
   signaux, corroboration (≥ 2 familles pour un BLOCK), mitigation réversible
   (ALLOW → OBSERVE → THROTTLE → CHALLENGE → TARPIT → BLOCK), allowlist de bots
   vérifiés (reverse-DNS), crédits de preuve humaine, mode shadow et boucle de
-  feedback faux positifs (objectif FP < 0,1 %)
+  feedback faux positifs (objectif FP < 0,1 %).
+  - Câblé sur les détecteurs déjà implémentés (familles `reputation`,
+    `fingerprint`, `rate`). Les familles avancées (`behavioral`, `tls`,
+    `geo`, `integrity`, threat-intel) seront alimentées par les détecteurs de
+    la Phase 8. **Actif en mode shadow par défaut** (calibration NFR-15).
 
 ## [0.1.0] - 2026-06-04
 

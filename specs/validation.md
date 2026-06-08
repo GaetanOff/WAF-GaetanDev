@@ -118,6 +118,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 7.1 | `go test ./...` | pass | Detector signal adapters: antibot publishes fingerprint contribution + honeypot trigger, blacklist/circuit triggers, ratelimit rate contribution. Updated `TestRoutesAppliesRiskDecisionBeforeProxy` (antibot now owns the fingerprint signal) |
 | 2026-06-08 | Slice 7.1 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 7.1 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after signal-adapter changes |
+| 2026-06-08 | Slice 7.2 | `go test ./...` | pass | Shadow-by-default config; end-to-end tests: shadow not enforced (`X-WAF-Risk-Shadow-Mode`), corroborated block from real reputation+rate signals (`X-WAF-Risk-Corroborated`), enforcement test pins shadow off |
+| 2026-06-08 | Slice 7.2 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 7.2 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after shadow-default + integration tests |
 
 ## Quality Gates Checklist
 
