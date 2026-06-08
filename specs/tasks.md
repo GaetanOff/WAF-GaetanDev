@@ -241,3 +241,14 @@ last-updated: 2026-06-04
 - **Acceptance** : le mapping est deterministe, respecte les bornes configurables/profilables, et plafonne les decisions au-dessus de `CHALLENGE` lorsque la confiance est insuffisante
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-detection.md FR-34 ; features/risk-scoring-engine.feature Scenario Outline Mapping ; ADR-015 ; plan.md Slice 6.3
+
+### T6.4 - Corroboration & signaux deterministes
+- [x] `ApplyDecision` exige `corroborating_families >= min_corroborating_families` pour conserver un `BLOCK` heuristique
+- [x] Un signal heuristique isole produisant un score de BLOCK est plafonne a `CHALLENGE`
+- [x] Les triggers deterministes `blacklist`, `honeypot`, `ja3_blacklist`, `threat_intel_critical`, `circuit_breaker` peuvent produire un `BLOCK` sans corroboration
+- [x] `block_min_confidence` reste applique : pas de `BLOCK` lorsque la confiance est insuffisante
+- [x] `DecisionConfigFromConfig` reprend `min_corroborating_families` depuis `risk_engine`
+- [x] Tests : signal isole, deux familles corroborantes, confiance insuffisante, triggers deterministes, trigger deterministe a faible confiance
+- **Acceptance** : un `BLOCK` heuristique exige assez de familles corroborantes, les triggers deterministes sont marques `decision_basis=deterministic`, et la confiance minimale interdit un `BLOCK` faible confiance
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-detection.md FR-35 ; features/risk-scoring-engine.feature scenarios Corroboration et Signaux deterministes ; ADR-015 ; plan.md Slice 6.4

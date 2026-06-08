@@ -3,9 +3,10 @@ package risk
 import "github.com/gaetandev/waf/internal/config"
 
 type DecisionConfig struct {
-	Profile            Profile
-	BlockMinConfidence float64
-	Tiers              DecisionTiers
+	Profile                  Profile
+	BlockMinConfidence       float64
+	MinCorroboratingFamilies int
+	Tiers                    DecisionTiers
 }
 
 type DecisionTiers struct {
@@ -18,8 +19,9 @@ type DecisionTiers struct {
 
 func DefaultDecisionConfig(profile Profile) DecisionConfig {
 	cfg := DecisionConfig{
-		Profile:            profile,
-		BlockMinConfidence: 0.6,
+		Profile:                  profile,
+		BlockMinConfidence:       0.6,
+		MinCorroboratingFamilies: 2,
 		Tiers: DecisionTiers{
 			Observe:   25,
 			Throttle:  45,
@@ -58,6 +60,7 @@ func DefaultDecisionConfig(profile Profile) DecisionConfig {
 func DecisionConfigFromConfig(cfg config.RiskEngine) DecisionConfig {
 	decision := DefaultDecisionConfig(Profile(cfg.Profile))
 	decision.BlockMinConfidence = cfg.BlockMinConfidence
+	decision.MinCorroboratingFamilies = cfg.MinCorroboratingFamilies
 	decision.Tiers = DecisionTiers{
 		Observe:   cfg.Tiers.Observe,
 		Throttle:  cfg.Tiers.Throttle,
@@ -81,11 +84,23 @@ func Decide(score int, confidence float64, cfg DecisionConfig) Decision {
 
 func ApplyDecision(assessment RiskAssessment, cfg DecisionConfig) RiskAssessment {
 	assessment.Decision = Decide(assessment.RiskScore, assessment.Confidence, cfg)
-	if assessment.Decision != DecisionAllow && assessment.DecisionBasis == "" {
-		assessment.DecisionBasis = DecisionBasisHeuristic
-	}
 	if assessment.Profile == "" {
 		assessment.Profile = cfg.Profile
+	}
+
+	if assessment.DeterministicTrigger != nil {
+		assessment.DecisionBasis = DecisionBasisDeterministic
+		if assessment.Confidence >= cfg.BlockMinConfidence {
+			assessment.Decision = DecisionBlock
+		}
+		return assessment
+	}
+
+	if assessment.Decision == DecisionBlock && assessment.CorroboratingFamilies < cfg.MinCorroboratingFamilies {
+		assessment.Decision = DecisionChallenge
+	}
+	if assessment.Decision != DecisionAllow && assessment.DecisionBasis == "" {
+		assessment.DecisionBasis = DecisionBasisHeuristic
 	}
 	return assessment
 }

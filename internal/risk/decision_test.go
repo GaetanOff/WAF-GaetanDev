@@ -82,6 +82,7 @@ func TestDecisionConfigFromConfigUsesRuntimeTiers(t *testing.T) {
 	riskConfig := config.Default().RiskEngine
 	riskConfig.Profile = string(ProfileStrict)
 	riskConfig.BlockMinConfidence = 0.7
+	riskConfig.MinCorroboratingFamilies = 3
 	riskConfig.Tiers.Observe = 20
 	riskConfig.Tiers.Throttle = 40
 	riskConfig.Tiers.Challenge = 60
@@ -95,6 +96,9 @@ func TestDecisionConfigFromConfigUsesRuntimeTiers(t *testing.T) {
 	}
 	if decision.BlockMinConfidence != 0.7 {
 		t.Fatalf("BlockMinConfidence = %v, want 0.7", decision.BlockMinConfidence)
+	}
+	if decision.MinCorroboratingFamilies != 3 {
+		t.Fatalf("MinCorroboratingFamilies = %d, want 3", decision.MinCorroboratingFamilies)
 	}
 	if got := Decide(90, 0.9, decision); got != DecisionTarpit {
 		t.Fatalf("Decide(90, 0.9) = %s, want TARPIT", got)
@@ -114,5 +118,111 @@ func TestApplyDecisionUpdatesAssessment(t *testing.T) {
 	}
 	if updated.Profile != ProfileBalanced {
 		t.Fatalf("Profile = %s, want balanced", updated.Profile)
+	}
+}
+
+func TestApplyDecisionCapsIsolatedHeuristicBlockAtChallenge(t *testing.T) {
+	assessment := RiskAssessment{
+		RiskScore:             95,
+		Confidence:            0.9,
+		Decision:              DecisionAllow,
+		CorroboratingFamilies: 1,
+	}
+
+	updated := ApplyDecision(assessment, DefaultDecisionConfig(ProfileBalanced))
+
+	if updated.Decision != DecisionChallenge {
+		t.Fatalf("Decision = %s, want CHALLENGE", updated.Decision)
+	}
+	if updated.DecisionBasis != DecisionBasisHeuristic {
+		t.Fatalf("DecisionBasis = %s, want heuristic", updated.DecisionBasis)
+	}
+}
+
+func TestApplyDecisionAllowsCorroboratedHeuristicBlock(t *testing.T) {
+	assessment := RiskAssessment{
+		RiskScore:             95,
+		Confidence:            0.9,
+		Decision:              DecisionAllow,
+		CorroboratingFamilies: 2,
+	}
+
+	updated := ApplyDecision(assessment, DefaultDecisionConfig(ProfileBalanced))
+
+	if updated.Decision != DecisionBlock {
+		t.Fatalf("Decision = %s, want BLOCK", updated.Decision)
+	}
+	if updated.DecisionBasis != DecisionBasisHeuristic {
+		t.Fatalf("DecisionBasis = %s, want heuristic", updated.DecisionBasis)
+	}
+}
+
+func TestApplyDecisionCapsLowConfidenceBlockAtChallenge(t *testing.T) {
+	assessment := RiskAssessment{
+		RiskScore:             95,
+		Confidence:            0.2,
+		Decision:              DecisionAllow,
+		CorroboratingFamilies: 3,
+	}
+
+	updated := ApplyDecision(assessment, DefaultDecisionConfig(ProfileBalanced))
+
+	if updated.Decision != DecisionChallenge {
+		t.Fatalf("Decision = %s, want CHALLENGE", updated.Decision)
+	}
+}
+
+func TestApplyDecisionBlocksDeterministicTriggersWithoutCorroboration(t *testing.T) {
+	triggers := []DeterministicTrigger{
+		TriggerBlacklist,
+		TriggerHoneypot,
+		TriggerJA3Blacklist,
+		TriggerThreatIntelCritical,
+		TriggerCircuitBreaker,
+	}
+
+	for _, trigger := range triggers {
+		t.Run(string(trigger), func(t *testing.T) {
+			trigger := trigger
+			assessment := RiskAssessment{
+				RiskScore:             5,
+				Confidence:            0.9,
+				Decision:              DecisionAllow,
+				CorroboratingFamilies: 0,
+				DeterministicTrigger:  &trigger,
+			}
+
+			updated := ApplyDecision(assessment, DefaultDecisionConfig(ProfileBalanced))
+
+			if updated.Decision != DecisionBlock {
+				t.Fatalf("Decision = %s, want BLOCK", updated.Decision)
+			}
+			if updated.DecisionBasis != DecisionBasisDeterministic {
+				t.Fatalf("DecisionBasis = %s, want deterministic", updated.DecisionBasis)
+			}
+			if updated.DeterministicTrigger == nil || *updated.DeterministicTrigger != trigger {
+				t.Fatalf("DeterministicTrigger = %v, want %s", updated.DeterministicTrigger, trigger)
+			}
+		})
+	}
+}
+
+func TestApplyDecisionCapsLowConfidenceDeterministicBlockAtChallenge(t *testing.T) {
+	trigger := TriggerBlacklist
+	assessment := RiskAssessment{
+		RiskScore:             95,
+		Confidence:            0.2,
+		Decision:              DecisionAllow,
+		CorroboratingFamilies: 0,
+		DeterministicTrigger:  &trigger,
+	}
+
+	updated := ApplyDecision(assessment, DefaultDecisionConfig(ProfileBalanced))
+
+	if updated.Decision != DecisionChallenge {
+		t.Fatalf("Decision = %s, want CHALLENGE", updated.Decision)
+	}
+	if updated.DecisionBasis != DecisionBasisDeterministic {
+		t.Fatalf("DecisionBasis = %s, want deterministic", updated.DecisionBasis)
 	}
 }

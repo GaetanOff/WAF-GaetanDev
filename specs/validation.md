@@ -100,6 +100,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 6.3 | `go test ./...` | pass | Added decision-tier mapping from `(risk_score, confidence)` to graduated mitigations; includes Scenario Outline examples from `risk-scoring-engine.feature`, configurable/profiled tiers, low-confidence cap at CHALLENGE, and RiskAssessment update helper |
 | 2026-06-08 | Slice 6.3 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 6.3 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after decision mapping package changes |
+| 2026-06-08 | Slice 6.4 | `go test ./...` | pass | Added FR-35 decision guards: heuristic BLOCK requires configured corroborating families, isolated heuristic signal caps at CHALLENGE, deterministic triggers can BLOCK without corroboration, and low confidence prevents BLOCK |
+| 2026-06-08 | Slice 6.4 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 6.4 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after corroboration and deterministic-trigger decision changes |
 
 ## Quality Gates Checklist
 
