@@ -132,6 +132,13 @@ tls_fingerprint:
   ja3_blacklist: []          # hashes JA3 malveillants connus -> BLOCK deterministe
   swap_contribution: 50      # changement de JA3 entre sessions -> contribution tls
 
+# Couche de deception (FR-15) : tarpit pour les requetes classees TARPIT
+deception:
+  enabled: true
+  tarpit_max_connections: 500   # plafond de connexions tarpitees simultanees (NFR-10)
+  tarpit_chunks: 20             # nombre de chunks HTML envoyes
+  tarpit_chunk_delay: "1s"      # delai entre chunks
+
 # Challenge JavaScript
 challenge:
   enabled: true

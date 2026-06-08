@@ -398,3 +398,15 @@ last-updated: 2026-06-04
 - **Acceptance** : un JA3 blackliste est bloque deterministiquement ; un changement de JA3 entre sessions augmente le risque ; absence de JA3 sans effet
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-advanced.md FR-11 ; ADR-005 ; features/tls-fingerprinting.feature ; plan.md Slice 8.6
+
+### T8.7 - Couche de deception / tarpit (FR-15)
+- [x] `internal/deception` : tarpit servant une fausse page HTML 200 par chunks espaces de delais
+- [x] Semaphore bornant les connexions tarpitees simultanees (NFR-10) ; au-dela -> 429
+- [x] Annulation propre via `r.Context().Done()` (client deconnecte)
+- [x] Cable via `Dispatch` wrappant le proxy : sert le tarpit quand le moteur a classe la requete TARPIT, sinon transmet
+- [x] Config `deception` (enabled, tarpit_max_connections 500, tarpit_chunks, tarpit_chunk_delay) + schema + exemple + validation
+- [x] Tests : pass-through hors TARPIT, HTML factice complet, 429 quand semaphore plein
+- **Note** : injection de contenu honeypot dans les reponses HTML differee ; la detection du suivi d'un chemin honeypot est deja couverte par antibot (honeypot_paths -> trigger deterministe en 7.1)
+- **Acceptance** : une requete classee TARPIT recoit une reponse lente bornee en concurrence, sans atteindre l'origine
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-advanced.md FR-15, NFR-10 ; ADR-008 ; features/deception-layer.feature ; plan.md Slice 8.7

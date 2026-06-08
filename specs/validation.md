@@ -140,6 +140,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 8.6 | `go test ./...` | pass | New `internal/tlsfp` (FR-11): JA3 string/hash utils, CF JA3 header read, JA3 blacklist→deterministic trigger, JA3 swap detection→tls contribution |
 | 2026-06-08 | Slice 8.6 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 8.6 | `go build -o waf.exe ./cmd/waf` | pass | TLS fingerprint wired as Phase 8 detector |
+| 2026-06-08 | Slice 8.7 | `go test ./...` | pass | New `internal/deception` (FR-15): tarpit (chunked slow fake HTML), connection semaphore (NFR-10, 429 when full), wired via Dispatch wrapping the proxy on TARPIT tier |
+| 2026-06-08 | Slice 8.7 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 8.7 | `go build -o waf.exe ./cmd/waf` | pass | Tarpit dispatch wraps proxy before the risk engine |
 
 ## Quality Gates Checklist
 

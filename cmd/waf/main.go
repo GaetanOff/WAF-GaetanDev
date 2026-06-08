@@ -16,6 +16,7 @@ import (
 	"github.com/gaetandev/waf/internal/admin"
 	"github.com/gaetandev/waf/internal/behavioral"
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/deception"
 	"github.com/gaetandev/waf/internal/geo"
 	"github.com/gaetandev/waf/internal/integrity"
 	waflogger "github.com/gaetandev/waf/internal/logger"
@@ -86,6 +87,18 @@ func run() error {
 	proxyHandler, err := proxy.NewHandler(*cfg)
 	if err != nil {
 		return err
+	}
+	// originHandler est la cible finale du pipeline (proxy), éventuellement
+	// précédée du tarpit (déception, FR-15) qui intercepte les requêtes classées
+	// TARPIT par le moteur de risque avant qu'elles n'atteignent le proxy.
+	var originHandler http.Handler = proxyHandler
+	if cfg.Deception.Enabled {
+		chunkDelay, err := parseDuration("deception.tarpit_chunk_delay", cfg.Deception.TarpitChunkDelay)
+		if err != nil {
+			return err
+		}
+		tarpit := deception.NewTarpit(cfg.Deception.TarpitMaxConns, cfg.Deception.TarpitChunks, chunkDelay)
+		originHandler = tarpit.Dispatch(originHandler)
 	}
 	accessRules, err := access.NewRuleSet(cfg.Whitelist, cfg.Blacklist, cfg.WhitelistUserAgents)
 	if err != nil {
@@ -173,7 +186,7 @@ func run() error {
 
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
-		Handler:           routes(*cfg, accessRules, securityLogger, metrics, antiDDoS, rateLimiter, antiBot, riskMiddleware, challengeMiddleware, scoreManager, detectors, proxyHandler),
+		Handler:           routes(*cfg, accessRules, securityLogger, metrics, antiDDoS, rateLimiter, antiBot, riskMiddleware, challengeMiddleware, scoreManager, detectors, originHandler),
 		ReadHeaderTimeout: 10 * time.Second,
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,

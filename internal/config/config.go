@@ -34,6 +34,7 @@ type Config struct {
 	Adaptive            Adaptive       `yaml:"adaptive"`
 	Geo                 Geo            `yaml:"geo"`
 	TLSFingerprint      TLSFingerprint `yaml:"tls_fingerprint"`
+	Deception           Deception      `yaml:"deception"`
 	Challenge           Challenge      `yaml:"challenge"`
 	Whitelist           []string       `yaml:"whitelist"`
 	Blacklist           []string       `yaml:"blacklist"`
@@ -169,6 +170,13 @@ type TLSFingerprint struct {
 	JA3Header        string   `yaml:"ja3_header"`
 	JA3Blacklist     []string `yaml:"ja3_blacklist"`
 	SwapContribution int      `yaml:"swap_contribution"`
+}
+
+type Deception struct {
+	Enabled          bool   `yaml:"enabled"`
+	TarpitMaxConns   int    `yaml:"tarpit_max_connections"`
+	TarpitChunks     int    `yaml:"tarpit_chunks"`
+	TarpitChunkDelay string `yaml:"tarpit_chunk_delay"`
 }
 
 type Challenge struct {
@@ -364,6 +372,12 @@ func Default() Config {
 			JA3Header:        "Cf-Bot-Management-Ja3Hash",
 			SwapContribution: 50,
 		},
+		Deception: Deception{
+			Enabled:          true,
+			TarpitMaxConns:   500,
+			TarpitChunks:     20,
+			TarpitChunkDelay: "1s",
+		},
 		Challenge: Challenge{
 			Enabled:       true,
 			TokenTTL:      "30s",
@@ -483,6 +497,12 @@ func (c *Config) Validate() error {
 	}
 	if c.TLSFingerprint.Enabled && c.TLSFingerprint.SwapContribution != 0 {
 		validateRange(&fields, "tls_fingerprint.swap_contribution", c.TLSFingerprint.SwapContribution, 0, 100)
+	}
+	if c.Deception.Enabled {
+		validateDuration(&fields, "deception.tarpit_chunk_delay", c.Deception.TarpitChunkDelay)
+		if c.Deception.TarpitMaxConns < 1 {
+			fields = append(fields, "deception.tarpit_max_connections must be >= 1")
+		}
 	}
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")
