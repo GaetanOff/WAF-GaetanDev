@@ -100,6 +100,17 @@ behavioral:
   enabled: true
   max_records: 50
 
+# Threat intelligence (FR-13) : feeds locaux + AbuseIPDB (opt-in)
+threat_intel:
+  enabled: false             # activer apres avoir fourni feeds et/ou cle API
+  cache_ttl: "1h"
+  blocklist_cidrs: []        # plages malveillantes (verdict malicious)
+  suspect_cidrs: []          # Tor / datacenter / VPN (verdict suspect)
+  abuseipdb:
+    enabled: false
+    url: "https://api.abuseipdb.com/api/v2/check"
+    api_key: ""              # preferer une injection via secret/env
+
 # Challenge JavaScript
 challenge:
   enabled: true

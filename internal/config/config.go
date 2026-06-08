@@ -30,6 +30,7 @@ type Config struct {
 	RiskEngine          RiskEngine     `yaml:"risk_engine"`
 	Integrity           Integrity      `yaml:"integrity"`
 	Behavioral          Behavioral     `yaml:"behavioral"`
+	ThreatIntel         ThreatIntel    `yaml:"threat_intel"`
 	Challenge           Challenge      `yaml:"challenge"`
 	Whitelist           []string       `yaml:"whitelist"`
 	Blacklist           []string       `yaml:"blacklist"`
@@ -130,6 +131,20 @@ type Integrity struct {
 type Behavioral struct {
 	Enabled    bool `yaml:"enabled"`
 	MaxRecords int  `yaml:"max_records"`
+}
+
+type ThreatIntel struct {
+	Enabled        bool      `yaml:"enabled"`
+	CacheTTL       string    `yaml:"cache_ttl"`
+	BlocklistCIDRs []string  `yaml:"blocklist_cidrs"`
+	SuspectCIDRs   []string  `yaml:"suspect_cidrs"`
+	AbuseIPDB      AbuseIPDB `yaml:"abuseipdb"`
+}
+
+type AbuseIPDB struct {
+	Enabled bool   `yaml:"enabled"`
+	URL     string `yaml:"url"`
+	APIKey  string `yaml:"api_key"`
 }
 
 type Challenge struct {
@@ -303,6 +318,14 @@ func Default() Config {
 			Enabled:    true,
 			MaxRecords: 50,
 		},
+		ThreatIntel: ThreatIntel{
+			Enabled:  false, // opt-in : nécessite des feeds et/ou une clé API
+			CacheTTL: "1h",
+			AbuseIPDB: AbuseIPDB{
+				Enabled: false,
+				URL:     "https://api.abuseipdb.com/api/v2/check",
+			},
+		},
 		Challenge: Challenge{
 			Enabled:       true,
 			TokenTTL:      "30s",
@@ -403,6 +426,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Behavioral.Enabled && c.Behavioral.MaxRecords < 1 {
 		fields = append(fields, "behavioral.max_records must be >= 1")
+	}
+	if c.ThreatIntel.Enabled {
+		validateDuration(&fields, "threat_intel.cache_ttl", c.ThreatIntel.CacheTTL)
+		if c.ThreatIntel.AbuseIPDB.Enabled && c.ThreatIntel.AbuseIPDB.URL == "" {
+			fields = append(fields, "threat_intel.abuseipdb.url is required when abuseipdb is enabled")
+		}
 	}
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")

@@ -27,6 +27,7 @@ import (
 	"github.com/gaetandev/waf/internal/proxy"
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/storage/memory"
+	"github.com/gaetandev/waf/internal/threatintel"
 	"github.com/gaetandev/waf/internal/trust"
 )
 
@@ -115,6 +116,25 @@ func run() error {
 		behavioralTracker := behavioral.New(cfg.Behavioral.MaxRecords)
 		defer behavioralTracker.Close()
 		detectors = append(detectors, behavioralTracker.Handler)
+	}
+	if cfg.ThreatIntel.Enabled {
+		cacheTTL, err := parseDuration("threat_intel.cache_ttl", cfg.ThreatIntel.CacheTTL)
+		if err != nil {
+			return err
+		}
+		staticSource := threatintel.NewStaticSource()
+		for _, cidr := range cfg.ThreatIntel.BlocklistCIDRs {
+			staticSource.Add(cidr, threatintel.LevelMalicious, "blocklist")
+		}
+		for _, cidr := range cfg.ThreatIntel.SuspectCIDRs {
+			staticSource.Add(cidr, threatintel.LevelSuspect, "suspect_range")
+		}
+		sources := []threatintel.Source{staticSource}
+		if cfg.ThreatIntel.AbuseIPDB.Enabled {
+			sources = append(sources, threatintel.NewHTTPSource(cfg.ThreatIntel.AbuseIPDB.URL, cfg.ThreatIntel.AbuseIPDB.APIKey, nil))
+		}
+		threatChecker := threatintel.NewChecker(cacheTTL, sources...)
+		detectors = append(detectors, threatintel.NewMiddleware(threatChecker, scoreManager).Handler)
 	}
 	challengeMiddleware, err := challenge.NewMiddleware(*cfg, scoreManager, "web/challenge.html")
 	if err != nil {

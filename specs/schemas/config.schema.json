@@ -291,6 +291,25 @@
         "max_records": { "type": "integer", "minimum": 1, "default": 50 }
       }
     },
+    "threat_intel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "cache_ttl": { "type": "string", "default": "1h" },
+        "blocklist_cidrs": { "type": "array", "items": { "type": "string" } },
+        "suspect_cidrs": { "type": "array", "items": { "type": "string" } },
+        "abuseipdb": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "enabled": { "type": "boolean", "default": false },
+            "url": { "type": "string" },
+            "api_key": { "type": "string" }
+          }
+        }
+      }
+    },
     "challenge": {
       "type": "object",
       "additionalProperties": false,

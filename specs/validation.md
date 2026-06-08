@@ -128,6 +128,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 8.2 | `go test ./...` | pass | New `internal/behavioral` (FR-12): async ring-buffer tracker, 6 anomaly signals, score applied to next request via `X-WAF-Risk-behavioral`; stop-channel shutdown (queue never closed) |
 | 2026-06-08 | Slice 8.2 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 8.2 | `go build -o waf.exe ./cmd/waf` | pass | Behavioral wired as Phase 8 detector |
+| 2026-06-08 | Slice 8.3 | `go test ./...` | pass | New `internal/threatintel` (FR-13): async TTL-cached checker, local CIDR feeds + AbuseIPDB HTTP source; critical→deterministic trigger, else idempotent trust ceiling. 100% stdlib (no maxminddb) |
+| 2026-06-08 | Slice 8.3 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 8.3 | `go build -o waf.exe ./cmd/waf` | pass | Threat-intel wired as opt-in Phase 8 detector |
 
 ## Quality Gates Checklist
 

@@ -351,3 +351,15 @@ last-updated: 2026-06-04
 - **Acceptance** : un comportement de bot (timing regulier, crawl) produit un score d'anomalie eleve applique a la requete suivante, sans bloquer le pipeline (async)
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-advanced.md FR-12, NFR-07 ; ADR-009 ; features/behavioral-analysis.feature ; plan.md Slice 8.2
+
+### T8.3 - Threat intelligence (FR-13)
+- [x] `internal/threatintel` : Checker avec cache TTL et resolution asynchrone non bloquante (NFR-08)
+- [x] `StaticSource` : feeds locaux CIDR (blocklist -> malicious, Tor/datacenter -> suspect)
+- [x] `HTTPSource` : client type AbuseIPDB v2 (score >= 80 critique, >= 50 malveillant), execute dans la goroutine de resolution
+- [x] Integration : verdict critique -> trigger deterministe `threat_intel_critical` (BLOCK via moteur, FR-35) ; sinon plafond de trust score idempotent (renforce la famille `reputation`)
+- [x] Config `threat_intel` (enabled opt-in, cache_ttl, blocklist_cidrs, suspect_cidrs, abuseipdb) + schema + exemple + validation
+- [x] 100% stdlib (pas de maxminddb : ASN exprimables en CIDR via les feeds)
+- [x] Tests : StaticSource (pire niveau), cache du Checker, middleware critique/malicious, HTTPSource via httptest
+- **Acceptance** : une IP en feed/AbuseIPDB voit sa reputation degradee (plafond) ou est bloquee (critique) sans bloquer la requete sur le lookup (async)
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-advanced.md FR-13, NFR-08 ; ADR-006 ; features/threat-intelligence.feature ; plan.md Slice 8.3
