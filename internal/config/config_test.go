@@ -152,6 +152,54 @@ antiddos:
 	}
 }
 
+func TestLoadRejectsInvalidRiskEngineConfig(t *testing.T) {
+	t.Setenv(envChallengeSecretKey, testSecret)
+	t.Setenv(envAdminToken, testSecret)
+
+	path := writeConfig(t, `
+version: "1.0"
+server:
+  listen: ":8080"
+upstream:
+  address: "http://example.test"
+risk_engine:
+  profile: "aggressive"
+  block_min_confidence: 1.2
+  min_corroborating_families: 0
+  tiers:
+    observe: 25
+    throttle: 45
+    challenge: 40
+    tarpit: 80
+    block: 90
+  weights:
+    reputation: -1
+    unknown: 1
+  family_corroboration_threshold: 101
+  human_credit:
+    sticky_trust_ttl: "bad-duration"
+`)
+
+	_, err := Load(path)
+	if err == nil {
+		t.Fatal("Load() expected an error")
+	}
+	for _, expected := range []string{
+		"risk_engine.profile",
+		"risk_engine.block_min_confidence",
+		"risk_engine.min_corroborating_families",
+		"risk_engine.tiers must be strictly increasing",
+		"risk_engine.weights.reputation",
+		"risk_engine.weights.unknown",
+		"risk_engine.family_corroboration_threshold",
+		"risk_engine.human_credit.sticky_trust_ttl",
+	} {
+		if !strings.Contains(err.Error(), expected) {
+			t.Fatalf("expected %q in validation error, got %v", expected, err)
+		}
+	}
+}
+
 func TestLoadRejectsUnknownField(t *testing.T) {
 	t.Setenv(envChallengeSecretKey, testSecret)
 	t.Setenv(envAdminToken, testSecret)

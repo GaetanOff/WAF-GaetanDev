@@ -217,3 +217,16 @@ last-updated: 2026-06-04
 - **Acceptance** : les types de la Slice 6.1 compilent, la serialisation `RiskAssessment` respecte le schema approuve, et les familles de signaux non encore implementees contribuent de facon neutre
 - **Validation 2026-06-08** : `go test ./...` et `go vet ./...` passent. Nouveau package `internal/risk` couvert par les tests `TestRiskAssessmentSerializesAccordingToSchema`, `TestNewAssessmentClampsScoreConfidenceAndCountsCorroboratingFamilies`, `TestNeutralContributionDefaultsAbsentFamilyToNoRisk`, `TestCollectContributionsCompletesAbsentFamiliesWithNeutralDefaults`, `TestClampContributionUsesSchemaBounds`.
 - **Spec** : requirements-detection.md FR-33, NFR-17 ; schemas/risk-assessment.schema.json ; ADR-015 ; plan.md Slice 6.1
+
+### T6.2 - Fusion ponderee + confiance + profils
+- [x] `internal/risk/fusion.go` : fusion ponderee deterministe vers `risk_score [0..100]` et `confidence [0..1]`
+- [x] Familles absentes traitees comme neutres dans le score et comme indisponibles dans la confiance
+- [x] Profils `lenient`, `balanced`, `strict` via `DefaultFusionConfig`
+- [x] Conversion depuis la configuration runtime via `FusionConfigFromConfig`
+- [x] `internal/config/config.go` : bloc `risk_engine` avec poids par famille, profil, seuil de confiance, tiers, corroboration, credit humain et bots verifies
+- [x] `specs/schemas/config.schema.json` : contrat `risk_engine` ajoute avec `additionalProperties: false`
+- [x] `configs/config.example.yaml` : exemple de configuration `risk_engine` balanced
+- [x] Tests table-driven / deterministes : score, confiance, profils, credit humain, conversion config, validation des bornes de config
+- **Acceptance** : memes signaux + meme profil donnent le meme score, la confiance baisse quand peu de familles sont disponibles, les profils modifient le scoring, et la config invalide est rejetee au demarrage
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-detection.md FR-33, NFR-16 ; schemas/config.schema.json ; ADR-015 ; plan.md Slice 6.2

@@ -27,6 +27,7 @@ type Config struct {
 	RateLimit           RateLimit      `yaml:"rate_limit"`
 	AntiDDoS            AntiDDoS       `yaml:"antiddos"`
 	Trust               Trust          `yaml:"trust"`
+	RiskEngine          RiskEngine     `yaml:"risk_engine"`
 	Challenge           Challenge      `yaml:"challenge"`
 	Whitelist           []string       `yaml:"whitelist"`
 	Blacklist           []string       `yaml:"blacklist"`
@@ -81,6 +82,40 @@ type Trust struct {
 	BlockThreshold     int    `yaml:"block_threshold"`
 	ScoreTTL           string `yaml:"score_ttl"`
 	MaxVisitors        int    `yaml:"max_visitors"`
+}
+
+type RiskEngine struct {
+	Enabled                      bool               `yaml:"enabled"`
+	Profile                      string             `yaml:"profile"`
+	ShadowMode                   bool               `yaml:"shadow_mode"`
+	BlockMinConfidence           float64            `yaml:"block_min_confidence"`
+	MinCorroboratingFamilies     int                `yaml:"min_corroborating_families"`
+	Tiers                        RiskTiers          `yaml:"tiers"`
+	Weights                      map[string]float64 `yaml:"weights"`
+	FamilyCorroborationThreshold int                `yaml:"family_corroboration_threshold"`
+	HumanCredit                  HumanCredit        `yaml:"human_credit"`
+	VerifiedBots                 VerifiedBots       `yaml:"verified_bots"`
+}
+
+type RiskTiers struct {
+	Observe   int `yaml:"observe"`
+	Throttle  int `yaml:"throttle"`
+	Challenge int `yaml:"challenge"`
+	Tarpit    int `yaml:"tarpit"`
+	Block     int `yaml:"block"`
+}
+
+type HumanCredit struct {
+	ChallengePassed   int    `yaml:"challenge_passed"`
+	StableFingerprint int    `yaml:"stable_fingerprint"`
+	StickyTrustTTL    string `yaml:"sticky_trust_ttl"`
+}
+
+type VerifiedBots struct {
+	Enabled         bool     `yaml:"enabled"`
+	SuccessCacheTTL string   `yaml:"success_cache_ttl"`
+	FailureCacheTTL string   `yaml:"failure_cache_ttl"`
+	Crawlers        []string `yaml:"crawlers"`
 }
 
 type Challenge struct {
@@ -204,6 +239,42 @@ func Default() Config {
 			ScoreTTL:           "1h",
 			MaxVisitors:        100000,
 		},
+		RiskEngine: RiskEngine{
+			Enabled:                  true,
+			Profile:                  "balanced",
+			ShadowMode:               false,
+			BlockMinConfidence:       0.6,
+			MinCorroboratingFamilies: 2,
+			Tiers: RiskTiers{
+				Observe:   25,
+				Throttle:  45,
+				Challenge: 65,
+				Tarpit:    80,
+				Block:     90,
+			},
+			Weights: map[string]float64{
+				"reputation":   1.0,
+				"behavioral":   1.0,
+				"tls":          0.8,
+				"fingerprint":  1.0,
+				"integrity":    1.2,
+				"rate":         0.6,
+				"geo":          0.5,
+				"human_credit": 1.0,
+			},
+			FamilyCorroborationThreshold: 50,
+			HumanCredit: HumanCredit{
+				ChallengePassed:   -40,
+				StableFingerprint: -15,
+				StickyTrustTTL:    "30m",
+			},
+			VerifiedBots: VerifiedBots{
+				Enabled:         true,
+				SuccessCacheTTL: "12h",
+				FailureCacheTTL: "10m",
+				Crawlers:        []string{"googlebot", "bingbot", "duckduckbot", "applebot"},
+			},
+		},
 		Challenge: Challenge{
 			Enabled:       true,
 			TokenTTL:      "30s",
@@ -260,6 +331,9 @@ func (c *Config) Validate() error {
 	validateDuration(&fields, "cloudflare.update_interval", c.Cloudflare.UpdateInterval)
 	validateDuration(&fields, "antiddos.global_window", c.AntiDDoS.GlobalWindow)
 	validateDuration(&fields, "trust.score_ttl", c.Trust.ScoreTTL)
+	validateDuration(&fields, "risk_engine.human_credit.sticky_trust_ttl", c.RiskEngine.HumanCredit.StickyTrustTTL)
+	validateDuration(&fields, "risk_engine.verified_bots.success_cache_ttl", c.RiskEngine.VerifiedBots.SuccessCacheTTL)
+	validateDuration(&fields, "risk_engine.verified_bots.failure_cache_ttl", c.RiskEngine.VerifiedBots.FailureCacheTTL)
 	validateDuration(&fields, "challenge.token_ttl", c.Challenge.TokenTTL)
 	validateDuration(&fields, "challenge.cookie_ttl", c.Challenge.CookieTTL)
 
@@ -287,6 +361,7 @@ func (c *Config) Validate() error {
 	if c.Trust.MaxVisitors < 1 {
 		fields = append(fields, "trust.max_visitors must be >= 1")
 	}
+	validateRiskEngine(&fields, c.RiskEngine)
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")
 	}
@@ -325,6 +400,44 @@ func (c *Config) Validate() error {
 	return nil
 }
 
+func validateRiskEngine(fields *[]string, cfg RiskEngine) {
+	validateEnum(fields, "risk_engine.profile", cfg.Profile, "lenient", "balanced", "strict")
+	validateFloatRange(fields, "risk_engine.block_min_confidence", cfg.BlockMinConfidence, 0, 1)
+	if cfg.MinCorroboratingFamilies < 1 {
+		*fields = append(*fields, "risk_engine.min_corroborating_families must be >= 1")
+	}
+	validateRange(fields, "risk_engine.tiers.observe", cfg.Tiers.Observe, 0, 100)
+	validateRange(fields, "risk_engine.tiers.throttle", cfg.Tiers.Throttle, 0, 100)
+	validateRange(fields, "risk_engine.tiers.challenge", cfg.Tiers.Challenge, 0, 100)
+	validateRange(fields, "risk_engine.tiers.tarpit", cfg.Tiers.Tarpit, 0, 100)
+	validateRange(fields, "risk_engine.tiers.block", cfg.Tiers.Block, 0, 100)
+	if !(cfg.Tiers.Observe < cfg.Tiers.Throttle &&
+		cfg.Tiers.Throttle < cfg.Tiers.Challenge &&
+		cfg.Tiers.Challenge < cfg.Tiers.Tarpit &&
+		cfg.Tiers.Tarpit < cfg.Tiers.Block) {
+		*fields = append(*fields, "risk_engine.tiers must be strictly increasing")
+	}
+	validateRange(fields, "risk_engine.family_corroboration_threshold", cfg.FamilyCorroborationThreshold, 0, 100)
+	allowedWeights := map[string]bool{
+		"reputation":   true,
+		"behavioral":   true,
+		"tls":          true,
+		"fingerprint":  true,
+		"integrity":    true,
+		"rate":         true,
+		"geo":          true,
+		"human_credit": true,
+	}
+	for family, weight := range cfg.Weights {
+		if !allowedWeights[family] {
+			*fields = append(*fields, fmt.Sprintf("risk_engine.weights.%s is not a supported signal family", family))
+		}
+		if weight < 0 {
+			*fields = append(*fields, fmt.Sprintf("risk_engine.weights.%s must be >= 0", family))
+		}
+	}
+}
+
 func (c *Config) applyEnvOverrides() {
 	if value := os.Getenv(envChallengeSecretKey); value != "" {
 		c.Challenge.SecretKey = value
@@ -359,6 +472,12 @@ func validateDuration(fields *[]string, name, value string) {
 func validateRange(fields *[]string, name string, value, min, max int) {
 	if value < min || value > max {
 		*fields = append(*fields, fmt.Sprintf("%s must be between %d and %d", name, min, max))
+	}
+}
+
+func validateFloatRange(fields *[]string, name string, value, min, max float64) {
+	if value < min || value > max {
+		*fields = append(*fields, fmt.Sprintf("%s must be between %.2f and %.2f", name, min, max))
 	}
 }
 

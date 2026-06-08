@@ -51,6 +51,43 @@ trust:
   score_ttl: "1h"
   max_visitors: 100000       # LRU eviction au-delà
 
+# Moteur de risque (fusion des signaux, profil balanced par defaut)
+risk_engine:
+  enabled: true
+  profile: "balanced"        # lenient | balanced | strict
+  shadow_mode: false
+  block_min_confidence: 0.6
+  min_corroborating_families: 2
+  tiers:
+    observe: 25
+    throttle: 45
+    challenge: 65
+    tarpit: 80
+    block: 90
+  weights:
+    reputation: 1.0
+    behavioral: 1.0
+    tls: 0.8
+    fingerprint: 1.0
+    integrity: 1.2
+    rate: 0.6
+    geo: 0.5
+    human_credit: 1.0
+  family_corroboration_threshold: 50
+  human_credit:
+    challenge_passed: -40
+    stable_fingerprint: -15
+    sticky_trust_ttl: "30m"
+  verified_bots:
+    enabled: true
+    success_cache_ttl: "12h"
+    failure_cache_ttl: "10m"
+    crawlers:
+      - "googlebot"
+      - "bingbot"
+      - "duckduckbot"
+      - "applebot"
+
 # Challenge JavaScript
 challenge:
   enabled: true

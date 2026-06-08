@@ -94,6 +94,9 @@ last-reviewed: 2026-06-03
 
 | 2026-06-08 | Slice 6.1 | `go test ./...` | pass | Added `internal/risk` signal interface and `RiskAssessment`; includes schema-oriented serialization tests against `schemas/risk-assessment.schema.json`, neutral defaults for absent families, contribution bounds, score/confidence clamps, and corroborating-family count |
 | 2026-06-08 | Slice 6.1 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 6.2 | `go test ./...` | pass | Added weighted risk fusion, confidence calculation, lenient/balanced/strict profiles, runtime config conversion, `risk_engine` config validation, and example config coverage |
+| 2026-06-08 | Slice 6.2 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 6.2 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after `risk_engine` config model and fusion package changes |
 
 ## Quality Gates Checklist
 
