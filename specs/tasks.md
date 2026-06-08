@@ -386,3 +386,15 @@ last-updated: 2026-06-04
 - **Acceptance** : les regles par pays bloquent ou renforcent le risque selon CF-IPCountry ; absence de header => aucun effet
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-advanced.md FR-16 ; features/geo-rules.feature ; plan.md Slice 8.5
+
+### T8.6 - TLS / JA3 fingerprinting (FR-11)
+- [x] `internal/tlsfp` : `JA3String` (format canonique) + `JA3Hash` (MD5) en utilitaires purs (capture TLS directe fournie, cablage live differe)
+- [x] Mode hybride live : lecture du header Cloudflare `Cf-Bot-Management-Ja3Hash`
+- [x] Blacklist JA3 -> trigger deterministe `ja3_blacklist` (BLOCK via moteur, FR-35)
+- [x] Detection de swap JA3 par visiteur (cache memoire ip->ja3) -> contribution `tls`
+- [x] Degradation gracieuse : pas de header JA3 (Cloudflare sans Bot Management) -> collecte ignoree
+- [x] Config `tls_fingerprint` (enabled, ja3_header, ja3_blacklist, swap_contribution) + schema + exemple + validation
+- [x] Tests : JA3String/Hash, blacklist->trigger, swap->contribution, header absent->pass
+- **Acceptance** : un JA3 blackliste est bloque deterministiquement ; un changement de JA3 entre sessions augmente le risque ; absence de JA3 sans effet
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-advanced.md FR-11 ; ADR-005 ; features/tls-fingerprinting.feature ; plan.md Slice 8.6

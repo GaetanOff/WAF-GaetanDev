@@ -30,6 +30,7 @@ import (
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/threatintel"
+	"github.com/gaetandev/waf/internal/tlsfp"
 	"github.com/gaetandev/waf/internal/trust"
 )
 
@@ -157,6 +158,9 @@ func run() error {
 	}
 	if cfg.Geo.Enabled {
 		detectors = append(detectors, geo.NewRules(cfg.Geo).Handler)
+	}
+	if cfg.TLSFingerprint.Enabled {
+		detectors = append(detectors, tlsfp.NewMiddleware(cfg.TLSFingerprint).Handler)
 	}
 	challengeMiddleware, err := challenge.NewMiddleware(*cfg, scoreManager, "web/challenge.html")
 	if err != nil {

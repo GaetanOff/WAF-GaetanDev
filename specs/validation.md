@@ -137,6 +137,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 8.5 | `go test ./...` | pass | New `internal/geo` (FR-16): CF-IPCountry rules (whitelist/block/challenge), geo risk contribution, graceful no-header pass |
 | 2026-06-08 | Slice 8.5 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 8.5 | `go build -o waf.exe ./cmd/waf` | pass | Geo wired as opt-in Phase 8 detector |
+| 2026-06-08 | Slice 8.6 | `go test ./...` | pass | New `internal/tlsfp` (FR-11): JA3 string/hash utils, CF JA3 header read, JA3 blacklist→deterministic trigger, JA3 swap detection→tls contribution |
+| 2026-06-08 | Slice 8.6 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 8.6 | `go build -o waf.exe ./cmd/waf` | pass | TLS fingerprint wired as Phase 8 detector |
 
 ## Quality Gates Checklist
 

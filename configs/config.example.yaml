@@ -125,6 +125,13 @@ geo:
   challenge_countries: []    # pays -> contribution de risque renforcee
   challenge_contribution: 60
 
+# Fingerprinting TLS / JA3 (FR-11) : via header Cloudflare Bot Management
+tls_fingerprint:
+  enabled: true
+  ja3_header: "Cf-Bot-Management-Ja3Hash"
+  ja3_blacklist: []          # hashes JA3 malveillants connus -> BLOCK deterministe
+  swap_contribution: 50      # changement de JA3 entre sessions -> contribution tls
+
 # Challenge JavaScript
 challenge:
   enabled: true

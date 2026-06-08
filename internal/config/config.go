@@ -33,6 +33,7 @@ type Config struct {
 	ThreatIntel         ThreatIntel    `yaml:"threat_intel"`
 	Adaptive            Adaptive       `yaml:"adaptive"`
 	Geo                 Geo            `yaml:"geo"`
+	TLSFingerprint      TLSFingerprint `yaml:"tls_fingerprint"`
 	Challenge           Challenge      `yaml:"challenge"`
 	Whitelist           []string       `yaml:"whitelist"`
 	Blacklist           []string       `yaml:"blacklist"`
@@ -161,6 +162,13 @@ type Geo struct {
 	BlockedCountries      []string `yaml:"blocked_countries"`
 	ChallengeCountries    []string `yaml:"challenge_countries"`
 	ChallengeContribution int      `yaml:"challenge_contribution"`
+}
+
+type TLSFingerprint struct {
+	Enabled          bool     `yaml:"enabled"`
+	JA3Header        string   `yaml:"ja3_header"`
+	JA3Blacklist     []string `yaml:"ja3_blacklist"`
+	SwapContribution int      `yaml:"swap_contribution"`
 }
 
 type Challenge struct {
@@ -351,6 +359,11 @@ func Default() Config {
 			Enabled:               false, // opt-in : nécessite des règles par pays
 			ChallengeContribution: 60,
 		},
+		TLSFingerprint: TLSFingerprint{
+			Enabled:          true,
+			JA3Header:        "Cf-Bot-Management-Ja3Hash",
+			SwapContribution: 50,
+		},
 		Challenge: Challenge{
 			Enabled:       true,
 			TokenTTL:      "30s",
@@ -467,6 +480,9 @@ func (c *Config) Validate() error {
 	}
 	if c.Geo.Enabled && c.Geo.ChallengeContribution != 0 {
 		validateRange(&fields, "geo.challenge_contribution", c.Geo.ChallengeContribution, 0, 100)
+	}
+	if c.TLSFingerprint.Enabled && c.TLSFingerprint.SwapContribution != 0 {
+		validateRange(&fields, "tls_fingerprint.swap_contribution", c.TLSFingerprint.SwapContribution, 0, 100)
 	}
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")

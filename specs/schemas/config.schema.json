@@ -330,6 +330,16 @@
         "challenge_contribution": { "type": "integer", "minimum": 0, "maximum": 100, "default": 60 }
       }
     },
+    "tls_fingerprint": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "ja3_header": { "type": "string", "default": "Cf-Bot-Management-Ja3Hash" },
+        "ja3_blacklist": { "type": "array", "items": { "type": "string" } },
+        "swap_contribution": { "type": "integer", "minimum": 0, "maximum": 100, "default": 50 }
+      }
+    },
     "challenge": {
       "type": "object",
       "additionalProperties": false,
