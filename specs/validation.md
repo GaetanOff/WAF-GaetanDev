@@ -165,6 +165,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 9.4 | `go test ./...` | pass | New `internal/upstream` (FR-25/26): pool with per-upstream health (atomic), round_robin/least_conn/ip_hash/weighted, backup fallback, active HealthChecker; proxy `WithPool` health-aware selection + failover ErrorHandler |
 | 2026-06-08 | Slice 9.4 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 9.4 | `go build -o waf.exe ./cmd/waf` | pass | Upstream pool wired into proxy + boot health checker |
+| 2026-06-08 | Slice 9.5 | `go test ./...` | pass | New `internal/audit` (FR-27): append-only FIFO trail, secret masking, optional file; wired into admin mutations + `GET /waf/admin/audit` |
+| 2026-06-08 | Slice 9.5 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 9.5 | `go build -o waf.exe ./cmd/waf` | pass | Audit trail wired into admin server |
 
 ## Quality Gates Checklist
 

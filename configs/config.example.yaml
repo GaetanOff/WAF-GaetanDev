@@ -189,6 +189,12 @@ upstream_pool:
     healthy_threshold: 2
     unhealthy_threshold: 3
 
+# Audit trail des actions admin (FR-27) : journal append-only, secrets masques
+audit:
+  enabled: true
+  max_entries: 1000
+  file: ""                   # chemin optionnel d'export (sinon memoire seule)
+
 # Challenge JavaScript
 challenge:
   enabled: true

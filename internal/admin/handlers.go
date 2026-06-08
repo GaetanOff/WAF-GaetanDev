@@ -79,7 +79,23 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("GET /waf/admin/visitors/", s.auth(http.HandlerFunc(s.getVisitor)))
 	mux.Handle("DELETE /waf/admin/visitors/", s.auth(http.HandlerFunc(s.deleteVisitor)))
 	mux.Handle("GET /waf/admin/events", s.auth(http.HandlerFunc(s.listEvents)))
+	mux.Handle("GET /waf/admin/audit", s.auth(http.HandlerFunc(s.listAudit)))
 	return mux
+}
+
+// record journalise une action d'administration (no-op si l'audit est désactivé).
+func (s *Server) record(action string, target string, result string) {
+	if s.trail != nil {
+		s.trail.Record(action, target, result)
+	}
+}
+
+func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
+	if s.trail == nil {
+		writeJSON(w, http.StatusOK, listResponse[any]{Items: []any{}, Total: 0})
+		return
+	}
+	writeJSON(w, http.StatusOK, paged(s.trail.List(), r))
 }
 
 func (s *Server) auth(next http.Handler) http.Handler {
@@ -146,6 +162,7 @@ func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	sort.Strings(updated)
+	s.record("config_patch", strings.Join(updated, ","), "applied")
 	writeJSON(w, http.StatusOK, map[string]any{"updated_fields": updated})
 }
 
@@ -158,10 +175,12 @@ func (s *Server) addWhitelist(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteWhitelist(w http.ResponseWriter, r *http.Request) {
-	if !s.state.RemoveWhitelist(pathTail(r, "/waf/admin/whitelist/")) {
+	target := pathTail(r, "/waf/admin/whitelist/")
+	if !s.state.RemoveWhitelist(target) {
 		http.NotFound(w, r)
 		return
 	}
+	s.record("remove_whitelist", target, "removed")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -174,10 +193,12 @@ func (s *Server) addBlacklist(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteBlacklist(w http.ResponseWriter, r *http.Request) {
-	if !s.state.RemoveBlacklist(pathTail(r, "/waf/admin/blacklist/")) {
+	target := pathTail(r, "/waf/admin/blacklist/")
+	if !s.state.RemoveBlacklist(target) {
 		http.NotFound(w, r)
 		return
 	}
+	s.record("remove_blacklist", target, "removed")
 	w.WriteHeader(http.StatusNoContent)
 }
 
@@ -205,6 +226,11 @@ func (s *Server) addIPEntry(w http.ResponseWriter, r *http.Request, whitelist bo
 		writeJSON(w, http.StatusConflict, errorResponse{Error: "already_exists", Message: "Entry already exists"})
 		return
 	}
+	action := "add_blacklist"
+	if whitelist {
+		action = "add_whitelist"
+	}
+	s.record(action, entry.IP, "created")
 	writeJSON(w, http.StatusCreated, created)
 }
 
@@ -243,6 +269,7 @@ func (s *Server) deleteVisitor(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.store.DeleteVisitor(ipHash)
+	s.record("reset_visitor", ipHash, "reset")
 	w.WriteHeader(http.StatusNoContent)
 }
 

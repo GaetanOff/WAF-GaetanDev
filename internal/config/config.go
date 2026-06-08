@@ -43,6 +43,7 @@ type Config struct {
 	Slowloris           Slowloris        `yaml:"slowloris"`
 	StaticAssets        StaticAssets     `yaml:"static_assets"`
 	UpstreamPool        UpstreamPool     `yaml:"upstream_pool"`
+	Audit               Audit            `yaml:"audit"`
 	Challenge           Challenge        `yaml:"challenge"`
 	Whitelist           []string         `yaml:"whitelist"`
 	Blacklist           []string         `yaml:"blacklist"`
@@ -218,6 +219,12 @@ type PoolUpstream struct {
 	Address string `yaml:"address"`
 	Weight  int    `yaml:"weight"`
 	Backup  bool   `yaml:"backup"`
+}
+
+type Audit struct {
+	Enabled    bool   `yaml:"enabled"`
+	MaxEntries int    `yaml:"max_entries"`
+	File       string `yaml:"file"`
 }
 
 type UpstreamHealthCheck struct {
@@ -444,6 +451,10 @@ func Default() Config {
 			TarpitMaxConns:   500,
 			TarpitChunks:     20,
 			TarpitChunkDelay: "1s",
+		},
+		Audit: Audit{
+			Enabled:    true,
+			MaxEntries: 1000,
 		},
 		StaticAssets: StaticAssets{
 			Enabled: true,

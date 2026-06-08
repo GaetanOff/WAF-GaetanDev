@@ -382,6 +382,15 @@
         "extensions": { "type": "array", "items": { "type": "string" } }
       }
     },
+    "audit": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "max_entries": { "type": "integer", "minimum": 1, "default": 1000 },
+        "file": { "type": "string" }
+      }
+    },
     "upstream_pool": {
       "type": "object",
       "additionalProperties": false,

@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gaetandev/waf/internal/audit"
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/storage"
@@ -19,6 +20,7 @@ type Server struct {
 	scores      *trust.ScoreManager
 	accessRules *access.RuleSet
 	state       *State
+	trail       *audit.Trail
 	startedAt   time.Time
 	httpServer  *http.Server
 }
@@ -31,12 +33,20 @@ func NewServer(cfg config.Config, store storage.Store, scores *trust.ScoreManage
 	if err != nil {
 		return nil, err
 	}
+	var trail *audit.Trail
+	if cfg.Audit.Enabled {
+		trail, err = audit.NewTrail(cfg.Audit.MaxEntries, cfg.Audit.File)
+		if err != nil {
+			return nil, err
+		}
+	}
 	server := &Server{
 		cfg:         cfg,
 		store:       store,
 		scores:      scores,
 		accessRules: accessRules,
 		state:       state,
+		trail:       trail,
 		startedAt:   startedAt,
 	}
 	server.httpServer = &http.Server{
@@ -61,6 +71,9 @@ func (s *Server) ListenAndServe() error {
 }
 
 func (s *Server) Shutdown(ctx context.Context) error {
+	if s.trail != nil {
+		_ = s.trail.Close()
+	}
 	if s.httpServer == nil {
 		return nil
 	}

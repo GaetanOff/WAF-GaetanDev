@@ -495,3 +495,13 @@ last-updated: 2026-06-04
 - **Acceptance** : le trafic est reparti sur les upstreams sains selon la stratégie ; un upstream down est exclu et les backups prennent le relais
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-ops.md FR-25, FR-26, NFR-13 ; ADR-012 ; schemas/upstream-pool.schema.json ; features/upstream-health.feature ; plan.md Slice 9.4
+
+### T9.5 - Audit trail admin (FR-27)
+- [x] `internal/audit` : journal append-only thread-safe, rotation FIFO (max_entries), masquage des secrets, export fichier optionnel
+- [x] Cable dans le serveur admin : record sur add/remove whitelist, add/remove blacklist, patch config, reset visitor
+- [x] Endpoint `GET /waf/admin/audit` (auth, pagine) ; Trail ferme au shutdown
+- [x] Config `audit` (enabled, max_entries 1000, file) + schema + exemple
+- [x] Tests : record+list, rotation FIFO, masquage des secrets
+- **Acceptance** : chaque mutation admin est journalisee (horodatee, secrets masques) et consultable ; rotation bornee
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-ops.md FR-27 ; features/audit-trail.feature ; plan.md Slice 9.5
