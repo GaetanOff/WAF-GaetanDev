@@ -1,7 +1,7 @@
 ---
 status: approved
-version: 1.0.0
-last-reviewed: 2026-06-03
+version: 1.1.0
+last-reviewed: 2026-06-08
 ---
 
 # Plan d'implémentation — WAF Anti-DDoS / Anti-Bot
@@ -17,6 +17,7 @@ last-reviewed: 2026-06-03
 | E5 | Anti-DDoS avancé | requirements FR-08 |
 | E6 | Journalisation + Métriques + API Admin | requirements FR-09, FR-10 |
 | E7 | Tests, CI/CD, Dockerisation | requirements NFR-04, NFR-05 |
+| E8 | Moteur de Risque & Décision graduée (anti-FP) | requirements-detection FR-33..FR-38 |
 
 ---
 
@@ -175,6 +176,83 @@ last-reviewed: 2026-06-03
 
 ---
 
+### Phase 6 — Moteur de Risque & Décision (E8)
+
+> **Pré-requis SDD** : `specs/requirements-detection.md` (FR-33..FR-38) et
+> `ADR-015` sont en statut `draft`/`proposed`. Cette phase ne démarre qu'**après
+> approbation** de ces specs (invariant #1 : pas de code avant spec approuvée).
+>
+> Le moteur **consomme** les détecteurs existants via une interface de signaux ;
+> une famille de signaux non encore implémentée (FR-11..FR-18) contribue de
+> manière **neutre** par défaut, ce qui rend la phase implémentable de façon
+> incrémentale sans bloquer sur les détecteurs avancés.
+
+**Slice 6.1 — Interface de signaux + type RiskAssessment**
+- `internal/risk/signal.go` : enum `SignalFamily`, struct `Contribution`,
+  interface `SignalProvider` (chaque détecteur s'y adapte) ; familles absentes →
+  contribution neutre
+- `internal/risk/assessment.go` : struct `RiskAssessment` conforme au schéma
+- Tests : sérialisation conforme à `schemas/risk-assessment.schema.json`
+- Spec references : requirements-detection FR-33, NFR-17, schemas/risk-assessment.schema.json
+
+**Slice 6.2 — Fusion pondérée + confiance + profils**
+- `internal/risk/fusion.go` : combinaison pondérée → `risk_score [0..100]` +
+  `confidence [0..1]` (la confiance reflète quantité/qualité des signaux)
+- Config : poids par famille, profils `lenient` / `balanced` / `strict`
+- Déterministe : tests table-driven (mêmes signaux → même score)
+- Spec references : requirements-detection FR-33, NFR-16
+
+**Slice 6.3 — Mapping vers l'échelle de mitigation graduée**
+- `internal/risk/decision.go` : mappe `(risk_score, confidence)` → tier
+  `ALLOW / OBSERVE / THROTTLE / CHALLENGE / TARPIT / BLOCK`
+- Bornes de score par tier configurables et profilables
+- Tests : Scenario Outline de `features/risk-scoring-engine.feature`
+- Spec references : requirements-detection FR-34
+
+**Slice 6.4 — Corroboration & signaux déterministes**
+- BLOCK heuristique exige `corroborating_families >= 2` ; sinon plafond CHALLENGE
+- Signaux déterministes (blacklist, honeypot, JA3 blacklisté, threat-intel
+  critique, circuit breaker) → BLOCK seul, exemptés de corroboration
+- Garde `block_min_confidence` : pas de BLOCK à faible confiance
+- Tests : scénarios corroboration + déterministes + confiance insuffisante
+- Spec references : requirements-detection FR-35
+
+**Slice 6.5 — Allowlist de bots vérifiés (reverse-DNS)**
+- `internal/risk/verifybot.go` : reverse-DNS + forward-confirm (`net.LookupAddr`
+  / `net.LookupHost`, stdlib), cache TTL, **asynchrone non bloquant**
+- Crawler vérifié → ALLOW, jamais de BLOCK/CHALLENGE heuristique ; UA crawler non
+  vérifié → contribution `reputation` augmentée (anti-spoofing)
+- Tests : Googlebot vérifié vs UA spoofé (résolveur mocké)
+- Spec references : requirements-detection FR-36, NFR-08
+
+**Slice 6.6 — Crédits de preuve humaine & trust persistant**
+- Contributions négatives : challenge réussi (cookie valide), fingerprint+JA3
+  stables ; intégration avec `internal/trust` et le cookie de challenge
+- Sticky trust à TTL configurable ; révocation sur signal déterministe
+- Garde-fou : preuve d'humanité forte → pas de BLOCK heuristique
+- Tests : sticky trust, non-re-challenge, révocation honeypot
+- Spec references : requirements-detection FR-37
+
+**Slice 6.7 — Middleware de décision (intégration pipeline)**
+- Câblage du moteur **après** les détecteurs et **avant** le proxy, en
+  remplacement du seuil simple du Trust Score
+- `RiskAssessment` injectée (forme condensée) dans l'événement de sécurité
+  (FR-09) ; `score_delta` et `reason` explicites
+- Tests d'intégration `httptest` : décision de bout en bout
+- Spec references : requirements-detection FR-33, FR-34, NFR-17
+
+**Slice 6.8 — Mode shadow, boucle de feedback FP & métriques**
+- Mode shadow (log-only) commutable à chaud (API admin / SIGHUP)
+- Boucle de feedback : un challenge réussi après flag fait décroître le poids des
+  familles ayant contribué à tort (apprentissage local borné) + compteur FP
+- Métriques : `waf_decisions_total{tier}`,
+  `waf_challenge_pass_after_flag_total`, `waf_hard_blocks_total{corroborated}`,
+  `waf_verified_bot_total{bot}`
+- Tests : shadow non appliqué mais loggé ; décroissance de poids ; métriques
+- Spec references : requirements-detection FR-38, NFR-15
+
+---
+
 ## Ordre d'implémentation recommandé
 
 ```
@@ -187,9 +265,14 @@ Slice 3.1 → 3.2
 Slice 4.1 → 4.2 → 4.3
                ↓
 Slice 5.1 → 5.2 → 5.3 → 5.4
+               ↓
+(après approbation de requirements-detection.md + ADR-015)
+Slice 6.1 → 6.2 → 6.3 → 6.4 → ┬─ 6.5 ─┬→ 6.7 → 6.8
+                              └─ 6.6 ─┘
 ```
 
 Chaque slice laisse le projet dans un état compilable, testé et spec-conformant.
+Les slices 6.5 et 6.6 sont indépendantes et parallélisables après 6.4.
 
 ## Dépendances Go recommandées
 
