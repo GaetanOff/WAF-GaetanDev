@@ -252,3 +252,15 @@ last-updated: 2026-06-04
 - **Acceptance** : un `BLOCK` heuristique exige assez de familles corroborantes, les triggers deterministes sont marques `decision_basis=deterministic`, et la confiance minimale interdit un `BLOCK` faible confiance
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-detection.md FR-35 ; features/risk-scoring-engine.feature scenarios Corroboration et Signaux deterministes ; ADR-015 ; plan.md Slice 6.4
+
+### T6.5 - Allowlist de bots verifies (reverse-DNS)
+- [x] `internal/risk/verifybot.go` : verification reverse-DNS + forward-confirm avec `net.LookupAddr` / `net.LookupHost` par defaut
+- [x] Verification asynchrone non bloquante : cache miss -> etat `pending` immediat et resolution lancee en goroutine
+- [x] Cache TTL separe pour succes et echec via `BotVerifierConfig`
+- [x] Crawler verifie -> `ALLOW`, `decision_basis=verified_bot`, `verified_good_bot=<bot>`, sauf trigger deterministe deja present
+- [x] Crawler declare en `pending` -> decision plafonnee a `OBSERVE`, jamais `CHALLENGE` ni `BLOCK`
+- [x] UA crawler spoofe -> contribution `reputation` augmentee via signal `crawler_spoof`
+- [x] Tests avec resolveur mocke : Googlebot verifie, pending non bloquant, faux Googlebot suspect, preservation des blocks deterministes, parsing TTL depuis config
+- **Acceptance** : un crawler verifie n'est jamais bloque/challenge par heuristique, un crawler en attente est laisse passer en `OBSERVE`, et un UA spoofe ajoute un signal reputation suspect
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-detection.md FR-36, NFR-08 ; features/risk-scoring-engine.feature scenarios Bots verifies ; ADR-015 ; plan.md Slice 6.5

@@ -103,6 +103,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 6.4 | `go test ./...` | pass | Added FR-35 decision guards: heuristic BLOCK requires configured corroborating families, isolated heuristic signal caps at CHALLENGE, deterministic triggers can BLOCK without corroboration, and low confidence prevents BLOCK |
 | 2026-06-08 | Slice 6.4 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 6.4 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after corroboration and deterministic-trigger decision changes |
+| 2026-06-08 | Slice 6.5 | `go test ./...` | pass | Added async reverse-DNS/forward-confirm bot verifier with TTL cache, verified-bot ALLOW guard, pending OBSERVE cap, and spoofed crawler reputation contribution using mocked resolver tests |
+| 2026-06-08 | Slice 6.5 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 6.5 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after verified bot package changes |
 
 ## Quality Gates Checklist
 
