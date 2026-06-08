@@ -202,3 +202,18 @@ last-updated: 2026-06-04
 - **Acceptance** : un nouvel arrivant peut builder, configurer et déployer depuis le README
 - **Validation 2026-06-04** : README complet (archi, quick start, Cloudflare, admin, tests, structure). Guide nginx d'origine avec récupération real_ip. Changelog [0.1.0] documentant le périmètre livré.
 - **Spec** : global-documentation.mdc
+
+---
+
+## Sprint 6 - Moteur de Risque & Decision (Phase 6)
+
+### T6.1 - Interface de signaux + type RiskAssessment
+- [x] `internal/risk/signal.go` : enum `SignalFamily` couvrant `reputation`, `behavioral`, `tls`, `fingerprint`, `integrity`, `rate`, `geo`, `human_credit`
+- [x] `Contribution` conforme aux facteurs de `schemas/risk-assessment.schema.json`
+- [x] `SignalProvider` pour adapter les detecteurs existants au moteur de risque
+- [x] Familles absentes completees par contribution neutre via `CollectContributions`
+- [x] `internal/risk/assessment.go` : `RiskAssessment` conforme au schema JSON, avec decisions, bases de decision, triggers deterministes et profils
+- [x] Tests : serialisation conforme a `schemas/risk-assessment.schema.json`, bornage `risk_score` / `confidence` / `contribution`, comptage des familles corroborantes, contribution neutre par defaut
+- **Acceptance** : les types de la Slice 6.1 compilent, la serialisation `RiskAssessment` respecte le schema approuve, et les familles de signaux non encore implementees contribuent de facon neutre
+- **Validation 2026-06-08** : `go test ./...` et `go vet ./...` passent. Nouveau package `internal/risk` couvert par les tests `TestRiskAssessmentSerializesAccordingToSchema`, `TestNewAssessmentClampsScoreConfidenceAndCountsCorroboratingFamilies`, `TestNeutralContributionDefaultsAbsentFamilyToNoRisk`, `TestCollectContributionsCompletesAbsentFamiliesWithNeutralDefaults`, `TestClampContributionUsesSchemaBounds`.
+- **Spec** : requirements-detection.md FR-33, NFR-17 ; schemas/risk-assessment.schema.json ; ADR-015 ; plan.md Slice 6.1

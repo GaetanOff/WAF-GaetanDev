@@ -92,6 +92,9 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | ADR-014 | `go test ./...` + `go vet ./...` | pass | Full suite green after logging migration |
 | 2026-06-08 | Spec review (risk engine) | Revue de cohérence requirements-detection.md + ADR-015 | pass (corrigé) | 4 constats bloquants traités : (1) réconciliation FR-05 — le moteur supersède le block mono-signal de `ScoreManager.State()` ; (2) 429/503 volumétriques orthogonaux à la corroboration ; (3) **bug FR-36** : crawler `pending` → OBSERVE, jamais de challenge JS ; (4) contrat de config `risk_engine` ajouté. Statuts : requirements-detection.md → approved v1.0.0, ADR-015 → accepted |
 
+| 2026-06-08 | Slice 6.1 | `go test ./...` | pass | Added `internal/risk` signal interface and `RiskAssessment`; includes schema-oriented serialization tests against `schemas/risk-assessment.schema.json`, neutral defaults for absent families, contribution bounds, score/confidence clamps, and corroborating-family count |
+| 2026-06-08 | Slice 6.1 | `go vet ./...` | pass | No vet findings |
+
 ## Quality Gates Checklist
 
 ### G1 — Spec Lint
