@@ -398,6 +398,18 @@
         "anonymize_ip": { "type": "boolean", "default": true }
       }
     },
+    "acme": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "domains": { "type": "array", "items": { "type": "string" } },
+        "email": { "type": "string" },
+        "cache_dir": { "type": "string", "default": "./certs" },
+        "tls_listen": { "type": "string", "default": ":443" },
+        "http_challenge_listen": { "type": "string", "default": ":80" }
+      }
+    },
     "self_protection": {
       "type": "object",
       "additionalProperties": false,

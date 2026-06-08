@@ -177,6 +177,10 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 9.8 | `go test ./...` | pass | New `internal/selfprotect` (FR-30): per-IP fixed-window counter, PathGuard for /waf/verify flood, admin brute-force lockout in admin.auth |
 | 2026-06-08 | Slice 9.8 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 9.8 | `go build -o waf.exe ./cmd/waf` | pass | Verify flood guard + admin brute-force wired |
+| 2026-06-08 | Slice 9.9 | `go mod tidy` | pass | Added `golang.org/x/crypto@v0.31.0` (pinned for go 1.22; autocert). go directive stays 1.22 |
+| 2026-06-08 | Slice 9.9 | `go test ./...` | pass | New `internal/acme` (FR-31): autocert manager (TLSConfig + HTTP-01 handler), native auto-renewal/hot rotation; wired into dual-port serve when enabled |
+| 2026-06-08 | Slice 9.9 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 9.9 | `go build -o waf.exe ./cmd/waf` | pass | ACME TLS + HTTP-01 challenge server wired (opt-in) |
 
 ## Quality Gates Checklist
 

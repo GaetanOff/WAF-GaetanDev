@@ -215,6 +215,15 @@ self_protection:
   admin_max_failures: 5      # echecs d'auth admin avant verrouillage
   admin_lockout: "5m"        # duree de verrouillage
 
+# ACME / Let's Encrypt (FR-31) : TLS direct (hors Cloudflare), renouvellement auto
+acme:
+  enabled: false             # opt-in : si le WAF termine lui-meme le TLS
+  domains: []                # - "example.com"
+  email: ""
+  cache_dir: "./certs"
+  tls_listen: ":443"
+  http_challenge_listen: ":80"
+
 # Challenge JavaScript
 challenge:
   enabled: true

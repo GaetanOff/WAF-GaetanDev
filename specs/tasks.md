@@ -536,3 +536,15 @@ last-updated: 2026-06-04
 - **Acceptance** : un flood de /waf/verify est limite par IP ; les tentatives d'auth admin repetees verrouillent l'IP
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-ops.md FR-30 ; features/waf-self-protection.feature ; plan.md Slice 9.8
+
+### T9.9 - ACME / Let's Encrypt (FR-31)
+- [x] `internal/acme` : wrapper autocert.Manager (HostWhitelist, DirCache, email, AcceptTOS) ; `TLSConfig()` + `HTTPHandler()`
+- [x] Renouvellement auto ~30j avant expiration + rotation a chaud : natif autocert
+- [x] Cable dans `main.go` : si active, serveur HTTPS sur tls_listen (ListenAndServeTLS via autocert) + serveur HTTP-01 sur http_challenge_listen
+- [x] Dependance `golang.org/x/crypto@v0.31.0` pinnee (compatible go 1.22 ; evite le bump go 1.25 du Dockerfile/CI)
+- [x] Config `acme` (enabled opt-in, domains, email, cache_dir, tls_listen, http_challenge_listen) + schema + exemple + validation
+- [x] Tests : construction TLSConfig (GetCertificate, MinVersion), HTTPHandler, cache dir par defaut
+- **Note** : alerte d'expiration secondaire (autocert renouvelle automatiquement) differee
+- **Acceptance** : en mode TLS direct, les certificats sont obtenus/renouveles automatiquement via ACME, sans coupure (rotation a chaud)
+- **Validation 2026-06-08** : `go mod tidy`, `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent ; go directive reste 1.22
+- **Spec** : requirements-ops.md FR-31, NFR-14 ; features/acme-tls.feature ; plan.md Slice 9.9

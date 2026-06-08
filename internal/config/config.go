@@ -47,6 +47,7 @@ type Config struct {
 	GDPR                GDPR             `yaml:"gdpr"`
 	Alerting            Alerting         `yaml:"alerting"`
 	SelfProtection      SelfProtection   `yaml:"self_protection"`
+	ACME                ACME             `yaml:"acme"`
 	Challenge           Challenge        `yaml:"challenge"`
 	Whitelist           []string         `yaml:"whitelist"`
 	Blacklist           []string         `yaml:"blacklist"`
@@ -232,6 +233,15 @@ type Audit struct {
 
 type GDPR struct {
 	AnonymizeIP bool `yaml:"anonymize_ip"`
+}
+
+type ACME struct {
+	Enabled             bool     `yaml:"enabled"`
+	Domains             []string `yaml:"domains"`
+	Email               string   `yaml:"email"`
+	CacheDir            string   `yaml:"cache_dir"`
+	TLSListen           string   `yaml:"tls_listen"`
+	HTTPChallengeListen string   `yaml:"http_challenge_listen"`
 }
 
 type SelfProtection struct {
@@ -496,6 +506,12 @@ func Default() Config {
 			AdminMaxFailures:   5,
 			AdminLockout:       "5m",
 		},
+		ACME: ACME{
+			Enabled:             false, // opt-in : TLS direct (hors Cloudflare)
+			CacheDir:            "./certs",
+			TLSListen:           ":443",
+			HTTPChallengeListen: ":80",
+		},
 		StaticAssets: StaticAssets{
 			Enabled: true,
 			Extensions: []string{
@@ -657,6 +673,9 @@ func (c *Config) Validate() error {
 		if len(c.Alerting.Webhooks) == 0 {
 			fields = append(fields, "alerting.webhooks must not be empty when enabled")
 		}
+	}
+	if c.ACME.Enabled && len(c.ACME.Domains) == 0 {
+		fields = append(fields, "acme.domains must not be empty when enabled")
 	}
 	if c.SelfProtection.Enabled {
 		validateDuration(&fields, "self_protection.admin_lockout", c.SelfProtection.AdminLockout)

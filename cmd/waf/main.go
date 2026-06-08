@@ -12,6 +12,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/gaetandev/waf/internal/acme"
 	"github.com/gaetandev/waf/internal/adaptive"
 	"github.com/gaetandev/waf/internal/admin"
 	"github.com/gaetandev/waf/internal/alert"
@@ -278,6 +279,14 @@ func run() error {
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
 	}
+	// ACME / Let's Encrypt (FR-31) : TLS direct avec renouvellement automatique
+	// (~30j avant expiration) et rotation à chaud via autocert.
+	var acmeManager *acme.Manager
+	if cfg.ACME.Enabled {
+		acmeManager = acme.NewManager(cfg.ACME)
+		server.Addr = cfg.ACME.TLSListen
+		server.TLSConfig = acmeManager.TLSConfig()
+	}
 	var adminServer *admin.Server
 	if cfg.Admin.Enabled {
 		adminServer, err = admin.NewServer(*cfg, store, scoreManager, accessRules, startedAt)
@@ -288,13 +297,33 @@ func run() error {
 
 	errs := make(chan error, 1)
 	go func() {
-		slog.Info("starting waf", "listen", server.Addr)
-		if err := server.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errs <- err
+		slog.Info("starting waf", "listen", server.Addr, "tls", acmeManager != nil)
+		var serveErr error
+		if acmeManager != nil {
+			serveErr = server.ListenAndServeTLS("", "") // certs fournis par autocert
+		} else {
+			serveErr = server.ListenAndServe()
+		}
+		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
+			errs <- serveErr
 			return
 		}
 		errs <- nil
 	}()
+	// Serveur HTTP-01 (challenge ACME + redirection HTTPS) sur le port 80.
+	if acmeManager != nil {
+		challengeServer := &http.Server{
+			Addr:              cfg.ACME.HTTPChallengeListen,
+			Handler:           acmeManager.HTTPHandler(nil),
+			ReadHeaderTimeout: headerTimeout,
+		}
+		go func() {
+			if err := challengeServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errs <- err
+			}
+		}()
+		defer func() { _ = challengeServer.Close() }()
+	}
 	if adminServer != nil {
 		go func() {
 			slog.Info("starting admin api", "listen", cfg.Server.AdminListen)
