@@ -505,3 +505,14 @@ last-updated: 2026-06-04
 - **Acceptance** : chaque mutation admin est journalisee (horodatee, secrets masques) et consultable ; rotation bornee
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-ops.md FR-27 ; features/audit-trail.feature ; plan.md Slice 9.5
+
+### T9.6 - Conformite RGPD (FR-28)
+- [x] `internal/gdpr.AnonymizeIP` : troncature /24 (IPv4) et /48 (IPv6)
+- [x] Logger : champ `AnonymizeIP` -> l'IP loggee est anonymisee (l'ip_hash reste pour la correlation)
+- [x] Droit a l'effacement : endpoint admin `POST /waf/admin/gdpr/erase {ip}` (supprime par hash IP + audit)
+- [x] Retention : assuree par le TTL du store (purge) ; registre des traitements `specs/gdpr-register.md`
+- [x] Config `gdpr` (anonymize_ip true par defaut) + schema + exemple
+- [x] Tests : anonymisation v4/v6/invalide
+- **Acceptance** : les logs n'exposent pas l'IP complete (anonymisee), un utilisateur peut etre efface, le registre documente les traitements
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-ops.md FR-28 ; ADR-013 ; features/gdpr-compliance.feature ; plan.md Slice 9.6

@@ -251,6 +251,7 @@ func run() error {
 		}
 	}
 	securityLogger := waflogger.New(cfg.Logging)
+	securityLogger.AnonymizeIP = cfg.GDPR.AnonymizeIP // RGPD (FR-28)
 
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,

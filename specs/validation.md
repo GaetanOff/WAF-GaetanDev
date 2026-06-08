@@ -168,6 +168,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 9.5 | `go test ./...` | pass | New `internal/audit` (FR-27): append-only FIFO trail, secret masking, optional file; wired into admin mutations + `GET /waf/admin/audit` |
 | 2026-06-08 | Slice 9.5 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 9.5 | `go build -o waf.exe ./cmd/waf` | pass | Audit trail wired into admin server |
+| 2026-06-08 | Slice 9.6 | `go test ./...` | pass | New `internal/gdpr` (FR-28): IP anonymization /24 & /48, logger anonymizes IP field, admin erasure endpoint, register of treatments doc |
+| 2026-06-08 | Slice 9.6 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 9.6 | `go build -o waf.exe ./cmd/waf` | pass | GDPR anonymization wired into logger; erasure endpoint in admin |
 
 ## Quality Gates Checklist
 

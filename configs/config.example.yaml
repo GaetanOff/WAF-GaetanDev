@@ -195,6 +195,12 @@ audit:
   max_entries: 1000
   file: ""                   # chemin optionnel d'export (sinon memoire seule)
 
+# Conformite RGPD (FR-28) : anonymisation des IP dans les logs (/24, /48)
+gdpr:
+  anonymize_ip: true         # l'ip_hash reste pour la correlation
+  # Effacement : POST /waf/admin/gdpr/erase {"ip": "..."}
+  # Retention : assuree par trust.score_ttl (purge du store) ; registre: specs/gdpr-register.md
+
 # Challenge JavaScript
 challenge:
   enabled: true

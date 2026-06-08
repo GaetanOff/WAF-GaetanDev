@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gaetandev/waf/internal/gdpr"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/google/uuid"
@@ -46,10 +47,14 @@ func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores 
 	ip := cloudflare.RealIP(r)
 	trustScore := currentTrustScore(r, scores, ip)
 	action := normalizedAction(r, recorder)
+	loggedIP := ip
+	if l.AnonymizeIP {
+		loggedIP = gdpr.AnonymizeIP(ip)
+	}
 	return SecurityEvent{
 		Timestamp:      startedAt.UTC().Format(time.RFC3339Nano),
 		RequestID:      requestID,
-		IP:             ip,
+		IP:             loggedIP,
 		IPHash:         trust.HashIP(ip),
 		Domain:         r.Host,
 		Method:         r.Method,

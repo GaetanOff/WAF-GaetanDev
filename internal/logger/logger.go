@@ -18,6 +18,9 @@ type Logger struct {
 	logger *slog.Logger
 	level  slog.Level
 	now    func() time.Time
+
+	// AnonymizeIP active la troncature des IP dans les logs (RGPD, FR-28).
+	AnonymizeIP bool
 }
 
 func New(cfg config.Logging) Logger {

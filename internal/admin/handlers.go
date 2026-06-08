@@ -80,7 +80,27 @@ func (s *Server) routes() http.Handler {
 	mux.Handle("DELETE /waf/admin/visitors/", s.auth(http.HandlerFunc(s.deleteVisitor)))
 	mux.Handle("GET /waf/admin/events", s.auth(http.HandlerFunc(s.listEvents)))
 	mux.Handle("GET /waf/admin/audit", s.auth(http.HandlerFunc(s.listAudit)))
+	mux.Handle("POST /waf/admin/gdpr/erase", s.auth(http.HandlerFunc(s.gdprErase)))
 	return mux
+}
+
+// gdprErase efface toutes les données d'un visiteur par son IP (droit à
+// l'effacement, FR-28). L'IP est hashée pour retrouver l'entrée du store.
+func (s *Server) gdprErase(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		IP string `json:"ip"`
+	}
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&payload); err != nil || payload.IP == "" {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_request", Message: "ip is required"})
+		return
+	}
+	ipHash := trust.HashIP(payload.IP)
+	_, existed := s.store.GetVisitor(ipHash)
+	s.store.DeleteVisitor(ipHash)
+	s.record("gdpr_erase", ipHash, "erased")
+	writeJSON(w, http.StatusOK, map[string]any{"erased": existed, "ip_hash": ipHash})
 }
 
 // record journalise une action d'administration (no-op si l'audit est désactivé).

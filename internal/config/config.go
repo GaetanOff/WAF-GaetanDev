@@ -44,6 +44,7 @@ type Config struct {
 	StaticAssets        StaticAssets     `yaml:"static_assets"`
 	UpstreamPool        UpstreamPool     `yaml:"upstream_pool"`
 	Audit               Audit            `yaml:"audit"`
+	GDPR                GDPR             `yaml:"gdpr"`
 	Challenge           Challenge        `yaml:"challenge"`
 	Whitelist           []string         `yaml:"whitelist"`
 	Blacklist           []string         `yaml:"blacklist"`
@@ -225,6 +226,10 @@ type Audit struct {
 	Enabled    bool   `yaml:"enabled"`
 	MaxEntries int    `yaml:"max_entries"`
 	File       string `yaml:"file"`
+}
+
+type GDPR struct {
+	AnonymizeIP bool `yaml:"anonymize_ip"`
 }
 
 type UpstreamHealthCheck struct {
@@ -455,6 +460,9 @@ func Default() Config {
 		Audit: Audit{
 			Enabled:    true,
 			MaxEntries: 1000,
+		},
+		GDPR: GDPR{
+			AnonymizeIP: true,
 		},
 		StaticAssets: StaticAssets{
 			Enabled: true,

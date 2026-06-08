@@ -391,6 +391,13 @@
         "file": { "type": "string" }
       }
     },
+    "gdpr": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "anonymize_ip": { "type": "boolean", "default": true }
+      }
+    },
     "upstream_pool": {
       "type": "object",
       "additionalProperties": false,
