@@ -178,9 +178,9 @@ last-reviewed: 2026-06-08
 
 ### Phase 6 — Moteur de Risque & Décision (E8)
 
-> **Pré-requis SDD** : `specs/requirements-detection.md` (FR-33..FR-38) et
-> `ADR-015` sont en statut `draft`/`proposed`. Cette phase ne démarre qu'**après
-> approbation** de ces specs (invariant #1 : pas de code avant spec approuvée).
+> **Pré-requis SDD** : `specs/requirements-detection.md` (FR-33..FR-38, **approuvé
+> v1.0.0**) et `ADR-015` (**accepté**) sont validés après revue. La phase peut
+> démarrer (invariant #1 respecté : spec approuvée avant code).
 >
 > Le moteur **consomme** les détecteurs existants via une interface de signaux ;
 > une famille de signaux non encore implémentée (FR-11..FR-18) contribue de
@@ -266,7 +266,7 @@ Slice 4.1 → 4.2 → 4.3
                ↓
 Slice 5.1 → 5.2 → 5.3 → 5.4
                ↓
-(après approbation de requirements-detection.md + ADR-015)
+(requirements-detection.md approuvé v1.0.0 + ADR-015 accepté)
 Slice 6.1 → 6.2 → 6.3 → 6.4 → ┬─ 6.5 ─┬→ 6.7 → 6.8
                               └─ 6.6 ─┘
 ```

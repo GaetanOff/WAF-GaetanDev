@@ -1,7 +1,8 @@
 ---
-status: draft
-version: 0.1.0
+status: approved
+version: 1.0.0
 last-reviewed: 2026-06-08
+reviewed-by: GaetanDev
 extends: requirements-advanced.md (v2.0.0), requirements-ops.md
 ---
 
@@ -45,6 +46,39 @@ un attaquant qui reste juste au-dessus de chaque seuil individuel passe.
   heuristique ; (3) tout BLOCK heuristique exige ≥ 2 familles de signaux
   corroborantes ; (4) chaque décision est explicable (RiskAssessment loggée) ;
   (5) taux de faux positifs humains < 0,1 % (NFR-15).
+
+---
+
+## Articulation avec l'existant (réconciliation)
+
+Cette couche s'insère sans casser les contrats existants. Points de réconciliation
+explicites (issus de la revue de spec) :
+
+- **Supersède le mapping état→action du Trust Score (FR-05).** Aujourd'hui
+  `ScoreManager.State()` bloque dès que le score agrégé passe sous
+  `block_threshold` — c'est un **blocage mono-signal**, précisément la cause de
+  faux positifs visée. Le moteur de risque **remplace cette décision** : le Trust
+  Score n'est plus mappé directement vers BLOCK/CHALLENGE ; il devient (a) un
+  **signal d'entrée** (mémoire de réputation du visiteur) et (b) le support du
+  **crédit de preuve humaine** (FR-37). Le state machine TRUSTED/MONITORED/
+  CHALLENGED/BLOCKED reste exposé pour l'observabilité mais ne déclenche plus seul
+  un blocage dur.
+- **Contrôles volumétriques orthogonaux.** Le rate limiting (`429`, FR-03) et le
+  mode dégradé anti-DDoS (`503`, FR-08) restent des contrôles **volumétriques
+  indépendants**, temporaires et récupérables (avec `Retry-After`). Ils ne sont
+  PAS soumis à l'exigence de corroboration de FR-35 (ce ne sont pas des blocages
+  de classification "bot"). Leurs signaux (`rate`) **alimentent** néanmoins la
+  fusion du Risk Score.
+- **Signaux déterministes inchangés.** Blacklist (FR-04), honeypot (FR-07/15),
+  circuit breaker (FR-08) conservent leur blocage immédiat ; ils sont déclarés
+  `deterministic_trigger` dans la RiskAssessment (FR-35).
+- **Place dans le pipeline.** Le moteur s'exécute **après** les détecteurs (qui
+  publient leurs signaux) et **avant** le proxy, en remplacement du middleware de
+  décision du Trust Score. Le challenge JS (FR-06) devient une **action** de
+  l'échelle graduée plutôt qu'une décision prise indépendamment.
+- **Sticky trust n'exempte pas du volumétrique.** Un visiteur en trust persistant
+  (FR-37) reste soumis au rate limiting et au mode dégradé global (protection
+  anti-flood même pour un humain authentifié).
 
 ---
 
@@ -113,12 +147,22 @@ un attaquant qui reste juste au-dessus de chaque seuil individuel passe.
 - Un crawler **vérifié** DOIT être placé en `ALLOW` et NE DOIT JAMAIS être bloqué
   ni challengé par une décision **heuristique** (il reste soumis au rate limiting
   global et aux blacklists explicites).
-- Un user-agent de crawler **non vérifié** (rDNS ne correspond pas) DOIT être
-  traité comme suspect (contribution `reputation` augmentée) — neutralise le
-  spoofing de `Googlebot`.
-- Le résultat de vérification DOIT être mis en cache avec TTL configurable.
+- Trois états de vérification DOIVENT être distingués pour un user-agent de
+  crawler déclaré :
+  - **`verified`** (rDNS forward-confirm OK) → `ALLOW`.
+  - **`pending`** (vérification non encore résolue, cache miss) → la décision DOIT
+    être plafonnée à `OBSERVE` (laissé passer, vérification lancée en async). Un
+    crawler déclaré en attente NE DOIT JAMAIS recevoir de **challenge JS** : un
+    vrai crawler n'exécute pas JavaScript, le challenger reviendrait à le bloquer
+    (faux positif). La décision est révisée à la requête suivante une fois la
+    vérification résolue.
+  - **`spoofed`** (rDNS résolu mais **ne correspond pas** à un domaine officiel du
+    crawler) → traité comme suspect : contribution `reputation` augmentée. Ceci
+    neutralise le spoofing de `Googlebot`.
+- Le résultat de vérification DOIT être mis en cache avec TTL configurable
+  (succès et échec, avec un TTL d'échec plus court).
 - La vérification rDNS DOIT être **asynchrone / non bloquante** : sur cache miss,
-  la décision courante utilise l'état connu (cf. NFR-08).
+  la décision courante utilise l'état `pending` ci-dessus (cf. NFR-08).
 
 ## FR-37 — Crédits de Preuve Humaine & Trust Persistant
 
@@ -154,6 +198,55 @@ un attaquant qui reste juste au-dessus de chaque seuil individuel passe.
   - `waf_hard_blocks_total{corroborated}` (blocs durs, corroborés ou déterministes)
   - `waf_verified_bot_total{bot}` (crawlers vérifiés)
 - Le mode shadow et les profils DOIVENT être commutables à chaud (API admin / SIGHUP).
+
+---
+
+## Contrat de Configuration
+
+Le moteur DOIT être piloté par un bloc `risk_engine` dans la configuration YAML.
+`config.schema.json` DOIT être étendu (slice 6.2) avec ce contrat. Les valeurs
+ci-dessous sont les **défauts** du profil `balanced` :
+
+```yaml
+risk_engine:
+  enabled: true
+  profile: "balanced"            # lenient | balanced | strict
+  shadow_mode: false             # true = calcule et journalise sans appliquer
+  block_min_confidence: 0.6      # pas de BLOCK sous ce niveau de confiance
+  min_corroborating_families: 2  # familles requises pour un BLOCK heuristique
+  # Bornes de score par tier (croissant). risk_score dans [0..100].
+  tiers:
+    observe: 25
+    throttle: 45
+    challenge: 65
+    tarpit: 80
+    block: 90
+  # Poids de fusion par famille de signaux (0 = ignorée).
+  weights:
+    reputation: 1.0
+    behavioral: 1.0
+    tls: 0.8
+    fingerprint: 1.0
+    integrity: 1.2
+    rate: 0.6
+    geo: 0.5
+  # Seuil de contribution à partir duquel une famille compte comme corroborante.
+  family_corroboration_threshold: 50
+  human_credit:
+    challenge_passed: -40        # crédit (contribution négative) si challenge réussi
+    stable_fingerprint: -15
+    sticky_trust_ttl: "30m"      # durée du trust persistant après challenge réussi
+  verified_bots:
+    enabled: true
+    success_cache_ttl: "12h"
+    failure_cache_ttl: "10m"
+    crawlers: ["googlebot", "bingbot", "duckduckbot", "applebot"]
+```
+
+Les profils `lenient` / `strict` DOIVENT ajuster `tiers`, `block_min_confidence`
+et `weights` (strict = seuils plus bas, lenient = plus hauts). La configuration
+DOIT être validée au démarrage (bornes croissantes, poids ≥ 0, confiance dans
+[0..1]) avec des messages d'erreur explicites.
 
 ---
 

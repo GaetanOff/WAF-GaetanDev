@@ -16,12 +16,9 @@ Spécifications rédigées et approuvées, implémentation à venir (voir
 - En-têtes de sécurité, protection Slowloris, bypass des assets statiques
 - Health checks upstream + load balancing, audit trail, conformité RGPD
 - Webhooks d'alerte, auto-protection du WAF, ACME/Let's Encrypt
-
-Spécifications en revue (statut `draft`/`proposed`, voir
-`specs/requirements-detection.md` et `ADR-015`) :
-
-- Moteur de scoring de risque & décision graduée : fusion pondérée des signaux,
-  corroboration (≥ 2 familles pour un BLOCK), mitigation réversible
+- Moteur de scoring de risque & décision graduée (approuvé, voir
+  `specs/requirements-detection.md` v1.0.0 et `ADR-015`) : fusion pondérée des
+  signaux, corroboration (≥ 2 familles pour un BLOCK), mitigation réversible
   (ALLOW → OBSERVE → THROTTLE → CHALLENGE → TARPIT → BLOCK), allowlist de bots
   vérifiés (reverse-DNS), crédits de preuve humaine, mode shadow et boucle de
   feedback faux positifs (objectif FP < 0,1 %)

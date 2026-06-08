@@ -90,6 +90,7 @@ last-reviewed: 2026-06-03
 | 2026-06-04 | ADR-014 | `go test ./internal/logger/...` | pass | Migration zerolog → `log/slog`. New conformance test asserts emitted keys ⊆ security-event schema and that `time`/`level`/`msg` are stripped |
 | 2026-06-04 | ADR-014 | `go mod tidy` + `go build ./cmd/waf` | pass | `github.com/rs/zerolog` (+ transitive `mattn/go-colorable`, `mattn/go-isatty`) removed from go.mod/go.sum |
 | 2026-06-04 | ADR-014 | `go test ./...` + `go vet ./...` | pass | Full suite green after logging migration |
+| 2026-06-08 | Spec review (risk engine) | Revue de cohérence requirements-detection.md + ADR-015 | pass (corrigé) | 4 constats bloquants traités : (1) réconciliation FR-05 — le moteur supersède le block mono-signal de `ScoreManager.State()` ; (2) 429/503 volumétriques orthogonaux à la corroboration ; (3) **bug FR-36** : crawler `pending` → OBSERVE, jamais de challenge JS ; (4) contrat de config `risk_engine` ajouté. Statuts : requirements-detection.md → approved v1.0.0, ADR-015 → accepted |
 
 ## Quality Gates Checklist
 

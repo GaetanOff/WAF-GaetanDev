@@ -65,6 +65,15 @@ Feature: Moteur de Scoring de Risque & Décision graduée
     And verified_good_bot = "googlebot"
     And aucune décision heuristique ne peut bloquer ce visiteur
 
+  Scenario: Crawler déclaré en attente de vérification n'est jamais challengé
+    Given une requête avec user-agent "Googlebot"
+    And la vérification reverse-DNS de l'IP n'est pas encore résolue (cache miss)
+    When le moteur calcule la décision
+    Then la décision est plafonnée à "OBSERVE"
+    And la décision n'est PAS "CHALLENGE"
+    And la décision n'est PAS "BLOCK"
+    And une vérification reverse-DNS asynchrone est déclenchée
+
   Scenario: Faux Googlebot (UA spoofé sans reverse-DNS valide) est traité comme suspect
     Given une requête avec user-agent "Googlebot"
     And le reverse-DNS de l'IP ne correspond pas à un domaine Google

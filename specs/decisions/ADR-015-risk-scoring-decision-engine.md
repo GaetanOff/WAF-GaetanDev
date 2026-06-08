@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-06-08
 deciders: GaetanDev
 relates-to: requirements-detection.md (FR-33..FR-38)
@@ -47,7 +47,7 @@ faux positifs**. Il faut donc une couche de **décision** plus riche qu'un seuil
 
 ## Decision
 
-**Option C est retenue (proposée).** Un moteur de scoring de risque fusionne les
+**Option C est retenue.** Un moteur de scoring de risque fusionne les
 contributions normalisées des familles de signaux en un `risk_score` + une
 `confidence`, puis mappe le couple vers une **échelle de mitigation graduée**
 (ALLOW → OBSERVE → THROTTLE → CHALLENGE → TARPIT → BLOCK).
