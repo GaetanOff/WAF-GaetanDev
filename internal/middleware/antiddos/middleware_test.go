@@ -40,6 +40,30 @@ func TestMiddlewareBlocksNextRequestAfterFiveViolations(t *testing.T) {
 	}
 }
 
+func TestCircuitBreakerSetsDeterministicTrigger(t *testing.T) {
+	store := memory.New(100)
+	defer store.Close()
+	breaker := NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration)
+	middleware := New(breaker, nil, DefaultRetryAfterSeconds)
+	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	for range 5 {
+		breaker.RecordViolation("1.2.3.4")
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestFrom("1.2.3.4:1234"))
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", response.Code)
+	}
+	if got := response.Header().Get("X-WAF-Deterministic-Trigger"); got != "circuit_breaker" {
+		t.Fatalf("X-WAF-Deterministic-Trigger = %q, want circuit_breaker", got)
+	}
+}
+
 func TestMiddlewareAllowsRequestAfterCircuitExpiration(t *testing.T) {
 	store := memory.New(100)
 	defer store.Close()

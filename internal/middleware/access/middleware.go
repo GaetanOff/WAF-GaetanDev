@@ -21,6 +21,9 @@ func WhitelistMiddleware(rules *RuleSet, next http.Handler) http.Handler {
 func BlacklistMiddleware(rules *RuleSet, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ok, reason := rules.IsBlacklisted(cloudflare.RealIP(r)); ok {
+			// Signal déterministe (FR-35) : annoncé pour l'observabilité tout en
+			// conservant le blocage immédiat.
+			w.Header().Set("X-WAF-Deterministic-Trigger", "blacklist")
 			w.Header().Set("X-WAF-Action", "BLOCK")
 			w.Header().Set("X-WAF-Reason", reason)
 			http.Error(w, "forbidden", http.StatusForbidden)

@@ -50,6 +50,18 @@ func TestExactBlacklistBlocks(t *testing.T) {
 	}
 }
 
+func TestBlacklistSetsDeterministicTrigger(t *testing.T) {
+	rules := newRules(t, nil, []string{"10.0.0.5"}, nil)
+	request := requestFrom("10.0.0.5:1234")
+	response := httptest.NewRecorder()
+
+	Middleware(rules, okHandler()).ServeHTTP(response, request)
+
+	if got := response.Header().Get("X-WAF-Deterministic-Trigger"); got != "blacklist" {
+		t.Fatalf("X-WAF-Deterministic-Trigger = %q, want blacklist", got)
+	}
+}
+
 func TestCIDRBlacklistBlocks(t *testing.T) {
 	rules := newRules(t, nil, []string{"198.51.100.0/24"}, nil)
 	request := requestFrom("198.51.100.150:1234")

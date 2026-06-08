@@ -298,3 +298,18 @@ last-updated: 2026-06-04
 - **Acceptance** : une decision `BLOCK` en shadow laisse passer la requete tout en exposant la decision, un challenge reussi apres flag peut reduire le poids local des familles fautives, et les metriques FR-38 sont exposees
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-detection.md FR-38, NFR-15 ; features/risk-scoring-engine.feature scenarios Shadow/Feedback ; schemas/security-event.schema.json ; ADR-015 ; plan.md Slice 6.8
+
+---
+
+## Sprint 7 - Cablage des signaux du moteur de risque (Phase 7)
+
+### T7.1 - Adaptateurs de signaux des detecteurs existants
+- [x] antibot publie une contribution `fingerprint` via `X-WAF-Risk-fingerprint` (delta negatif non bloquant -> contribution positive)
+- [x] antibot marque `X-WAF-Deterministic-Trigger=honeypot` sur chemin honeypot (blocage immediat conserve)
+- [x] access/blacklist marque `X-WAF-Deterministic-Trigger=blacklist`
+- [x] antiddos marque `X-WAF-Deterministic-Trigger=circuit_breaker` sur circuit ouvert
+- [x] ratelimit publie une contribution `rate` via `X-WAF-Risk-rate` proportionnelle a la depletion du bucket (429 volumetrique inchange)
+- [x] Tests : header fingerprint=30 sur headless, trigger honeypot/blacklist/circuit_breaker, contribution rate=100 a bucket vide ; test routes mis a jour (antibot pilote desormais le signal fingerprint)
+- **Acceptance** : les detecteurs deja implementes alimentent le moteur de risque ; une famille reelle (fingerprint/rate) s'ajoute a `reputation` pour rendre la corroboration FR-35 possible
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-detection.md FR-33, FR-35 (Articulation) ; plan.md Slice 7.1

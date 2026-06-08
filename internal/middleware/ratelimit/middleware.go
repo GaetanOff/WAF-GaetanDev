@@ -64,6 +64,13 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
+		// Requête autorisée : publie une contribution `rate` proportionnelle à la
+		// déplétion du bucket (pression de débit) pour le moteur de risque. Le 429
+		// volumétrique ci-dessus reste indépendant (cf. Articulation FR-35).
+		if contribution := rateContribution(snapshot.Tokens, m.capacity); contribution > 0 {
+			r.Header.Set("X-WAF-Risk-rate", strconv.Itoa(contribution))
+		}
+
 		next.ServeHTTP(w, r)
 	})
 }
@@ -99,4 +106,21 @@ func maxInt(a int, b int) int {
 		return a
 	}
 	return b
+}
+
+// rateContribution mappe la déplétion du bucket (0 = plein, 1 = vide) vers une
+// contribution de risque [0..100] pour la famille `rate`.
+func rateContribution(tokens float64, capacity float64) int {
+	if capacity <= 0 {
+		return 0
+	}
+	depletion := 1 - tokens/capacity
+	contribution := int(depletion * 100)
+	if contribution < 0 {
+		return 0
+	}
+	if contribution > 100 {
+		return 100
+	}
+	return contribution
 }

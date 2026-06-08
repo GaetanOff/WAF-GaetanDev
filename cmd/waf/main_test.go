@@ -181,6 +181,11 @@ func TestRoutesAppliesRiskDecisionBeforeProxy(t *testing.T) {
 		t.Fatal("proxy should not be called")
 	}))
 	request := requestFrom("198.51.100.10:443")
+	// UA navigateur propre : l'adaptateur antibot ne publie alors aucun signal
+	// fingerprint et ne surcharge pas les familles synthétiques de ce test.
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+	request.Header.Set("Accept-Language", "en-US")
+	request.Header.Set("Accept-Encoding", "gzip")
 	request.Header.Set("X-WAF-Risk-Behavioral", "100")
 	request.Header.Set("X-WAF-Risk-TLS", "100")
 	request.Header.Set("X-WAF-Risk-Fingerprint", "100")

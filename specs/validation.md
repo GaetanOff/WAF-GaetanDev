@@ -115,6 +115,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 6.8 | `go test ./...` | pass | Added risk shadow mode, security-event risk fields, bounded feedback weight decay, FR-38 Prometheus counters, and tests for shadow non-application, feedback bounds, and metrics |
 | 2026-06-08 | Slice 6.8 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 6.8 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after shadow/feedback/metrics changes |
+| 2026-06-08 | Slice 7.1 | `go test ./...` | pass | Detector signal adapters: antibot publishes fingerprint contribution + honeypot trigger, blacklist/circuit triggers, ratelimit rate contribution. Updated `TestRoutesAppliesRiskDecisionBeforeProxy` (antibot now owns the fingerprint signal) |
+| 2026-06-08 | Slice 7.1 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 7.1 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after signal-adapter changes |
 
 ## Quality Gates Checklist
 

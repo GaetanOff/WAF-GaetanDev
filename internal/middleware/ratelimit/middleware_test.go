@@ -47,6 +47,31 @@ func TestMiddlewareAllowsConfiguredBurstAndThenRateLimits(t *testing.T) {
 	}
 }
 
+func TestMiddlewarePublishesRateRiskContribution(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+
+	middleware := newTestMiddleware(t, store, 1, 1)
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+
+	var got string
+	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got = r.Header.Get("X-WAF-Risk-rate")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestFrom("1.2.3.4:1234"))
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", response.Code)
+	}
+	// burst=1 : après consommation le bucket est vide → contribution rate = 100.
+	if got != "100" {
+		t.Fatalf("X-WAF-Risk-rate = %q, want 100", got)
+	}
+}
+
 func TestMiddlewareSetsRetryAfterAndDecrementsScore(t *testing.T) {
 	store := memory.New(100)
 	t.Cleanup(store.Close)

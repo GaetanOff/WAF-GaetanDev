@@ -57,6 +57,9 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 
 		ip := cloudflare.RealIP(r)
 		if m.breaker.IsOpen(ip) {
+			// Signal déterministe (FR-35) : annoncé pour l'observabilité tout en
+			// conservant le blocage immédiat.
+			w.Header().Set("X-WAF-Deterministic-Trigger", "circuit_breaker")
 			w.Header().Set("X-WAF-Action", "CIRCUIT_BREAK")
 			w.Header().Set("X-WAF-Reason", "circuit_breaker_open")
 			http.Error(w, "forbidden", http.StatusForbidden)

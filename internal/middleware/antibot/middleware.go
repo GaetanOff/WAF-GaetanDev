@@ -2,9 +2,19 @@ package antibot
 
 import (
 	"net/http"
+	"strconv"
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
+)
+
+const (
+	// headerRiskFingerprint publie une contribution de la famille `fingerprint`
+	// consommée par le moteur de risque (requirements-detection FR-33).
+	headerRiskFingerprint = "X-WAF-Risk-fingerprint"
+	// headerDeterministicTrigger signale un déclencheur déterministe au moteur de
+	// risque / au logger (requirements-detection FR-35).
+	headerDeterministicTrigger = "X-WAF-Deterministic-Trigger"
 )
 
 type Middleware struct {
@@ -44,11 +54,21 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			action := "BLOCK"
 			if decision.Reason == ReasonHoneypot {
 				action = "HONEYPOT"
+				// Le honeypot est un signal déterministe (FR-35) : on l'annonce
+				// pour l'observabilité tout en conservant le blocage immédiat.
+				w.Header().Set(headerDeterministicTrigger, "honeypot")
 			}
 			w.Header().Set("X-WAF-Action", action)
 			w.Header().Set("X-WAF-Reason", decision.Reason)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
+		}
+
+		// Signal heuristique non bloquant : publie une contribution `fingerprint`
+		// (delta négatif → contribution de risque positive) pour le moteur de
+		// risque. Seul, ce signal ne peut pas bloquer (corroboration FR-35).
+		if decision.Delta < 0 {
+			r.Header.Set(headerRiskFingerprint, strconv.Itoa(-decision.Delta))
 		}
 
 		next.ServeHTTP(w, r)

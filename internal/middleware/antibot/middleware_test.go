@@ -85,6 +85,37 @@ func TestMissingBrowserHeadersDecrementScore(t *testing.T) {
 	}
 }
 
+func TestAntibotPublishesFingerprintRiskContribution(t *testing.T) {
+	middleware, store := newTestMiddleware(t)
+	defer store.Close()
+
+	request := requestFrom("1.2.3.4:1234", "/")
+	request.Header.Set("User-Agent", "Mozilla/5.0 HeadlessChrome/120.0")
+	response := httptest.NewRecorder()
+
+	middleware.Handler(trustAfter(middleware.scores)).ServeHTTP(response, request)
+
+	// delta -30 (headless) → contribution de risque +30 pour la famille fingerprint.
+	if got := request.Header.Get("X-WAF-Risk-fingerprint"); got != "30" {
+		t.Fatalf("X-WAF-Risk-fingerprint = %q, want 30", got)
+	}
+}
+
+func TestHoneypotSetsDeterministicTrigger(t *testing.T) {
+	middleware, store := newTestMiddleware(t)
+	defer store.Close()
+
+	request := requestFrom("2.3.4.5:1234", "/.env")
+	request.Header.Set("User-Agent", "Mozilla/5.0")
+	response := httptest.NewRecorder()
+
+	middleware.Handler(trustAfter(middleware.scores)).ServeHTTP(response, request)
+
+	if got := response.Header().Get("X-WAF-Deterministic-Trigger"); got != "honeypot" {
+		t.Fatalf("X-WAF-Deterministic-Trigger = %q, want honeypot", got)
+	}
+}
+
 func TestHoneypotSetsScoreToZeroAndBlocks(t *testing.T) {
 	middleware, store := newTestMiddleware(t)
 	defer store.Close()
