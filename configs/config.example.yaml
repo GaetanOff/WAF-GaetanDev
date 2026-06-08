@@ -144,6 +144,11 @@ rules:
   enabled: false             # opt-in
   file: ""                   # chemin du fichier YAML de regles (rechargeable a chaud)
 
+# Protection de l'origine (FR-19) : token HMAC rotatif injecte vers l'upstream
+origin_protection:
+  enabled: false             # opt-in
+  # secret: "change-me-min-16-chars"  # preferer WAF_ORIGIN_SECRET (env)
+
 # Challenge JavaScript
 challenge:
   enabled: true

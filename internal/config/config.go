@@ -16,35 +16,37 @@ const (
 	envAdminToken         = "WAF_ADMIN_TOKEN"
 	envChallengeSecretKey = "WAF_CHALLENGE_SECRET_KEY"
 	envRedisPassword      = "WAF_REDIS_PASSWORD"
+	envOriginSecret       = "WAF_ORIGIN_SECRET"
 )
 
 // Config mirrors specs/schemas/config.schema.json.
 type Config struct {
-	Version             string         `yaml:"version"`
-	Server              ServerConfig   `yaml:"server"`
-	Upstream            UpstreamConfig `yaml:"upstream"`
-	Cloudflare          Cloudflare     `yaml:"cloudflare"`
-	RateLimit           RateLimit      `yaml:"rate_limit"`
-	AntiDDoS            AntiDDoS       `yaml:"antiddos"`
-	Trust               Trust          `yaml:"trust"`
-	RiskEngine          RiskEngine     `yaml:"risk_engine"`
-	Integrity           Integrity      `yaml:"integrity"`
-	Behavioral          Behavioral     `yaml:"behavioral"`
-	ThreatIntel         ThreatIntel    `yaml:"threat_intel"`
-	Adaptive            Adaptive       `yaml:"adaptive"`
-	Geo                 Geo            `yaml:"geo"`
-	TLSFingerprint      TLSFingerprint `yaml:"tls_fingerprint"`
-	Deception           Deception      `yaml:"deception"`
-	Rules               Rules          `yaml:"rules"`
-	Challenge           Challenge      `yaml:"challenge"`
-	Whitelist           []string       `yaml:"whitelist"`
-	Blacklist           []string       `yaml:"blacklist"`
-	WhitelistUserAgents []string       `yaml:"whitelist_user_agents"`
-	HoneypotPaths       []string       `yaml:"honeypot_paths"`
-	Domains             []DomainConfig `yaml:"domains"`
-	Logging             Logging        `yaml:"logging"`
-	Storage             Storage        `yaml:"storage"`
-	Admin               Admin          `yaml:"admin"`
+	Version             string           `yaml:"version"`
+	Server              ServerConfig     `yaml:"server"`
+	Upstream            UpstreamConfig   `yaml:"upstream"`
+	Cloudflare          Cloudflare       `yaml:"cloudflare"`
+	RateLimit           RateLimit        `yaml:"rate_limit"`
+	AntiDDoS            AntiDDoS         `yaml:"antiddos"`
+	Trust               Trust            `yaml:"trust"`
+	RiskEngine          RiskEngine       `yaml:"risk_engine"`
+	Integrity           Integrity        `yaml:"integrity"`
+	Behavioral          Behavioral       `yaml:"behavioral"`
+	ThreatIntel         ThreatIntel      `yaml:"threat_intel"`
+	Adaptive            Adaptive         `yaml:"adaptive"`
+	Geo                 Geo              `yaml:"geo"`
+	TLSFingerprint      TLSFingerprint   `yaml:"tls_fingerprint"`
+	Deception           Deception        `yaml:"deception"`
+	Rules               Rules            `yaml:"rules"`
+	OriginProtection    OriginProtection `yaml:"origin_protection"`
+	Challenge           Challenge        `yaml:"challenge"`
+	Whitelist           []string         `yaml:"whitelist"`
+	Blacklist           []string         `yaml:"blacklist"`
+	WhitelistUserAgents []string         `yaml:"whitelist_user_agents"`
+	HoneypotPaths       []string         `yaml:"honeypot_paths"`
+	Domains             []DomainConfig   `yaml:"domains"`
+	Logging             Logging          `yaml:"logging"`
+	Storage             Storage          `yaml:"storage"`
+	Admin               Admin            `yaml:"admin"`
 }
 
 type ServerConfig struct {
@@ -183,6 +185,11 @@ type Deception struct {
 type Rules struct {
 	Enabled bool   `yaml:"enabled"`
 	File    string `yaml:"file"`
+}
+
+type OriginProtection struct {
+	Enabled bool   `yaml:"enabled"`
+	Secret  string `yaml:"secret"`
 }
 
 type Challenge struct {
@@ -513,6 +520,9 @@ func (c *Config) Validate() error {
 	if c.Rules.Enabled && c.Rules.File == "" {
 		fields = append(fields, "rules.file is required when rules is enabled")
 	}
+	if c.OriginProtection.Enabled && len(c.OriginProtection.Secret) < 16 {
+		fields = append(fields, "origin_protection.secret is required (>= 16 chars); set WAF_ORIGIN_SECRET")
+	}
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")
 	}
@@ -595,6 +605,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if value := os.Getenv(envAdminToken); value != "" {
 		c.Admin.Token = value
+	}
+	if value := os.Getenv(envOriginSecret); value != "" {
+		c.OriginProtection.Secret = value
 	}
 	if value := os.Getenv(envRedisPassword); value != "" {
 		if c.Storage.Redis == nil {

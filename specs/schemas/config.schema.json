@@ -358,6 +358,14 @@
         "file": { "type": "string" }
       }
     },
+    "origin_protection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "secret": { "type": "string" }
+      }
+    },
     "challenge": {
       "type": "object",
       "additionalProperties": false,

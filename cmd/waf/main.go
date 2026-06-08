@@ -27,6 +27,7 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/challenge"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/middleware/ratelimit"
+	"github.com/gaetandev/waf/internal/origin"
 	"github.com/gaetandev/waf/internal/proxy"
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/rules"
@@ -256,6 +257,13 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	mux := http.NewServeMux()
 	mux.HandleFunc("/waf/health", healthHandler)
 	mux.Handle("/waf/metrics", metrics.Handler())
+	if cfg.OriginProtection.Enabled {
+		// Protection de l'origine (FR-19) : endpoint de vérification + injection
+		// du token signé vers l'upstream (le proxy transmet le header).
+		signer := origin.NewSigner(cfg.OriginProtection.Secret)
+		mux.HandleFunc("/waf/origin/verify", signer.VerifyHandler)
+		proxyHandler = signer.Injector(proxyHandler)
+	}
 	if cfg.RiskEngine.Enabled && riskMiddleware != nil {
 		proxyHandler = riskMiddleware.Handler(proxyHandler)
 	} else {

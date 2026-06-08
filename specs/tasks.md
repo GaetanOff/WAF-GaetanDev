@@ -422,3 +422,16 @@ last-updated: 2026-06-04
 - **Acceptance** : un jeu de regles YAML bloque/tarpit/ajuste le score selon des conditions composables, rechargeable a chaud
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-advanced.md FR-17, NFR-09 ; ADR-007 ; schemas/rule.schema.json ; features/rules-engine.feature ; plan.md Slice 8.8
+
+### T8.9 - Protection de l'origine (FR-19)
+- [x] `internal/origin` : token `X-WAF-Origin-Token` = HMAC-SHA256(secret, domaine + heure), rotatif horaire, tolerance 2h
+- [x] `Injector` pose le token sur la requete avant le proxy (transmis a l'upstream par httputil.ReverseProxy)
+- [x] Endpoint `GET /waf/origin/verify` (200/401) pour que l'upstream valide le token
+- [x] Secret via config `origin_protection.secret` + override env `WAF_ORIGIN_SECRET`
+- [x] Cable dans `routes()` (endpoint + injection) sans changement de signature
+- [x] Config `origin_protection` (enabled opt-in, secret >= 16 chars) + schema + exemple + validation
+- [x] Tests : rotation + tolerance 2h, token specifique au domaine, injection, verify handler 200/401
+- **Note** : mTLS vers l'upstream differe (note)
+- **Acceptance** : l'upstream peut rejeter les requetes sans token WAF valide ; le token tourne sans coupure (tolerance 2h)
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-advanced.md FR-19 ; features/origin-protection.feature ; plan.md Slice 8.9

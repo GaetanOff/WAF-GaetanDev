@@ -146,6 +146,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 8.8 | `go test ./...` | pass | New `internal/rules` (FR-17): YAML DSL compiled to structs (regex/CIDR precompiled), priority + short-circuit, conditions/actions subset, atomic hot-reload |
 | 2026-06-08 | Slice 8.8 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 8.8 | `go build -o waf.exe ./cmd/waf` | pass | Rules engine wired as opt-in Phase 8 detector |
+| 2026-06-08 | Slice 8.9 | `go test ./...` | pass | New `internal/origin` (FR-19): hourly-rotating HMAC origin token (2h tolerance), injector to upstream, `/waf/origin/verify` endpoint, `WAF_ORIGIN_SECRET` env override |
+| 2026-06-08 | Slice 8.9 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 8.9 | `go build -o waf.exe ./cmd/waf` | pass | Origin protection wired in routes() (verify endpoint + injector) |
 
 ## Quality Gates Checklist
 
