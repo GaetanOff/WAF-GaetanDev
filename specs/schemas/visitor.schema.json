@@ -67,6 +67,11 @@
       "description": "SHA-256 du fingerprint navigateur (si challenge passé)",
       "pattern": "^[0-9a-f]{64}$"
     },
+    "sticky_trust_until": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Date jusqu'a laquelle le visiteur beneficie d'un trust persistant apres preuve d'humanite"
+    },
     "circuit_open": {
       "type": "boolean",
       "default": false,

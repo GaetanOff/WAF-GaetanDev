@@ -15,6 +15,7 @@ type VisitorState struct {
 	ChallengeAttempts int
 	ChallengeFailures int
 	FPHash            *string
+	StickyTrustUntil  *time.Time
 	CircuitOpen       bool
 	CircuitOpenUntil  *time.Time
 }

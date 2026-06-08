@@ -225,6 +225,10 @@ func cloneVisitor(visitor storage.VisitorState) *storage.VisitorState {
 		fpHash := *visitor.FPHash
 		visitor.FPHash = &fpHash
 	}
+	if visitor.StickyTrustUntil != nil {
+		stickyTrustUntil := *visitor.StickyTrustUntil
+		visitor.StickyTrustUntil = &stickyTrustUntil
+	}
 	if visitor.CircuitOpenUntil != nil {
 		circuitOpenUntil := *visitor.CircuitOpenUntil
 		visitor.CircuitOpenUntil = &circuitOpenUntil

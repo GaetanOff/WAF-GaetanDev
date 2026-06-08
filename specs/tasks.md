@@ -264,3 +264,14 @@ last-updated: 2026-06-04
 - **Acceptance** : un crawler verifie n'est jamais bloque/challenge par heuristique, un crawler en attente est laisse passer en `OBSERVE`, et un UA spoofe ajoute un signal reputation suspect
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-detection.md FR-36, NFR-08 ; features/risk-scoring-engine.feature scenarios Bots verifies ; ADR-015 ; plan.md Slice 6.5
+
+### T6.6 - Credits de preuve humaine & trust persistant
+- [x] `internal/risk/human.go` : `HumanTrustManager` sur `storage.Store` pour grant/proof/revoke du sticky trust
+- [x] `VisitorState.StickyTrustUntil` ajoute au stockage et a `schemas/visitor.schema.json`
+- [x] `HumanCreditContribution` produit une contribution negative `human_credit` pour challenge reussi et fingerprint stable
+- [x] `ApplyHumanCredit` autorise une preuve humaine forte, plafonne un block heuristique a `CHALLENGE`, et n'ecrase pas un block deterministe
+- [x] TTL sticky trust configurable via `HumanCreditConfigFromConfig`
+- [x] Tests : grant sticky trust TTL, preuve fingerprint stable, revocation, contribution negative, non-rechallenge via `ALLOW`, garde-fou anti-BLOCK heuristique, revocation logique sur trigger deterministe
+- **Acceptance** : un humain avec challenge reussi et fingerprint stable obtient `ALLOW` + `sticky_trust=true`, un credit humain empeche un `BLOCK` heuristique, et un trigger deterministe revoque/ne respecte pas le sticky trust
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-detection.md FR-37 ; features/risk-scoring-engine.feature scenarios Credits de preuve humaine ; schemas/visitor.schema.json ; ADR-015 ; plan.md Slice 6.6

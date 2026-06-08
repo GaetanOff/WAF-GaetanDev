@@ -106,6 +106,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 6.5 | `go test ./...` | pass | Added async reverse-DNS/forward-confirm bot verifier with TTL cache, verified-bot ALLOW guard, pending OBSERVE cap, and spoofed crawler reputation contribution using mocked resolver tests |
 | 2026-06-08 | Slice 6.5 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 6.5 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after verified bot package changes |
+| 2026-06-08 | Slice 6.6 | `go test ./...` | pass | Added human proof credits, sticky trust TTL state, visitor schema field, heuristic BLOCK cap for human credit, deterministic-trigger sticky-trust revocation behavior, and storage-backed tests |
+| 2026-06-08 | Slice 6.6 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 6.6 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after human credit and visitor state changes |
 
 ## Quality Gates Checklist
 
