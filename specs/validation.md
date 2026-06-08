@@ -97,6 +97,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 6.2 | `go test ./...` | pass | Added weighted risk fusion, confidence calculation, lenient/balanced/strict profiles, runtime config conversion, `risk_engine` config validation, and example config coverage |
 | 2026-06-08 | Slice 6.2 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 6.2 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after `risk_engine` config model and fusion package changes |
+| 2026-06-08 | Slice 6.3 | `go test ./...` | pass | Added decision-tier mapping from `(risk_score, confidence)` to graduated mitigations; includes Scenario Outline examples from `risk-scoring-engine.feature`, configurable/profiled tiers, low-confidence cap at CHALLENGE, and RiskAssessment update helper |
+| 2026-06-08 | Slice 6.3 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 6.3 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after decision mapping package changes |
 
 ## Quality Gates Checklist
 

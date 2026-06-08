@@ -230,3 +230,14 @@ last-updated: 2026-06-04
 - **Acceptance** : memes signaux + meme profil donnent le meme score, la confiance baisse quand peu de familles sont disponibles, les profils modifient le scoring, et la config invalide est rejetee au demarrage
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-detection.md FR-33, NFR-16 ; schemas/config.schema.json ; ADR-015 ; plan.md Slice 6.2
+
+### T6.3 - Mapping vers l'echelle de mitigation graduee
+- [x] `internal/risk/decision.go` : mapping `(risk_score, confidence)` vers `ALLOW`, `OBSERVE`, `THROTTLE`, `CHALLENGE`, `TARPIT`, `BLOCK`
+- [x] Bornes de score configurables via `DecisionConfig` et `DecisionConfigFromConfig`
+- [x] Profils `lenient`, `balanced`, `strict` avec seuils de tiers et `block_min_confidence` differencies
+- [x] Plafond a `CHALLENGE` quand la confiance est sous `block_min_confidence` pour les mitigations dures
+- [x] `ApplyDecision` met a jour une `RiskAssessment` sans implementer encore la corroboration ni les triggers deterministes de la Slice 6.4
+- [x] Tests derives du Scenario Outline `features/risk-scoring-engine.feature` : `(5,0.9)->ALLOW`, `(30,0.8)->OBSERVE`, `(50,0.8)->THROTTLE`, `(70,0.8)->CHALLENGE`, `(90,0.9)->BLOCK`
+- **Acceptance** : le mapping est deterministe, respecte les bornes configurables/profilables, et plafonne les decisions au-dessus de `CHALLENGE` lorsque la confiance est insuffisante
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-detection.md FR-34 ; features/risk-scoring-engine.feature Scenario Outline Mapping ; ADR-015 ; plan.md Slice 6.3
