@@ -398,6 +398,14 @@
         "anonymize_ip": { "type": "boolean", "default": true }
       }
     },
+    "maintenance": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "error_pages": { "type": "boolean", "default": true }
+      }
+    },
     "acme": {
       "type": "object",
       "additionalProperties": false,

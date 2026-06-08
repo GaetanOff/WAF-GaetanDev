@@ -548,3 +548,14 @@ last-updated: 2026-06-04
 - **Acceptance** : en mode TLS direct, les certificats sont obtenus/renouveles automatiquement via ACME, sans coupure (rotation a chaud)
 - **Validation 2026-06-08** : `go mod tidy`, `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent ; go directive reste 1.22
 - **Spec** : requirements-ops.md FR-31, NFR-14 ; features/acme-tls.feature ; plan.md Slice 9.9
+
+### T9.10 - Mode maintenance & pages d'erreur personnalisees (FR-32)
+- [x] `internal/maintenance` : middleware combinant mode maintenance (503 brandee pour tout le trafic hors endpoints internes) et remplacement des corps d'erreur (4xx/5xx) en texte brut par une page HTML brandee
+- [x] Pages brandees « Protected by GaetanDev.fr » : HTML autonome (CSS inline, aucune ressource externe), messages par statut (403/429/503/502/defaut)
+- [x] Preservation : reponses 2xx et erreurs deja en HTML (ex: page de challenge) inchangees ; endpoints internes (`/waf/health`, `/waf/metrics`) exemptes du mode maintenance
+- [x] Cable dans `main.go` : `maintenance.New(cfg.Maintenance).Handler` entre slowloris et security_headers
+- [x] Config `maintenance` (enabled false, error_pages true par defaut) + schema + exemple
+- [x] Tests : 503 maintenance + branding, bypass /waf/health, remplacement 403 texte->HTML, preservation 200 et HTML existant, passthrough si desactive
+- **Acceptance** : en mode maintenance tout le trafic recoit une page 503 brandee (hors endpoints internes) ; hors maintenance les erreurs en texte brut sont remplacees par une page brandee, le reste est preserve
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build ./...` passent.
+- **Spec** : requirements-ops.md FR-32 ; plan.md Slice 9.10

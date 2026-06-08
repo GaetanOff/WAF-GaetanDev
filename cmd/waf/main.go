@@ -23,6 +23,7 @@ import (
 	"github.com/gaetandev/waf/internal/geo"
 	"github.com/gaetandev/waf/internal/integrity"
 	waflogger "github.com/gaetandev/waf/internal/logger"
+	"github.com/gaetandev/waf/internal/maintenance"
 	wafmetrics "github.com/gaetandev/waf/internal/metrics"
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/antibot"
@@ -413,6 +414,8 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	if cfg.Slowloris.Enabled {
 		handler = slowloris.New(cfg.Slowloris.MaxConnsPerIP).Handler(handler)
 	}
+	// Mode maintenance + pages d'erreur brandées (FR-32).
+	handler = maintenance.New(cfg.Maintenance).Handler(handler)
 	// En-têtes de sécurité + sanitisation (FR-21/FR-22) : le plus à l'extérieur.
 	if cfg.SecurityHeaders.Enabled {
 		handler = secheaders.New(cfg.SecurityHeaders).Handler(handler)

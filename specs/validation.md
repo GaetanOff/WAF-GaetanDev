@@ -181,6 +181,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 9.9 | `go test ./...` | pass | New `internal/acme` (FR-31): autocert manager (TLSConfig + HTTP-01 handler), native auto-renewal/hot rotation; wired into dual-port serve when enabled |
 | 2026-06-08 | Slice 9.9 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 9.9 | `go build -o waf.exe ./cmd/waf` | pass | ACME TLS + HTTP-01 challenge server wired (opt-in) |
+| 2026-06-08 | Slice 9.10 | `go test ./...` | pass | New `internal/maintenance` (FR-32): maintenance-mode 503 branded page (internal endpoints exempt), error-body replacement (4xx/5xx plain text -> branded HTML), 2xx & existing-HTML preserved |
+| 2026-06-08 | Slice 9.10 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 9.10 | `go build ./...` | pass | Maintenance middleware wired between slowloris and security headers |
 
 ## Quality Gates Checklist
 

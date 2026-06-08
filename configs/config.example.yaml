@@ -224,6 +224,11 @@ acme:
   tls_listen: ":443"
   http_challenge_listen: ":80"
 
+# Mode maintenance + pages d'erreur personnalisees brandees (FR-32)
+maintenance:
+  enabled: false             # true = page 503 maintenance pour tout le trafic
+  error_pages: true          # remplace les corps d'erreur (4xx/5xx) par une page HTML brandee
+
 # Challenge JavaScript
 challenge:
   enabled: true

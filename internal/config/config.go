@@ -48,6 +48,7 @@ type Config struct {
 	Alerting            Alerting         `yaml:"alerting"`
 	SelfProtection      SelfProtection   `yaml:"self_protection"`
 	ACME                ACME             `yaml:"acme"`
+	Maintenance         Maintenance      `yaml:"maintenance"`
 	Challenge           Challenge        `yaml:"challenge"`
 	Whitelist           []string         `yaml:"whitelist"`
 	Blacklist           []string         `yaml:"blacklist"`
@@ -233,6 +234,11 @@ type Audit struct {
 
 type GDPR struct {
 	AnonymizeIP bool `yaml:"anonymize_ip"`
+}
+
+type Maintenance struct {
+	Enabled    bool `yaml:"enabled"`
+	ErrorPages bool `yaml:"error_pages"`
 }
 
 type ACME struct {
@@ -511,6 +517,10 @@ func Default() Config {
 			CacheDir:            "./certs",
 			TLSListen:           ":443",
 			HTTPChallengeListen: ":80",
+		},
+		Maintenance: Maintenance{
+			Enabled:    false, // bascule operationnelle
+			ErrorPages: true,
 		},
 		StaticAssets: StaticAssets{
 			Enabled: true,
