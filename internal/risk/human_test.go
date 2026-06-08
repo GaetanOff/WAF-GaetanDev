@@ -14,7 +14,10 @@ func TestHumanTrustManagerGrantsStickyTrustWithTTL(t *testing.T) {
 	store := memory.New(10)
 	defer store.Close()
 	manager := newTestHumanTrustManager(store)
-	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	// Date loin dans le futur : le memory store expire les visiteurs à la lecture
+	// sur l'horloge réelle ; un fixture daté « aujourd'hui » deviendrait expiré
+	// dès que le temps réel dépasse le TTL. Une date future garde le test stable.
+	now := time.Date(2126, 6, 8, 12, 0, 0, 0, time.UTC)
 	manager.now = func() time.Time { return now }
 
 	visitor := manager.GrantChallengePass("1.2.3.4", "example.test", testFPHash)
@@ -34,7 +37,10 @@ func TestHumanTrustManagerProofDetectsStableFingerprint(t *testing.T) {
 	store := memory.New(10)
 	defer store.Close()
 	manager := newTestHumanTrustManager(store)
-	now := time.Date(2026, 6, 8, 12, 0, 0, 0, time.UTC)
+	// Date loin dans le futur : le memory store expire les visiteurs à la lecture
+	// sur l'horloge réelle ; un fixture daté « aujourd'hui » deviendrait expiré
+	// dès que le temps réel dépasse le TTL. Une date future garde le test stable.
+	now := time.Date(2126, 6, 8, 12, 0, 0, 0, time.UTC)
 	manager.now = func() time.Time { return now }
 	manager.GrantChallengePass("1.2.3.4", "example.test", testFPHash)
 
