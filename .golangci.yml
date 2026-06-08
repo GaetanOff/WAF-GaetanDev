@@ -14,9 +14,10 @@ linters:
     - unused        # unused code
     - gofmt         # formatting
     - goimports     # import grouping
-    - misspell      # spelling
     - bodyclose     # http.Response.Body closed
     - errorlint     # error wrapping (%w) correctness
+    # NB: `misspell` n'est pas activé — il est anglophone uniquement et
+    # signale à tort les commentaires en français (convention du projet).
 
 issues:
   max-issues-per-linter: 0
