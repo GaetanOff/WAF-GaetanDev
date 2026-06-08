@@ -201,6 +201,13 @@ gdpr:
   # Effacement : POST /waf/admin/gdpr/erase {"ip": "..."}
   # Retention : assuree par trust.score_ttl (purge du store) ; registre: specs/gdpr-register.md
 
+# Alerting webhooks (FR-29) : Slack / Discord / generique, retry + cooldown
+alerting:
+  enabled: false             # opt-in
+  cooldown: "5m"             # deduplication par trigger+domaine
+  max_retries: 3
+  webhooks: []               # - { type: "slack", url: "https://hooks.slack.com/..." }
+
 # Challenge JavaScript
 challenge:
   enabled: true

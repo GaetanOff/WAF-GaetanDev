@@ -45,6 +45,7 @@ type Config struct {
 	UpstreamPool        UpstreamPool     `yaml:"upstream_pool"`
 	Audit               Audit            `yaml:"audit"`
 	GDPR                GDPR             `yaml:"gdpr"`
+	Alerting            Alerting         `yaml:"alerting"`
 	Challenge           Challenge        `yaml:"challenge"`
 	Whitelist           []string         `yaml:"whitelist"`
 	Blacklist           []string         `yaml:"blacklist"`
@@ -230,6 +231,18 @@ type Audit struct {
 
 type GDPR struct {
 	AnonymizeIP bool `yaml:"anonymize_ip"`
+}
+
+type Alerting struct {
+	Enabled    bool           `yaml:"enabled"`
+	Cooldown   string         `yaml:"cooldown"`
+	MaxRetries int            `yaml:"max_retries"`
+	Webhooks   []AlertWebhook `yaml:"webhooks"`
+}
+
+type AlertWebhook struct {
+	Type string `yaml:"type"`
+	URL  string `yaml:"url"`
 }
 
 type UpstreamHealthCheck struct {
@@ -464,6 +477,11 @@ func Default() Config {
 		GDPR: GDPR{
 			AnonymizeIP: true,
 		},
+		Alerting: Alerting{
+			Enabled:    false, // opt-in : nécessite des webhooks
+			Cooldown:   "5m",
+			MaxRetries: 3,
+		},
 		StaticAssets: StaticAssets{
 			Enabled: true,
 			Extensions: []string{
@@ -619,6 +637,12 @@ func (c *Config) Validate() error {
 	}
 	if c.Cluster.Enabled && (c.Storage.Redis == nil || c.Storage.Redis.Address == "") {
 		fields = append(fields, "cluster.enabled requires storage.redis.address")
+	}
+	if c.Alerting.Enabled {
+		validateDuration(&fields, "alerting.cooldown", c.Alerting.Cooldown)
+		if len(c.Alerting.Webhooks) == 0 {
+			fields = append(fields, "alerting.webhooks must not be empty when enabled")
+		}
 	}
 	if c.Slowloris.Enabled {
 		validateDuration(&fields, "slowloris.header_timeout", c.Slowloris.HeaderTimeout)

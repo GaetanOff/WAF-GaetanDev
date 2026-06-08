@@ -398,6 +398,26 @@
         "anonymize_ip": { "type": "boolean", "default": true }
       }
     },
+    "alerting": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": false },
+        "cooldown": { "type": "string", "default": "5m" },
+        "max_retries": { "type": "integer", "minimum": 0, "default": 3 },
+        "webhooks": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "type": { "type": "string", "enum": ["generic", "slack", "discord"] },
+              "url": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
     "upstream_pool": {
       "type": "object",
       "additionalProperties": false,

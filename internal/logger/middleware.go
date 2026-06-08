@@ -27,8 +27,33 @@ func (l Logger) Middleware(scores *trust.ScoreManager, next http.Handler) http.H
 		next.ServeHTTP(recorder, r)
 
 		elapsed := l.now().Sub(startedAt).Seconds() * 1000
-		l.WriteSecurityEvent(l.securityEvent(r, recorder, scores, requestID, startedAt, elapsed))
+		event := l.securityEvent(r, recorder, scores, requestID, startedAt, elapsed)
+		l.WriteSecurityEvent(event)
+		if l.Alerter != nil && isAlertable(event.Action) {
+			l.Alerter.Notify(alertTrigger(event.Action), event.Domain, event.Reason)
+		}
 	})
+}
+
+// isAlertable indique si une action mérite une alerte webhook (FR-29).
+func isAlertable(action string) bool {
+	switch action {
+	case ActionBlock, ActionCircuitBreak, ActionHoneypot:
+		return true
+	default:
+		return false
+	}
+}
+
+func alertTrigger(action string) string {
+	switch action {
+	case ActionCircuitBreak:
+		return "circuit_breaker"
+	case ActionHoneypot:
+		return "honeypot"
+	default:
+		return "block"
+	}
 }
 
 func RequestID(r *http.Request) string {

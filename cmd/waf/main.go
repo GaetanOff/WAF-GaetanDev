@@ -14,6 +14,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/adaptive"
 	"github.com/gaetandev/waf/internal/admin"
+	"github.com/gaetandev/waf/internal/alert"
 	"github.com/gaetandev/waf/internal/behavioral"
 	"github.com/gaetandev/waf/internal/cluster"
 	"github.com/gaetandev/waf/internal/config"
@@ -252,6 +253,21 @@ func run() error {
 	}
 	securityLogger := waflogger.New(cfg.Logging)
 	securityLogger.AnonymizeIP = cfg.GDPR.AnonymizeIP // RGPD (FR-28)
+	// Alerting webhooks (FR-29) : le logger émet une alerte sur les événements
+	// à forte sévérité (block / circuit / honeypot), avec cooldown.
+	if cfg.Alerting.Enabled {
+		cooldown, err := parseDuration("alerting.cooldown", cfg.Alerting.Cooldown)
+		if err != nil {
+			return err
+		}
+		sinks := make([]alert.Sink, 0, len(cfg.Alerting.Webhooks))
+		for _, wh := range cfg.Alerting.Webhooks {
+			sinks = append(sinks, alert.Sink{Type: wh.Type, URL: wh.URL})
+		}
+		notifier := alert.NewNotifier(sinks, cooldown, cfg.Alerting.MaxRetries, nil)
+		defer notifier.Close()
+		securityLogger.Alerter = notifier
+	}
 
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,

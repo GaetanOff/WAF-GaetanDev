@@ -171,6 +171,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 9.6 | `go test ./...` | pass | New `internal/gdpr` (FR-28): IP anonymization /24 & /48, logger anonymizes IP field, admin erasure endpoint, register of treatments doc |
 | 2026-06-08 | Slice 9.6 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 9.6 | `go build -o waf.exe ./cmd/waf` | pass | GDPR anonymization wired into logger; erasure endpoint in admin |
+| 2026-06-08 | Slice 9.7 | `go test ./...` | pass | New `internal/alert` (FR-29): async notifier, Slack/Discord/generic sinks, exponential-backoff retry, cooldown dedup; logger emits on high-severity actions. httptest-covered |
+| 2026-06-08 | Slice 9.7 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 9.7 | `go build -o waf.exe ./cmd/waf` | pass | Alerting wired to logger via Alerter interface |
 
 ## Quality Gates Checklist
 

@@ -516,3 +516,13 @@ last-updated: 2026-06-04
 - **Acceptance** : les logs n'exposent pas l'IP complete (anonymisee), un utilisateur peut etre efface, le registre documente les traitements
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-ops.md FR-28 ; ADR-013 ; features/gdpr-compliance.feature ; plan.md Slice 9.6
+
+### T9.7 - Alerting webhooks (FR-29)
+- [x] `internal/alert` : Notifier async (file + worker), sinks Slack / Discord / generique, retry backoff exponentiel, deduplication par cooldown (trigger+domaine)
+- [x] Emission depuis le logger (interface `Alerter`) sur block / circuit_breaker / honeypot
+- [x] Config `alerting` (enabled opt-in, cooldown, max_retries, webhooks[]) + schema + exemple + validation
+- [x] Tests via httptest : delivery (payload Slack), cooldown dedup, retry sur echec
+- **Note** : emetteurs additionnels (mode degrade global, seuils) cablables via Notifier.Dispatch ; differes
+- **Acceptance** : un evenement a forte severite declenche une alerte webhook (formatee selon le sink), sans flood (cooldown), sans bloquer la requete (async)
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-ops.md FR-29, NFR-12 ; schemas/alert.schema.json ; features/webhook-alerts.feature ; plan.md Slice 9.7

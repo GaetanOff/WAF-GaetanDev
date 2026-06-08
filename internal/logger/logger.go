@@ -21,6 +21,16 @@ type Logger struct {
 
 	// AnonymizeIP active la troncature des IP dans les logs (RGPD, FR-28).
 	AnonymizeIP bool
+
+	// Alerter, si défini, reçoit les événements à forte sévérité pour
+	// déclencher des alertes webhook (FR-29). Optionnel.
+	Alerter Alerter
+}
+
+// Alerter reçoit une notification d'événement de sécurité (interface structurelle
+// satisfaite par internal/alert.Notifier).
+type Alerter interface {
+	Notify(trigger string, domain string, reason string)
 }
 
 func New(cfg config.Logging) Logger {
