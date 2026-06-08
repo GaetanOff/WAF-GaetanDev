@@ -125,6 +125,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 8.1 | `go test ./...` | pass | New `internal/integrity` (FR-18): traversal/null-byte/injection/length detection, decoded-form analysis, integrity risk contribution, 10MB body limit (413). `routes()` gains a `detectors` chain run before the risk engine |
 | 2026-06-08 | Slice 8.1 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 8.1 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds; integrity wired as first Phase 8 detector |
+| 2026-06-08 | Slice 8.2 | `go test ./...` | pass | New `internal/behavioral` (FR-12): async ring-buffer tracker, 6 anomaly signals, score applied to next request via `X-WAF-Risk-behavioral`; stop-channel shutdown (queue never closed) |
+| 2026-06-08 | Slice 8.2 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 8.2 | `go build -o waf.exe ./cmd/waf` | pass | Behavioral wired as Phase 8 detector |
 
 ## Quality Gates Checklist
 

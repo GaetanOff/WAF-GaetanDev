@@ -283,6 +283,14 @@
         "max_query_length": { "type": "integer", "minimum": 1, "default": 4096 }
       }
     },
+    "behavioral": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "max_records": { "type": "integer", "minimum": 1, "default": 50 }
+      }
+    },
     "challenge": {
       "type": "object",
       "additionalProperties": false,

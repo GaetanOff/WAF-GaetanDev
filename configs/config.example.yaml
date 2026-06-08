@@ -95,6 +95,11 @@ integrity:
   max_path_length: 2048
   max_query_length: 4096
 
+# Analyse comportementale (FR-12) : 6 signaux sur les N dernieres requetes
+behavioral:
+  enabled: true
+  max_records: 50
+
 # Challenge JavaScript
 challenge:
   enabled: true

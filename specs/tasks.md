@@ -339,3 +339,15 @@ last-updated: 2026-06-04
 - **Acceptance** : les anomalies d'integrite contribuent au score de risque sans bloquer directement ; un body trop volumineux est rejete en 413
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-advanced.md FR-18 ; features/request-integrity.feature ; plan.md Slice 8.1
+
+### T8.2 - Analyse comportementale (FR-12)
+- [x] `internal/behavioral/behavioral.go` : ring buffer par visiteur (N derniers paths+timestamps), worker asynchrone (NFR-07, file non bloquante)
+- [x] 6 signaux : uniformite temporelle, repetition de path, velocite de decouverte, absence d'assets, ordre alphabetique (depth simplifie)
+- [x] Score d'anomalie [0..100] applique a la requete suivante via `X-WAF-Risk-behavioral`
+- [x] Arret propre via `stop` channel (queue jamais fermee : pas de panic si Observe pendant shutdown)
+- [x] Config `behavioral` (enabled, max_records defaut 50) + schema + exemple + validation
+- [x] Cable comme detecteur Phase 8 (slice `detectors`)
+- [x] Tests : score nul sous le minimum, detection uniformite/repetition/velocite/absence d'assets, navigation humaine -> score bas, publication depuis le score precedent, bypass PASS
+- **Acceptance** : un comportement de bot (timing regulier, crawl) produit un score d'anomalie eleve applique a la requete suivante, sans bloquer le pipeline (async)
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-advanced.md FR-12, NFR-07 ; ADR-009 ; features/behavioral-analysis.feature ; plan.md Slice 8.2

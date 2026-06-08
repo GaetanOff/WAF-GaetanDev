@@ -29,6 +29,7 @@ type Config struct {
 	Trust               Trust          `yaml:"trust"`
 	RiskEngine          RiskEngine     `yaml:"risk_engine"`
 	Integrity           Integrity      `yaml:"integrity"`
+	Behavioral          Behavioral     `yaml:"behavioral"`
 	Challenge           Challenge      `yaml:"challenge"`
 	Whitelist           []string       `yaml:"whitelist"`
 	Blacklist           []string       `yaml:"blacklist"`
@@ -124,6 +125,11 @@ type Integrity struct {
 	MaxBodyBytes   int64 `yaml:"max_body_bytes"`
 	MaxPathLength  int   `yaml:"max_path_length"`
 	MaxQueryLength int   `yaml:"max_query_length"`
+}
+
+type Behavioral struct {
+	Enabled    bool `yaml:"enabled"`
+	MaxRecords int  `yaml:"max_records"`
 }
 
 type Challenge struct {
@@ -293,6 +299,10 @@ func Default() Config {
 			MaxPathLength:  2048,
 			MaxQueryLength: 4096,
 		},
+		Behavioral: Behavioral{
+			Enabled:    true,
+			MaxRecords: 50,
+		},
 		Challenge: Challenge{
 			Enabled:       true,
 			TokenTTL:      "30s",
@@ -390,6 +400,9 @@ func (c *Config) Validate() error {
 		if c.Integrity.MaxQueryLength < 1 {
 			fields = append(fields, "integrity.max_query_length must be >= 1")
 		}
+	}
+	if c.Behavioral.Enabled && c.Behavioral.MaxRecords < 1 {
+		fields = append(fields, "behavioral.max_records must be >= 1")
 	}
 	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")

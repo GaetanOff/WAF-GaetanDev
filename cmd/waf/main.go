@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/admin"
+	"github.com/gaetandev/waf/internal/behavioral"
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/integrity"
 	waflogger "github.com/gaetandev/waf/internal/logger"
@@ -109,6 +110,11 @@ func run() error {
 	// moteur de risque ; exécutés juste avant lui (Phase 8).
 	detectors := []func(http.Handler) http.Handler{
 		integrity.NewAnalyzer(*cfg).Handler,
+	}
+	if cfg.Behavioral.Enabled {
+		behavioralTracker := behavioral.New(cfg.Behavioral.MaxRecords)
+		defer behavioralTracker.Close()
+		detectors = append(detectors, behavioralTracker.Handler)
 	}
 	challengeMiddleware, err := challenge.NewMiddleware(*cfg, scoreManager, "web/challenge.html")
 	if err != nil {
