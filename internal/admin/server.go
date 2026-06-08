@@ -10,6 +10,7 @@ import (
 	"github.com/gaetandev/waf/internal/audit"
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/access"
+	"github.com/gaetandev/waf/internal/selfprotect"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -21,6 +22,7 @@ type Server struct {
 	accessRules *access.RuleSet
 	state       *State
 	trail       *audit.Trail
+	brute       *selfprotect.Window
 	startedAt   time.Time
 	httpServer  *http.Server
 }
@@ -40,6 +42,14 @@ func NewServer(cfg config.Config, store storage.Store, scores *trust.ScoreManage
 			return nil, err
 		}
 	}
+	var brute *selfprotect.Window
+	if cfg.SelfProtection.Enabled {
+		lockout, err := time.ParseDuration(cfg.SelfProtection.AdminLockout)
+		if err != nil {
+			return nil, fmt.Errorf("parse self_protection.admin_lockout: %w", err)
+		}
+		brute = selfprotect.NewWindow(cfg.SelfProtection.AdminMaxFailures, lockout)
+	}
 	server := &Server{
 		cfg:         cfg,
 		store:       store,
@@ -47,6 +57,7 @@ func NewServer(cfg config.Config, store storage.Store, scores *trust.ScoreManage
 		accessRules: accessRules,
 		state:       state,
 		trail:       trail,
+		brute:       brute,
 		startedAt:   startedAt,
 	}
 	server.httpServer = &http.Server{

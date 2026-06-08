@@ -34,6 +34,7 @@ import (
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/rules"
 	"github.com/gaetandev/waf/internal/secheaders"
+	"github.com/gaetandev/waf/internal/selfprotect"
 	"github.com/gaetandev/waf/internal/slowloris"
 	"github.com/gaetandev/waf/internal/staticassets"
 	"github.com/gaetandev/waf/internal/storage/memory"
@@ -366,6 +367,11 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	} else {
 		proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
 		proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
+	}
+	// Auto-protection (FR-30) : limite le flood de POST /waf/verify par IP.
+	if cfg.SelfProtection.Enabled {
+		verifyWindow := selfprotect.NewWindow(cfg.SelfProtection.VerifyMaxPerMinute, time.Minute)
+		proxyHandler = selfprotect.PathGuard("/waf/verify", verifyWindow)(proxyHandler)
 	}
 	// Bypass des assets statiques (FR-24) : le plus en amont du pipeline pour
 	// marquer PASS avant challenge/trust/détecteurs (la blacklist reste appliquée).

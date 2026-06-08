@@ -526,3 +526,13 @@ last-updated: 2026-06-04
 - **Acceptance** : un evenement a forte severite declenche une alerte webhook (formatee selon le sink), sans flood (cooldown), sans bloquer la requete (async)
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-ops.md FR-29, NFR-12 ; schemas/alert.schema.json ; features/webhook-alerts.feature ; plan.md Slice 9.7
+
+### T9.8 - Auto-protection du WAF (FR-30)
+- [x] `internal/selfprotect` : compteur par IP a fenetre fixe (`Window`), `PathGuard` (limite un chemin precis)
+- [x] Flood `/waf/verify` : PathGuard cable dans la chaine proxy (429 au-dela de verify_max_per_minute par IP)
+- [x] Brute-force admin : `admin.auth` verrouille l'IP (429) apres admin_max_failures echecs pendant admin_lockout
+- [x] Config `self_protection` (enabled, verify_max_per_minute, admin_max_failures, admin_lockout) + schema + exemple + validation
+- [x] Tests : window record/limited/reset, PathGuard cible/ignore, (admin couvert par ses tests)
+- **Acceptance** : un flood de /waf/verify est limite par IP ; les tentatives d'auth admin repetees verrouillent l'IP
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-ops.md FR-30 ; features/waf-self-protection.feature ; plan.md Slice 9.8

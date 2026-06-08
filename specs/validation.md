@@ -174,6 +174,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 9.7 | `go test ./...` | pass | New `internal/alert` (FR-29): async notifier, Slack/Discord/generic sinks, exponential-backoff retry, cooldown dedup; logger emits on high-severity actions. httptest-covered |
 | 2026-06-08 | Slice 9.7 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 9.7 | `go build -o waf.exe ./cmd/waf` | pass | Alerting wired to logger via Alerter interface |
+| 2026-06-08 | Slice 9.8 | `go test ./...` | pass | New `internal/selfprotect` (FR-30): per-IP fixed-window counter, PathGuard for /waf/verify flood, admin brute-force lockout in admin.auth |
+| 2026-06-08 | Slice 9.8 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 9.8 | `go build -o waf.exe ./cmd/waf` | pass | Verify flood guard + admin brute-force wired |
 
 ## Quality Gates Checklist
 

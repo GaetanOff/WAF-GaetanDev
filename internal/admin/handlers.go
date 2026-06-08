@@ -3,6 +3,7 @@ package admin
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"net"
 	"net/http"
 	"net/url"
 	"sort"
@@ -120,13 +121,31 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		ip := clientIP(r)
+		// Anti-brute-force (FR-30) : verrouille l'IP après trop d'échecs.
+		if s.brute != nil && s.brute.Limited(ip) {
+			w.Header().Set("Retry-After", "300")
+			writeJSON(w, http.StatusTooManyRequests, errorResponse{Error: "locked", Message: "Too many failed attempts"})
+			return
+		}
 		expected := "Bearer " + s.cfg.Admin.Token
 		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte(expected)) != 1 {
+			if s.brute != nil {
+				s.brute.Record(ip)
+			}
 			writeJSON(w, http.StatusUnauthorized, errorResponse{Error: "unauthorized", Message: "Missing or invalid Bearer token"})
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+func clientIP(r *http.Request) string {
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+	if err != nil {
+		return r.RemoteAddr
+	}
+	return host
 }
 
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {

@@ -398,6 +398,16 @@
         "anonymize_ip": { "type": "boolean", "default": true }
       }
     },
+    "self_protection": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "verify_max_per_minute": { "type": "integer", "minimum": 1, "default": 60 },
+        "admin_max_failures": { "type": "integer", "minimum": 1, "default": 5 },
+        "admin_lockout": { "type": "string", "default": "5m" }
+      }
+    },
     "alerting": {
       "type": "object",
       "additionalProperties": false,

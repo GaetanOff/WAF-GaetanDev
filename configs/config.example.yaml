@@ -208,6 +208,13 @@ alerting:
   max_retries: 3
   webhooks: []               # - { type: "slack", url: "https://hooks.slack.com/..." }
 
+# Auto-protection du WAF (FR-30) : flood /waf/verify + brute-force admin
+self_protection:
+  enabled: true
+  verify_max_per_minute: 60  # POST /waf/verify max par IP et par minute
+  admin_max_failures: 5      # echecs d'auth admin avant verrouillage
+  admin_lockout: "5m"        # duree de verrouillage
+
 # Challenge JavaScript
 challenge:
   enabled: true

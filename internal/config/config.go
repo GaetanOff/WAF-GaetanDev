@@ -46,6 +46,7 @@ type Config struct {
 	Audit               Audit            `yaml:"audit"`
 	GDPR                GDPR             `yaml:"gdpr"`
 	Alerting            Alerting         `yaml:"alerting"`
+	SelfProtection      SelfProtection   `yaml:"self_protection"`
 	Challenge           Challenge        `yaml:"challenge"`
 	Whitelist           []string         `yaml:"whitelist"`
 	Blacklist           []string         `yaml:"blacklist"`
@@ -231,6 +232,13 @@ type Audit struct {
 
 type GDPR struct {
 	AnonymizeIP bool `yaml:"anonymize_ip"`
+}
+
+type SelfProtection struct {
+	Enabled            bool   `yaml:"enabled"`
+	VerifyMaxPerMinute int    `yaml:"verify_max_per_minute"`
+	AdminMaxFailures   int    `yaml:"admin_max_failures"`
+	AdminLockout       string `yaml:"admin_lockout"`
 }
 
 type Alerting struct {
@@ -482,6 +490,12 @@ func Default() Config {
 			Cooldown:   "5m",
 			MaxRetries: 3,
 		},
+		SelfProtection: SelfProtection{
+			Enabled:            true,
+			VerifyMaxPerMinute: 60,
+			AdminMaxFailures:   5,
+			AdminLockout:       "5m",
+		},
 		StaticAssets: StaticAssets{
 			Enabled: true,
 			Extensions: []string{
@@ -642,6 +656,15 @@ func (c *Config) Validate() error {
 		validateDuration(&fields, "alerting.cooldown", c.Alerting.Cooldown)
 		if len(c.Alerting.Webhooks) == 0 {
 			fields = append(fields, "alerting.webhooks must not be empty when enabled")
+		}
+	}
+	if c.SelfProtection.Enabled {
+		validateDuration(&fields, "self_protection.admin_lockout", c.SelfProtection.AdminLockout)
+		if c.SelfProtection.VerifyMaxPerMinute < 1 {
+			fields = append(fields, "self_protection.verify_max_per_minute must be >= 1")
+		}
+		if c.SelfProtection.AdminMaxFailures < 1 {
+			fields = append(fields, "self_protection.admin_max_failures must be >= 1")
 		}
 	}
 	if c.Slowloris.Enabled {
