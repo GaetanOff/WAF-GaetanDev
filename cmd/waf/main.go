@@ -32,6 +32,7 @@ import (
 	"github.com/gaetandev/waf/internal/proxy"
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/rules"
+	"github.com/gaetandev/waf/internal/secheaders"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/threatintel"
 	"github.com/gaetandev/waf/internal/tlsfp"
@@ -313,6 +314,10 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 		proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
 	}
 	mux.Handle("/", proxyHandler)
+	// En-têtes de sécurité + sanitisation (FR-21/FR-22) : enrobe tout le mux.
+	if cfg.SecurityHeaders.Enabled {
+		return secheaders.New(cfg.SecurityHeaders).Handler(mux)
+	}
 	return mux
 }
 

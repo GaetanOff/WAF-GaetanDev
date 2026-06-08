@@ -39,6 +39,7 @@ type Config struct {
 	Rules               Rules            `yaml:"rules"`
 	OriginProtection    OriginProtection `yaml:"origin_protection"`
 	Cluster             Cluster          `yaml:"cluster"`
+	SecurityHeaders     SecurityHeaders  `yaml:"security_headers"`
 	Challenge           Challenge        `yaml:"challenge"`
 	Whitelist           []string         `yaml:"whitelist"`
 	Blacklist           []string         `yaml:"blacklist"`
@@ -196,6 +197,18 @@ type OriginProtection struct {
 type Cluster struct {
 	Enabled bool   `yaml:"enabled"`
 	Channel string `yaml:"channel"`
+}
+
+type SecurityHeaders struct {
+	Enabled               bool     `yaml:"enabled"`
+	HSTSMaxAge            int      `yaml:"hsts_max_age"`
+	HSTSIncludeSubdomains bool     `yaml:"hsts_include_subdomains"`
+	FrameOptions          string   `yaml:"frame_options"`
+	ContentTypeNosniff    bool     `yaml:"content_type_nosniff"`
+	ReferrerPolicy        string   `yaml:"referrer_policy"`
+	PermissionsPolicy     string   `yaml:"permissions_policy"`
+	CSP                   string   `yaml:"csp"`
+	StripHeaders          []string `yaml:"strip_headers"`
 }
 
 type Challenge struct {
@@ -396,6 +409,15 @@ func Default() Config {
 			TarpitMaxConns:   500,
 			TarpitChunks:     20,
 			TarpitChunkDelay: "1s",
+		},
+		SecurityHeaders: SecurityHeaders{
+			Enabled:               true,
+			HSTSMaxAge:            31536000,
+			HSTSIncludeSubdomains: true,
+			FrameOptions:          "DENY",
+			ContentTypeNosniff:    true,
+			ReferrerPolicy:        "strict-origin-when-cross-origin",
+			StripHeaders:          []string{"Server", "X-Powered-By"},
 		},
 		Challenge: Challenge{
 			Enabled:       true,

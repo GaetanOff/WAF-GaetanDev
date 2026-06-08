@@ -153,6 +153,9 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 8.10 | `go test ./...` | pass | New `internal/cluster` (FR-20): Event model, Bus iface, LocalBus + RedisBus (Pub/Sub), Syncer applies inbound blacklist/score, `RuleSet.AddBlacklist`, `waf_cluster_sync_events_total` metric |
 | 2026-06-08 | Slice 8.10 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 8.10 | `go build -o waf.exe ./cmd/waf` | pass | Cluster subscriber wired (autonomous fallback if Redis down). Phase 8 complete |
+| 2026-06-08 | Slice 9.1 | `go test ./...` | pass | New `internal/secheaders` (FR-21/22): sanitizing response writer, security headers injected if absent (upstream priority), Server/X-Powered-By stripped, CSP opt-in |
+| 2026-06-08 | Slice 9.1 | `go vet ./...` | pass | No vet findings |
+| 2026-06-08 | Slice 9.1 | `go build -o waf.exe ./cmd/waf` | pass | Security headers wrap the whole mux (outermost) |
 
 ## Quality Gates Checklist
 

@@ -154,6 +154,18 @@ cluster:
   enabled: false             # opt-in
   channel: "waf:events"
 
+# En-tetes de securite + sanitisation des reponses (FR-21, FR-22)
+security_headers:
+  enabled: true
+  hsts_max_age: 31536000
+  hsts_include_subdomains: true
+  frame_options: "DENY"
+  content_type_nosniff: true
+  referrer_policy: "strict-origin-when-cross-origin"
+  permissions_policy: ""
+  csp: ""                    # opt-in : ne pas activer sans tester
+  strip_headers: ["Server", "X-Powered-By"]
+
 # Challenge JavaScript
 challenge:
   enabled: true

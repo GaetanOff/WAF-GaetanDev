@@ -448,3 +448,18 @@ last-updated: 2026-06-04
 - **Acceptance** : un event de blacklist/score critique recu se propage a l'etat local ; le noeud fonctionne sans Redis (degrade)
 - **Validation 2026-06-08** : `go mod tidy`, `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-advanced.md FR-20 ; ADR-002 ; features/multi-node-sync.feature ; plan.md Slice 8.10
+
+---
+
+## Sprint 9 - Durcissement production / Ops (Phase 9)
+
+### T9.1 - En-tetes de securite + sanitisation (FR-21, FR-22)
+- [x] `internal/secheaders` : `sanitizingWriter` qui applique a l'ecriture des en-tetes
+- [x] Injection si absent (priorite upstream) : HSTS, X-Frame-Options, X-Content-Type-Options (nosniff), Referrer-Policy, Permissions-Policy, CSP (opt-in)
+- [x] Sanitisation : retrait des en-tetes reveleurs (Server, X-Powered-By, configurable)
+- [x] Cable le plus a l'exterieur (enrobe tout le mux dans `routes()`)
+- [x] Config `security_headers` + schema + exemple
+- [x] Tests : injection, priorite upstream, strip, CSP opt-in
+- **Acceptance** : les reponses portent les en-tetes de securite (sans ecraser l'upstream) et ne revelent pas la stack
+- **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
+- **Spec** : requirements-ops.md FR-21, FR-22 ; ADR-011 ; features/security-headers.feature ; plan.md Slice 9.1

@@ -374,6 +374,21 @@
         "channel": { "type": "string", "default": "waf:events" }
       }
     },
+    "security_headers": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "enabled": { "type": "boolean", "default": true },
+        "hsts_max_age": { "type": "integer", "minimum": 0, "default": 31536000 },
+        "hsts_include_subdomains": { "type": "boolean", "default": true },
+        "frame_options": { "type": "string", "default": "DENY" },
+        "content_type_nosniff": { "type": "boolean", "default": true },
+        "referrer_policy": { "type": "string" },
+        "permissions_policy": { "type": "string" },
+        "csp": { "type": "string" },
+        "strip_headers": { "type": "array", "items": { "type": "string" } }
+      }
+    },
     "challenge": {
       "type": "object",
       "additionalProperties": false,
