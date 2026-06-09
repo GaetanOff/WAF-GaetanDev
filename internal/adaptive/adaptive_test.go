@@ -5,6 +5,50 @@ import (
 	"time"
 )
 
+func TestExtraBitsForPressureIsDistinctPerLevel(t *testing.T) {
+	tests := []struct {
+		level string
+		want  int
+	}{
+		{level: "normal", want: 0},
+		{level: "", want: 0},
+		{level: "elevated", want: elevatedExtraBits},
+		{level: "high", want: highExtraBits},
+		{level: "critical", want: criticalExtraBits},
+	}
+	for _, tt := range tests {
+		if got := extraBitsForPressure(tt.level); got != tt.want {
+			t.Fatalf("extraBitsForPressure(%q) = %d, want %d", tt.level, got, tt.want)
+		}
+	}
+	// Régression : high et critical ne doivent plus produire la même difficulté.
+	if highExtraBits == criticalExtraBits || elevatedExtraBits == highExtraBits {
+		t.Fatalf("pressure bit floors must be strictly increasing: elevated=%d high=%d critical=%d",
+			elevatedExtraBits, highExtraBits, criticalExtraBits)
+	}
+}
+
+func TestObservePressureRaisesDifficultyPerLevel(t *testing.T) {
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	tests := []struct {
+		level string
+		want  int
+	}{
+		{level: "normal", want: 16},
+		{level: "elevated", want: 16 + elevatedExtraBits},
+		{level: "high", want: 16 + highExtraBits},
+		{level: "critical", want: 16 + criticalExtraBits},
+	}
+	for _, tt := range tests {
+		controller := NewController(16, 24, 5*time.Minute)
+		controller.now = func() time.Time { return now }
+		controller.ObservePressure(tt.level)
+		if got := controller.Snapshot(); got != tt.want {
+			t.Fatalf("Snapshot() after pressure %q = %d, want %d", tt.level, got, tt.want)
+		}
+	}
+}
+
 func TestExtraBitsForAII(t *testing.T) {
 	tests := []struct {
 		aii  float64

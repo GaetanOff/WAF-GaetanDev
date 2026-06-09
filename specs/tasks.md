@@ -575,4 +575,9 @@ last-updated: 2026-06-09
 - [x] Tests Gherkin : pas de 503 global, visiteur connu favorise, abus par IP toujours 429, circuit-breaker inchangé
 - **Acceptance** : depasser le seuil global ne bloque jamais tout le trafic ni tous les nouveaux visiteurs par lui-meme ; les mitigations restent graduelles et reversibles.
 - **Validation 2026-06-09** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent ; schemas JSON config/security-event valides.
+- **Revue 2026-06-09 (post-implementation)** : trois correctifs suite a une relecture du code :
+  - THROTTLE reellement implemente dans `ratelimit` : sous pression, le debit ET la capacite effectifs des visiteurs non-TRUSTED sont resserres (elevated ×0.8, high ×0.5, critical ×0.25), recalcules par requete depuis la config (jamais figes dans le store), donc reversibles. Les visiteurs TRUSTED (score ≥ 70) gardent leur debit nominal. Couvre la mitigation "THROTTLE" de features/anti-ddos.feature.
+  - Bug corrige dans `adaptive` : `high` et `critical` renvoyaient les memes bits PoW ; ajout de `highExtraBits=6` (elevated 4 / high 6 / critical 8, strictement croissants).
+  - Code mort supprime : override `statusRecorder.Write` no-op dans `antiddos/middleware.go`.
+  - Tests ajoutes : `ratelimit` (throttle inconnu, visiteur TRUSTED epargne, pression normale, reversibilite) ; `adaptive` (4 niveaux distincts).
 - **Spec** : requirements.md FR-08 v2.0.0 ; features/anti-ddos.feature ; ADR-016 ; schemas/config.schema.json

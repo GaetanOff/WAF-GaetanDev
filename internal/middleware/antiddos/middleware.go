@@ -125,13 +125,6 @@ func (r *statusRecorder) WriteHeader(statusCode int) {
 	r.ResponseWriter.WriteHeader(statusCode)
 }
 
-func (r *statusRecorder) Write(body []byte) (int, error) {
-	if r.statusCode == http.StatusOK {
-		r.statusCode = http.StatusOK
-	}
-	return r.ResponseWriter.Write(body)
-}
-
 func (r *statusRecorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }

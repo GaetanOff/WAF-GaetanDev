@@ -15,6 +15,7 @@ const (
 
 	// Bits supplémentaires par niveau d'intensité (FR-14).
 	elevatedExtraBits = 4
+	highExtraBits     = 6
 	criticalExtraBits = 8
 
 	// Seuils de l'Attack Intensity Indicator (AII = rate courant / baseline %).
@@ -156,12 +157,14 @@ func extraBitsFor(aiiPercent float64) int {
 	}
 }
 
+// extraBitsForPressure mappe les quatre niveaux de pression globale anti-DDoS
+// (FR-08 v2) vers un plancher de bits supplémentaires distinct par niveau.
 func extraBitsForPressure(level string) int {
 	switch level {
 	case "critical":
 		return criticalExtraBits
 	case "high":
-		return criticalExtraBits
+		return highExtraBits
 	case "elevated":
 		return elevatedExtraBits
 	default:

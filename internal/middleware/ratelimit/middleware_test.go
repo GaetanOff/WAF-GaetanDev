@@ -167,6 +167,106 @@ func TestMiddlewareSkipsWhitelistedRequests(t *testing.T) {
 	}
 }
 
+func TestPressureThrottlesUntrustedVisitor(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+
+	// rate=burst=20 ; sous pression critique (×0.25) la capacité effective
+	// tombe à 5 → seules 5 requêtes passent avant le THROTTLE (429).
+	middleware := newTestMiddleware(t, store, 20, 20)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+
+	okCount := 0
+	for i := 0; i < 8; i++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, requestWithPressure("9.9.9.9:1234", pressureCritical))
+		if response.Code == http.StatusNoContent {
+			okCount++
+		}
+	}
+	if okCount != 5 {
+		t.Fatalf("okCount under critical pressure = %d, want 5 (20 × 0.25)", okCount)
+	}
+}
+
+func TestPressureSparesTrustedVisitor(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+
+	cfg := testConfig(20, 20)
+	middleware := newTestMiddlewareFromConfig(t, store, cfg)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+
+	// Visiteur TRUSTED (score 75 ≥ 70) : la pression critique ne le resserre pas.
+	manager, err := trust.NewScoreManager(store, cfg)
+	if err != nil {
+		t.Fatalf("trust.NewScoreManager() error = %v", err)
+	}
+	manager.Set("8.8.8.8", "example.test", 75)
+	handler := middleware.Handler(countingHandler())
+
+	okCount := 0
+	for i := 0; i < 8; i++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, requestWithPressure("8.8.8.8:1234", pressureCritical))
+		if response.Code == http.StatusNoContent {
+			okCount++
+		}
+	}
+	if okCount != 8 {
+		t.Fatalf("okCount for trusted visitor under critical pressure = %d, want 8 (no throttle)", okCount)
+	}
+}
+
+func TestNormalPressureDoesNotThrottle(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+
+	middleware := newTestMiddleware(t, store, 20, 20)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+
+	okCount := 0
+	for i := 0; i < 8; i++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, requestWithPressure("7.7.7.7:1234", pressureNormal))
+		if response.Code == http.StatusNoContent {
+			okCount++
+		}
+	}
+	if okCount != 8 {
+		t.Fatalf("okCount under normal pressure = %d, want 8 (full burst)", okCount)
+	}
+}
+
+func TestPressureThrottleIsReversible(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+
+	middleware := newTestMiddleware(t, store, 20, 20)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+
+	// Épuise le bucket resserré sous pression critique.
+	for i := 0; i < 8; i++ {
+		handler.ServeHTTP(httptest.NewRecorder(), requestWithPressure("6.6.6.6:1234", pressureCritical))
+	}
+
+	// La pression retombe : capacité nominale restaurée, le bucket refait le plein
+	// au débit nominal (20/s) → une requête passe à nouveau dès la seconde suivante.
+	now = now.Add(time.Second)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestWithPressure("6.6.6.6:1234", pressureNormal))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status after pressure release = %d, want 204 (reversible)", response.Code)
+	}
+}
+
 func newTestMiddleware(t *testing.T, store *memory.Store, rate float64, burst int) *Middleware {
 	t.Helper()
 
@@ -202,6 +302,12 @@ func testConfig(rate float64, burst int) config.Config {
 func requestFrom(remoteAddr string) *http.Request {
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
 	request.RemoteAddr = remoteAddr
+	return request
+}
+
+func requestWithPressure(remoteAddr string, level string) *http.Request {
+	request := requestFrom(remoteAddr)
+	request.Header.Set(headerGlobalPressure, level)
 	return request
 }
 
