@@ -122,7 +122,7 @@ last-reviewed: 2026-06-03
 - Signal SIGTERM géré pour graceful shutdown (drain des connexions actives)
 
 ### NFR-06 — Compatibilité
-- Go 1.22+
+- Go 1.26+
 - Linux AMD64 et ARM64
 - IPv4 et IPv6 supportés partout
 - TLS 1.2+ supporté côté upstream (vérification cert configurable)

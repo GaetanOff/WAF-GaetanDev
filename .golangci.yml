@@ -1,29 +1,32 @@
-# golangci-lint configuration — WAF Anti-DDoS / Anti-Bot
+# golangci-lint configuration (schema v2) — WAF Anti-DDoS / Anti-Bot
 # Conservative, idiomatic linter set aligned with .cursor/rules/specific-go.mdc.
+version: "2"
 
 run:
   timeout: 5m
   tests: true
 
 linters:
+  # The "standard" default set already enables errcheck, govet, ineffassign,
+  # staticcheck and unused; we only add the extras on top.
   enable:
-    - errcheck      # unchecked errors
-    - govet         # suspicious constructs
-    - ineffassign   # ineffectual assignments
-    - staticcheck   # static analysis
-    - unused        # unused code
-    - gofmt         # formatting
-    - goimports     # import grouping
-    - bodyclose     # http.Response.Body closed
-    - errorlint     # error wrapping (%w) correctness
+    - bodyclose # http.Response.Body closed
+    - errorlint # error wrapping (%w) correctness
     # NB: `misspell` n'est pas activé — il est anglophone uniquement et
     # signale à tort les commentaires en français (convention du projet).
+  exclusions:
+    rules:
+      # Test files may ignore errors on best-effort helpers.
+      - path: _test\.go
+        linters:
+          - errcheck
+
+formatters:
+  # gofmt/goimports are formatters in golangci-lint v2, not linters.
+  enable:
+    - gofmt
+    - goimports
 
 issues:
   max-issues-per-linter: 0
   max-same-issues: 0
-  exclude-rules:
-    # Test files may ignore errors on best-effort helpers.
-    - path: _test\.go
-      linters:
-        - errcheck
