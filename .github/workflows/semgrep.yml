@@ -1,0 +1,57 @@
+# This workflow uses actions that are not certified by GitHub.
+# They are provided by a third-party and are governed by
+# separate terms of service, privacy policy, and support
+# documentation.
+
+# Runs Semgrep with the open-source rule packs (no Semgrep.dev account/token
+# required) and uploads the SARIF report to the GitHub code scanning tab.
+# See https://semgrep.dev/docs
+
+name: Semgrep
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    # The branches below must be a subset of the branches above
+    branches: ["main"]
+  schedule:
+    - cron: '33 16 * * 0'
+
+permissions:
+  contents: read
+
+jobs:
+  semgrep:
+    permissions:
+      contents: read # for actions/checkout to fetch code
+      security-events: write # for github/codeql-action/upload-sarif to upload SARIF results
+      actions: read # only required for a private repository by github/codeql-action/upload-sarif to get the Action run status
+    name: Scan
+    runs-on: ubuntu-latest
+    container:
+      image: semgrep/semgrep
+    # Semgrep's rule packs are public; no token is needed. Skip on Dependabot
+    # PRs whose token is read-only and cannot upload SARIF.
+    if: github.actor != 'dependabot[bot]'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Mark workspace as safe for git (container runs as root)
+        run: git config --global --add safe.directory "$GITHUB_WORKSPACE"
+
+      # OSS rule packs: Go, generic security audit, secrets and Dockerfile.
+      - name: Run Semgrep
+        run: |
+          semgrep scan \
+            --sarif --output=semgrep.sarif \
+            --config=p/golang \
+            --config=p/security-audit \
+            --config=p/secrets \
+            --config=p/dockerfile
+
+      - name: Upload SARIF file
+        uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: semgrep.sarif
+        if: always()
