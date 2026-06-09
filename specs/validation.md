@@ -196,6 +196,7 @@ modification silencieuse, décisions tracées).
 | 2026-06-09 | `crypto...use-of-md5` | `internal/tlsfp/ja3.go` | Supprimé (`nosemgrep`) — faux positif | MD5 imposé par la spec JA3 ; identifiant de fingerprint (FR-11), pas une signature. SHA-256 casserait l'interop avec les feeds JA3 et `ja3_blacklist`. |
 | 2026-06-09 | `net...cookie-missing-secure` | `internal/middleware/challenge/cookie.go` | Supprimé (`nosemgrep`) — faux positif | Match sur le `http.Cookie{}` vide du chemin d'erreur (jamais émis). Le cookie délivré active déjà `Secure: true`. |
 | 2026-06-09 | `net...cookie-missing-httponly` | `internal/middleware/challenge/cookie.go` | Supprimé (`nosemgrep`) — faux positif | Idem : le cookie délivré active déjà `HttpOnly: true` (+ `SameSite=Lax`). L'OSS ne fait pas de dataflow. |
+| 2026-06-09 | `nginx...header-redefinition` (x2) | `deploy/nginx/default.conf` | Corrigé | Remplacé `add_header Content-Type` (qui écrase les en-têtes du bloc server) par `default_type`, directive nginx idiomatique pour `return`. Origine de test du stack compose. |
 
 ## Quality Gates Checklist
 
