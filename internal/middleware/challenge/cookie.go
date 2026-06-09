@@ -69,6 +69,10 @@ func (i CookieIssuer) Issue(ip string, domain string, fpHash string, score int, 
 
 	value, err := i.signPayload(payload)
 	if err != nil {
+		// Cookie vide renvoyé uniquement sur le chemin d'erreur (jamais émis au
+		// client). Le cookie réellement délivré ci-dessous active Secure,
+		// HttpOnly et SameSite. Faux positif de l'analyse OSS (pas de dataflow).
+		// nosemgrep: go.lang.security.audit.net.cookie-missing-secure.cookie-missing-secure, go.lang.security.audit.net.cookie-missing-httponly.cookie-missing-httponly
 		return http.Cookie{}, err
 	}
 
