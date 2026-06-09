@@ -27,6 +27,7 @@ Reverse proxy de protection écrit en Go, conçu pour s'intercaler entre
 - [Fonctionnalités](#fonctionnalités)
 - [Démarrage rapide](#démarrage-rapide)
 - [Configuration](#configuration)
+- [Référence de configuration complète](CONFIG.md)
 - [Déploiement derrière Cloudflare](#déploiement-derrière-cloudflare)
 - [Nginx en amont (origine)](#nginx-en-amont-origine)
 - [API d'administration & métriques](#api-dadministration--métriques)
