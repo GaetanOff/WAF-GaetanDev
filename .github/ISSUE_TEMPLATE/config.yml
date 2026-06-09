@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+
+contact_links:
+  - name: 🔒 Vulnérabilité de sécurité
+    url: https://github.com/GaetanOff/WAF-GaetanDev/security/advisories/new
+    about: >
+      Ne signalez jamais une vulnérabilité via une issue publique.
+      Utilisez le canal GitHub Security Advisories (privé et chiffré).
+  - name: 💬 Discussion / question générale
+    url: https://github.com/GaetanOff/WAF-GaetanDev/discussions
+    about: Questions d'utilisation, retours d'expérience, idées en vrac.
