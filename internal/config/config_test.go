@@ -39,6 +39,9 @@ upstream:
 	if cfg.AntiDDoS.GlobalRequestsPerSecond != 50000 {
 		t.Fatalf("expected default global threshold 50000, got %d", cfg.AntiDDoS.GlobalRequestsPerSecond)
 	}
+	if cfg.AntiDDoS.PressureLevels.CriticalMultiplier != 4 {
+		t.Fatalf("expected default critical pressure multiplier 4, got %v", cfg.AntiDDoS.PressureLevels.CriticalMultiplier)
+	}
 }
 
 func TestLoadExampleConfig(t *testing.T) {
@@ -134,6 +137,10 @@ upstream:
 antiddos:
   global_requests_per_second: 0
   global_window: "not-a-duration"
+  pressure_levels:
+    elevated_multiplier: 3
+    high_multiplier: 2
+    critical_multiplier: 0
   retry_after_seconds: 0
 `)
 
@@ -146,6 +153,12 @@ antiddos:
 	}
 	if !strings.Contains(err.Error(), "antiddos.global_window") {
 		t.Fatalf("expected antiddos.global_window message, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "antiddos.pressure_levels.critical_multiplier") {
+		t.Fatalf("expected antiddos.pressure_levels.critical_multiplier message, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "antiddos.pressure_levels multipliers") {
+		t.Fatalf("expected pressure level ordering message, got %v", err)
 	}
 	if !strings.Contains(err.Error(), "antiddos.retry_after_seconds") {
 		t.Fatalf("expected antiddos.retry_after_seconds message, got %v", err)

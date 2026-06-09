@@ -61,6 +61,19 @@ func (c *Controller) Observe() {
 	c.prune(sec)
 }
 
+// ObservePressure applique immédiatement un plancher de difficulté selon la
+// pression globale anti-DDoS calculée en amont.
+func (c *Controller) ObservePressure(level string) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+
+	target := float64(extraBitsForPressure(level))
+	if target > c.currentBits {
+		c.currentBits = target
+	}
+	c.lastDecay = c.now()
+}
+
 // Difficulty retourne la difficulté courante du PoW [base..max].
 func (c *Controller) Difficulty() int {
 	c.mu.Lock()
@@ -137,6 +150,19 @@ func extraBitsFor(aiiPercent float64) int {
 	case aiiPercent > criticalThreshold:
 		return criticalExtraBits
 	case aiiPercent > elevatedThreshold:
+		return elevatedExtraBits
+	default:
+		return 0
+	}
+}
+
+func extraBitsForPressure(level string) int {
+	switch level {
+	case "critical":
+		return criticalExtraBits
+	case "high":
+		return criticalExtraBits
+	case "elevated":
 		return elevatedExtraBits
 	default:
 		return 0

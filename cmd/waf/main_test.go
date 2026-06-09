@@ -114,12 +114,11 @@ func TestRoutesAppliesAntiBotHoneypot(t *testing.T) {
 	}
 }
 
-func TestRoutesAppliesGlobalDegradedModeBeforeChallenge(t *testing.T) {
+func TestRoutesAppliesGlobalPressureBeforeChallengeWithout503(t *testing.T) {
 	cfg := config.Default()
 	cfg.Cloudflare.Trusted = false
 	cfg.AntiDDoS.GlobalRequestsPerSecond = 1
 	cfg.AntiDDoS.GlobalWindow = "1s"
-	cfg.AntiDDoS.RetryAfterSeconds = 5
 
 	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoSFromConfig(t, cfg), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("proxy should not be called")
@@ -129,14 +128,17 @@ func TestRoutesAppliesGlobalDegradedModeBeforeChallenge(t *testing.T) {
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, requestFrom("198.51.100.11:443"))
 
-	if response.Code != http.StatusServiceUnavailable {
-		t.Fatalf("status = %d, want 503", response.Code)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 challenge", response.Code)
 	}
-	if response.Header().Get("Retry-After") != "5" {
-		t.Fatalf("Retry-After = %q, want 5", response.Header().Get("Retry-After"))
+	if response.Header().Get("Retry-After") != "" {
+		t.Fatalf("Retry-After = %q, want empty", response.Header().Get("Retry-After"))
 	}
-	if response.Header().Get("X-WAF-Reason") != "global_rate_exceeded" {
-		t.Fatalf("X-WAF-Reason = %q, want global_rate_exceeded", response.Header().Get("X-WAF-Reason"))
+	if response.Header().Get("X-WAF-Reason") != "" {
+		t.Fatalf("X-WAF-Reason = %q, want empty", response.Header().Get("X-WAF-Reason"))
+	}
+	if contentType := response.Header().Get("Content-Type"); contentType != "text/html; charset=utf-8" {
+		t.Fatalf("Content-Type = %q, want challenge HTML", contentType)
 	}
 }
 

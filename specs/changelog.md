@@ -8,7 +8,7 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
-- **Spec draft** : FR-08 Anti-DDoS passe du mode degrade global `503` a un mode
+- FR-08 Anti-DDoS passe du mode degrade global `503` a un mode
   de pression adaptative (`normal` / `elevated` / `high` / `critical`). Le
   trafic global ne doit plus produire de blocage automatique ; il renforce les
   mitigations reversibles (challenge, throttling, PoW adaptatif) et alimente le

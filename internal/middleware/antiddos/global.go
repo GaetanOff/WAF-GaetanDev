@@ -5,59 +5,138 @@ import (
 	"time"
 )
 
+type PressureLevel string
+
+const (
+	PressureNormal   PressureLevel = "normal"
+	PressureElevated PressureLevel = "elevated"
+	PressureHigh     PressureLevel = "high"
+	PressureCritical PressureLevel = "critical"
+)
+
+type PressureConfig struct {
+	ElevatedMultiplier float64
+	HighMultiplier     float64
+	CriticalMultiplier float64
+}
+
 type GlobalRateDetector struct {
 	mu        sync.Mutex
 	threshold int
 	window    time.Duration
-	events    []time.Time
+	pressure  PressureConfig
+	buckets   []rateBucket
 	now       func() time.Time
 }
 
-func NewGlobalRateDetector(threshold int, window time.Duration) *GlobalRateDetector {
+type rateBucket struct {
+	windowStart time.Time
+	count       int
+}
+
+func NewGlobalRateDetector(threshold int, window time.Duration, pressure PressureConfig) *GlobalRateDetector {
 	if threshold < 1 {
 		threshold = DefaultGlobalRequestsPerSecond
 	}
 	if window <= 0 {
 		window = DefaultGlobalWindow
 	}
+	pressure = normalizePressureConfig(pressure)
 	return &GlobalRateDetector{
 		threshold: threshold,
 		window:    window,
+		pressure:  pressure,
+		buckets:   make([]rateBucket, bucketCount(window)),
 		now:       time.Now,
 	}
 }
 
-func (d *GlobalRateDetector) Record() int {
+func (d *GlobalRateDetector) Record() (int, PressureLevel) {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
 	now := d.now()
-	d.events = append(d.events, now)
-	d.pruneLocked(now)
-	return len(d.events)
+	slot := d.slot(now)
+	windowStart := d.bucketStart(now)
+	if !d.buckets[slot].windowStart.Equal(windowStart) {
+		d.buckets[slot] = rateBucket{windowStart: windowStart}
+	}
+	d.buckets[slot].count++
+	total := d.totalLocked(now)
+	return total, d.pressureFor(total)
 }
 
-func (d *GlobalRateDetector) IsExceeded() bool {
+func (d *GlobalRateDetector) Pressure() PressureLevel {
 	d.mu.Lock()
 	defer d.mu.Unlock()
 
-	d.pruneLocked(d.now())
-	return len(d.events) > d.threshold
+	return d.pressureFor(d.totalLocked(d.now()))
 }
 
-func (d *GlobalRateDetector) RecordAndIsExceeded() bool {
-	return d.Record() > d.threshold
+func (d *GlobalRateDetector) RecordAndPressure() PressureLevel {
+	_, pressure := d.Record()
+	return pressure
 }
 
-func (d *GlobalRateDetector) pruneLocked(now time.Time) {
+func (d *GlobalRateDetector) totalLocked(now time.Time) int {
 	cutoff := now.Add(-d.window)
-	firstActive := 0
-	for firstActive < len(d.events) && !d.events[firstActive].After(cutoff) {
-		firstActive++
+	total := 0
+	for _, bucket := range d.buckets {
+		if bucket.windowStart.IsZero() || bucket.windowStart.Before(cutoff) {
+			continue
+		}
+		total += bucket.count
 	}
-	if firstActive == 0 {
-		return
+	return total
+}
+
+func (d *GlobalRateDetector) pressureFor(total int) PressureLevel {
+	rate := float64(total) / d.window.Seconds()
+	threshold := float64(d.threshold)
+	switch {
+	case rate >= threshold*d.pressure.CriticalMultiplier:
+		return PressureCritical
+	case rate >= threshold*d.pressure.HighMultiplier:
+		return PressureHigh
+	case rate >= threshold*d.pressure.ElevatedMultiplier:
+		return PressureElevated
+	default:
+		return PressureNormal
 	}
-	copy(d.events, d.events[firstActive:])
-	d.events = d.events[:len(d.events)-firstActive]
+}
+
+func (d *GlobalRateDetector) slot(now time.Time) int {
+	return int(now.UnixMilli()/bucketWidth.Milliseconds()) % len(d.buckets)
+}
+
+func (d *GlobalRateDetector) bucketStart(now time.Time) time.Time {
+	unixMilli := now.UnixMilli()
+	start := unixMilli - unixMilli%bucketWidth.Milliseconds()
+	return time.UnixMilli(start)
+}
+
+const bucketWidth = 100 * time.Millisecond
+
+func bucketCount(window time.Duration) int {
+	count := int(window / bucketWidth)
+	if window%bucketWidth != 0 {
+		count++
+	}
+	if count < 1 {
+		return 1
+	}
+	return count + 1
+}
+
+func normalizePressureConfig(cfg PressureConfig) PressureConfig {
+	if cfg.ElevatedMultiplier < 1 {
+		cfg.ElevatedMultiplier = 1
+	}
+	if cfg.HighMultiplier < cfg.ElevatedMultiplier {
+		cfg.HighMultiplier = cfg.ElevatedMultiplier * 2
+	}
+	if cfg.CriticalMultiplier < cfg.HighMultiplier {
+		cfg.CriticalMultiplier = cfg.HighMultiplier * 2
+	}
+	return cfg
 }

@@ -33,6 +33,7 @@ type Metrics struct {
 	activeVisitors  prometheus.Gauge
 	visitorsByState *prometheus.GaugeVec
 	powDifficulty   prometheus.Gauge
+	globalPressure  *prometheus.GaugeVec
 	clusterEvents   *prometheus.CounterVec
 	mu              sync.Mutex
 	visitors        map[string]string
@@ -88,6 +89,10 @@ func New() *Metrics {
 			Name: "waf_challenge_pow_difficulty",
 			Help: "Current adaptive proof-of-work difficulty in bits.",
 		}),
+		globalPressure: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "waf_global_pressure",
+			Help: "Current global anti-DDoS pressure level as a one-hot gauge.",
+		}, []string{"level"}),
 		clusterEvents: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "waf_cluster_sync_events_total",
 			Help: "Cluster synchronization events applied, by type.",
@@ -95,7 +100,7 @@ func New() *Metrics {
 		visitors: make(map[string]string),
 		now:      time.Now,
 	}
-	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.clusterEvents)
+	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.clusterEvents)
 	return m
 }
 
@@ -132,6 +137,7 @@ func (m *Metrics) Middleware(scores *trust.ScoreManager, next http.Handler) http
 		}
 		m.observeRisk(r, recorder)
 		m.observeVisitor(r, scores)
+		m.observeGlobalPressure(r)
 	})
 }
 
@@ -181,6 +187,20 @@ func (m *Metrics) observeVisitor(r *http.Request, scores *trust.ScoreManager) {
 	}
 }
 
+func (m *Metrics) observeGlobalPressure(r *http.Request) {
+	current := r.Header.Get("X-WAF-Global-Pressure")
+	if current == "" {
+		current = "normal"
+	}
+	for _, level := range []string{"normal", "elevated", "high", "critical"} {
+		value := 0.0
+		if level == current {
+			value = 1
+		}
+		m.globalPressure.WithLabelValues(level).Set(value)
+	}
+}
+
 func normalizedAction(r *http.Request, recorder *statusRecorder) string {
 	action := recorder.Header().Get("X-WAF-Action")
 	if action == "" {
@@ -192,8 +212,6 @@ func normalizedAction(r *http.Request, recorder *statusRecorder) string {
 	switch action {
 	case actionPass, actionChallenge, actionBlock, actionRateLimit, actionCircuitBreak, actionHoneypot:
 		return action
-	case "DEGRADED":
-		return actionBlock
 	default:
 		return actionPass
 	}

@@ -181,6 +181,9 @@ func run() error {
 			return err
 		}
 		adaptiveController = adaptive.NewController(cfg.Challenge.PowDifficulty, cfg.Adaptive.MaxDifficulty, decayTau)
+		antiDDoS = antiDDoS.WithPressureObserver(func(level antiddos.PressureLevel) {
+			adaptiveController.ObservePressure(string(level))
+		})
 		controller := adaptiveController
 		detectors = append(detectors, func(next http.Handler) http.Handler {
 			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

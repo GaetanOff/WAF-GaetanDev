@@ -1,7 +1,8 @@
 ---
-status: draft
-version: 2.0.0-draft
+status: implemented
+version: 2.0.0
 last-reviewed: 2026-06-09
+reviewed-by: GaetanDev
 change: "FR-08 remplace le blocage global 503 par un mode de pression adaptative"
 ---
 

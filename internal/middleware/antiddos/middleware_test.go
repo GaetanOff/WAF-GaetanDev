@@ -93,10 +93,10 @@ func TestMiddlewareAllowsRequestAfterCircuitExpiration(t *testing.T) {
 	}
 }
 
-func TestMiddlewareReturnsDegradedResponseForNewVisitorWhenGlobalRateExceeded(t *testing.T) {
+func TestMiddlewareDoesNotReturnDegradedResponseForNewVisitorWhenGlobalRateExceeded(t *testing.T) {
 	store := memory.New(100)
 	defer store.Close()
-	detector := NewGlobalRateDetector(1, time.Second)
+	detector := NewGlobalRateDetector(1, time.Second, PressureConfig{})
 	middleware := New(NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration), detector, DefaultRetryAfterSeconds)
 	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -110,14 +110,53 @@ func TestMiddlewareReturnsDegradedResponseForNewVisitorWhenGlobalRateExceeded(t 
 
 	second := httptest.NewRecorder()
 	handler.ServeHTTP(second, requestFrom("5.6.7.8:1234"))
-	if second.Code != http.StatusServiceUnavailable {
-		t.Fatalf("second status = %d, want 503", second.Code)
+	if second.Code != http.StatusNoContent {
+		t.Fatalf("second status = %d, want 204", second.Code)
 	}
-	if second.Header().Get("Retry-After") != "5" {
-		t.Fatalf("Retry-After = %q, want 5", second.Header().Get("Retry-After"))
+	if second.Header().Get("Retry-After") != "" {
+		t.Fatalf("Retry-After = %q, want empty", second.Header().Get("Retry-After"))
 	}
-	if second.Header().Get("X-WAF-Reason") != "global_rate_exceeded" {
-		t.Fatalf("X-WAF-Reason = %q, want global_rate_exceeded", second.Header().Get("X-WAF-Reason"))
+	if second.Header().Get("X-WAF-Reason") != "" {
+		t.Fatalf("X-WAF-Reason = %q, want empty", second.Header().Get("X-WAF-Reason"))
+	}
+}
+
+func TestMiddlewarePublishesGlobalPressureAndRateContribution(t *testing.T) {
+	store := memory.New(100)
+	defer store.Close()
+	detector := NewGlobalRateDetector(1, time.Second, PressureConfig{})
+	var observed PressureLevel
+	middleware := New(NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration), detector, DefaultRetryAfterSeconds).
+		WithPressureObserver(func(level PressureLevel) {
+			observed = level
+		})
+	requestCount := 0
+	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requestCount++
+		expectedPressure := string(PressureElevated)
+		expectedContribution := "35"
+		if requestCount == 2 {
+			expectedPressure = string(PressureHigh)
+			expectedContribution = "60"
+		}
+		if got := r.Header.Get("X-WAF-Global-Pressure"); got != expectedPressure {
+			t.Fatalf("X-WAF-Global-Pressure = %q, want %s", got, expectedPressure)
+		}
+		if got := r.Header.Get("X-WAF-Risk-rate"); got != expectedContribution {
+			t.Fatalf("X-WAF-Risk-rate = %q, want %s", got, expectedContribution)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	handler.ServeHTTP(httptest.NewRecorder(), requestFrom("1.2.3.4:1234"))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestFrom("5.6.7.8:1234"))
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", response.Code)
+	}
+	if observed != PressureHigh {
+		t.Fatalf("observed pressure = %s, want high", observed)
 	}
 }
 
@@ -127,7 +166,7 @@ func TestMiddlewareAllowsKnownVisitorWhenGlobalRateExceeded(t *testing.T) {
 	breaker := NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration)
 	breaker.RecordViolation("1.2.3.4")
 	breaker.Reset("1.2.3.4")
-	detector := NewGlobalRateDetector(1, time.Second)
+	detector := NewGlobalRateDetector(1, time.Second, PressureConfig{})
 	middleware := New(breaker, detector, DefaultRetryAfterSeconds)
 	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)

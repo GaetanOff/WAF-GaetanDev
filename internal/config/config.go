@@ -91,10 +91,17 @@ type RateLimit struct {
 }
 
 type AntiDDoS struct {
-	Enabled                 bool   `yaml:"enabled"`
-	GlobalRequestsPerSecond int    `yaml:"global_requests_per_second"`
-	GlobalWindow            string `yaml:"global_window"`
-	RetryAfterSeconds       int    `yaml:"retry_after_seconds"`
+	Enabled                 bool           `yaml:"enabled"`
+	GlobalRequestsPerSecond int            `yaml:"global_requests_per_second"`
+	GlobalWindow            string         `yaml:"global_window"`
+	PressureLevels          PressureLevels `yaml:"pressure_levels"`
+	RetryAfterSeconds       int            `yaml:"retry_after_seconds"`
+}
+
+type PressureLevels struct {
+	ElevatedMultiplier float64 `yaml:"elevated_multiplier"`
+	HighMultiplier     float64 `yaml:"high_multiplier"`
+	CriticalMultiplier float64 `yaml:"critical_multiplier"`
 }
 
 type Trust struct {
@@ -407,7 +414,12 @@ func Default() Config {
 			Enabled:                 true,
 			GlobalRequestsPerSecond: 50000,
 			GlobalWindow:            "1s",
-			RetryAfterSeconds:       5,
+			PressureLevels: PressureLevels{
+				ElevatedMultiplier: 1,
+				HighMultiplier:     2,
+				CriticalMultiplier: 4,
+			},
+			RetryAfterSeconds: 5,
 		},
 		Trust: Trust{
 			InitialScore:       50,
@@ -617,6 +629,7 @@ func (c *Config) Validate() error {
 	if c.AntiDDoS.GlobalRequestsPerSecond < 1 {
 		fields = append(fields, "antiddos.global_requests_per_second must be >= 1")
 	}
+	validatePressureLevels(&fields, c.AntiDDoS.PressureLevels)
 	if c.AntiDDoS.RetryAfterSeconds < 1 {
 		fields = append(fields, "antiddos.retry_after_seconds must be >= 1")
 	}
@@ -748,6 +761,21 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+func validatePressureLevels(fields *[]string, cfg PressureLevels) {
+	if cfg.ElevatedMultiplier < 1 {
+		*fields = append(*fields, "antiddos.pressure_levels.elevated_multiplier must be >= 1")
+	}
+	if cfg.HighMultiplier < 1 {
+		*fields = append(*fields, "antiddos.pressure_levels.high_multiplier must be >= 1")
+	}
+	if cfg.CriticalMultiplier < 1 {
+		*fields = append(*fields, "antiddos.pressure_levels.critical_multiplier must be >= 1")
+	}
+	if cfg.ElevatedMultiplier > cfg.HighMultiplier || cfg.HighMultiplier > cfg.CriticalMultiplier {
+		*fields = append(*fields, "antiddos.pressure_levels multipliers must be ordered elevated <= high <= critical")
+	}
 }
 
 func validateRiskEngine(fields *[]string, cfg RiskEngine) {

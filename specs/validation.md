@@ -184,6 +184,11 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 9.10 | `go test ./...` | pass | New `internal/maintenance` (FR-32): maintenance-mode 503 branded page (internal endpoints exempt), error-body replacement (4xx/5xx plain text -> branded HTML), 2xx & existing-HTML preserved |
 | 2026-06-08 | Slice 9.10 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 9.10 | `go build ./...` | pass | Maintenance middleware wired between slowloris and security headers |
+| 2026-06-09 | Spec review (adaptive global pressure) | Revue requirements.md FR-08 + ADR-016 + anti-ddos.feature | pass | Breaking spec change accepted: global traffic pressure no longer emits automatic 503/403; pressure is adaptive signal for risk/challenge/PoW/metrics/logs |
+| 2026-06-09 | Slice 10.1 | `go test ./...` | pass | Replaced global degraded 503 with bounded bucket pressure detector; tests cover no global 503, pressure headers, rate contribution, metrics/log field, and config validation |
+| 2026-06-09 | Slice 10.1 | `go vet ./...` | pass | No vet findings |
+| 2026-06-09 | Slice 10.1 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after adaptive pressure integration |
+| 2026-06-09 | Slice 10.1 | JSON schema parse | pass | `specs/schemas/config.schema.json` and `specs/schemas/security-event.schema.json` parse successfully |
 
 ## Security Scan Triage (Semgrep OSS)
 

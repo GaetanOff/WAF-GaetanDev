@@ -28,6 +28,7 @@ type SecurityEvent struct {
 	RiskDecision   string
 	RiskConfidence float64
 	ShadowMode     bool
+	GlobalPressure string
 	LatencyMS      float64
 	WAFLatencyMS   float64
 	UpstreamStatus *int

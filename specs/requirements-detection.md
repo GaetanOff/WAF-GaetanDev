@@ -1,9 +1,9 @@
 ---
-status: draft
-version: 1.1.0-draft
+status: implemented
+version: 1.1.0
 last-reviewed: 2026-06-09
 reviewed-by: GaetanDev
-extends: requirements-advanced.md (v2.1.0-draft), requirements-ops.md
+extends: requirements-advanced.md (v2.1.0), requirements-ops.md
 ---
 
 # Requirements Detection — Moteur de Risque & Décision (v4)

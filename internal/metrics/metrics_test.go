@@ -77,6 +77,24 @@ func TestMiddlewareRecordsRiskDecisionMetrics(t *testing.T) {
 	assertMetricContains(t, body, `waf_challenge_pass_after_flag_total 1`)
 }
 
+func TestMiddlewareRecordsGlobalPressureGauge(t *testing.T) {
+	metrics := New()
+	scores, store := newTestScoreManager(t)
+	defer store.Close()
+	handler := metrics.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Header.Set("X-WAF-Global-Pressure", "critical")
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
+	request.RemoteAddr = "1.2.3.4:1234"
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	body := scrape(t, metrics)
+	assertMetricContains(t, body, `waf_global_pressure{level="critical"} 1`)
+	assertMetricContains(t, body, `waf_global_pressure{level="normal"} 0`)
+}
+
 func scrape(t *testing.T, metrics *Metrics) string {
 	t.Helper()
 

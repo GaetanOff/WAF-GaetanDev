@@ -1,8 +1,8 @@
 ---
-status: proposed
+status: accepted
 date: 2026-06-09
 deciders: GaetanDev
-relates-to: requirements.md (FR-08), requirements-detection.md (FR-33..FR-35)
+relates-to: requirements.md (FR-08 v2.0.0), requirements-detection.md (FR-33..FR-35)
 ---
 
 # ADR-016 — Pression globale adaptative au lieu du 503 global
@@ -63,7 +63,7 @@ blackliste, et rate limit par IP (`429`).
 
 ## Consequences
 
-- FR-08 passe en version draft breaking (`requirements.md` v2.0.0-draft).
+- FR-08 passe en version breaking (`requirements.md` v2.0.0).
 - Le scenario Gherkin `Seuil global de trafic depasse` est remplace par des
   scenarios de pression adaptative.
 - Le schema de configuration ajoute `antiddos.pressure_levels`.

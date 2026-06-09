@@ -93,12 +93,20 @@ func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores 
 		RiskDecision:   r.Header.Get("X-WAF-Risk-Decision"),
 		RiskConfidence: riskConfidence(r),
 		ShadowMode:     r.Header.Get("X-WAF-Risk-Shadow-Mode") == "true",
+		GlobalPressure: globalPressure(r),
 		LatencyMS:      elapsedMS,
 		WAFLatencyMS:   elapsedMS,
 		UpstreamStatus: upstreamStatus(action, recorder.statusCode),
 		CFRay:          optionalHeader(r, "CF-Ray"),
 		CFCountry:      optionalHeader(r, "CF-IPCountry"),
 	}
+}
+
+func globalPressure(r *http.Request) string {
+	if value := r.Header.Get("X-WAF-Global-Pressure"); value != "" {
+		return value
+	}
+	return "normal"
 }
 
 func scoreDelta(r *http.Request) int {
@@ -155,8 +163,6 @@ func normalizedAction(r *http.Request, recorder *statusRecorder) string {
 	switch action {
 	case ActionPass, ActionChallenge, ActionBlock, ActionRateLimit, ActionCircuitBreak, ActionHoneypot:
 		return action
-	case "DEGRADED":
-		return ActionBlock
 	default:
 		return ActionPass
 	}

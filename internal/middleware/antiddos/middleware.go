@@ -3,18 +3,19 @@ package antiddos
 import (
 	"fmt"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/storage"
-	"github.com/gaetandev/waf/internal/trust"
 )
 
 type Middleware struct {
 	enabled           bool
 	breaker           CircuitBreaker
 	global            *GlobalRateDetector
+	onPressure        func(PressureLevel)
 	retryAfterSeconds int
 }
 
@@ -30,6 +31,11 @@ func New(breaker CircuitBreaker, global *GlobalRateDetector, retryAfterSeconds i
 	}
 }
 
+func (m Middleware) WithPressureObserver(observer func(PressureLevel)) Middleware {
+	m.onPressure = observer
+	return m
+}
+
 func NewFromConfig(store storage.Store, cfg config.Config) (Middleware, error) {
 	window, err := time.ParseDuration(cfg.AntiDDoS.GlobalWindow)
 	if err != nil {
@@ -37,7 +43,11 @@ func NewFromConfig(store storage.Store, cfg config.Config) (Middleware, error) {
 	}
 	middleware := New(
 		NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration),
-		NewGlobalRateDetector(cfg.AntiDDoS.GlobalRequestsPerSecond, window),
+		NewGlobalRateDetector(cfg.AntiDDoS.GlobalRequestsPerSecond, window, PressureConfig{
+			ElevatedMultiplier: cfg.AntiDDoS.PressureLevels.ElevatedMultiplier,
+			HighMultiplier:     cfg.AntiDDoS.PressureLevels.HighMultiplier,
+			CriticalMultiplier: cfg.AntiDDoS.PressureLevels.CriticalMultiplier,
+		}),
 		cfg.AntiDDoS.RetryAfterSeconds,
 	)
 	middleware.enabled = cfg.AntiDDoS.Enabled
@@ -65,12 +75,10 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		if m.isGlobalRateExceededForNewVisitor(ip) {
-			w.Header().Set("Retry-After", fmt.Sprintf("%d", m.retryAfterSeconds))
-			w.Header().Set("X-WAF-Action", "DEGRADED")
-			w.Header().Set("X-WAF-Reason", "global_rate_exceeded")
-			http.Error(w, "service unavailable", http.StatusServiceUnavailable)
-			return
+		pressure := m.recordPressure()
+		r.Header.Set("X-WAF-Global-Pressure", string(pressure))
+		if contribution := pressureContribution(pressure); contribution > 0 {
+			r.Header.Set("X-WAF-Risk-rate", strconv.Itoa(contribution))
 		}
 
 		recorder := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
@@ -83,16 +91,28 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 	})
 }
 
-func (m Middleware) isGlobalRateExceededForNewVisitor(ip string) bool {
+func (m Middleware) recordPressure() PressureLevel {
 	if m.global == nil {
-		return false
+		return PressureNormal
 	}
-	isNewVisitor := true
-	if m.breaker.store != nil {
-		_, known := m.breaker.store.GetVisitor(trust.HashIP(ip))
-		isNewVisitor = !known
+	pressure := m.global.RecordAndPressure()
+	if m.onPressure != nil {
+		m.onPressure(pressure)
 	}
-	return m.global.RecordAndIsExceeded() && isNewVisitor
+	return pressure
+}
+
+func pressureContribution(pressure PressureLevel) int {
+	switch pressure {
+	case PressureElevated:
+		return 35
+	case PressureHigh:
+		return 60
+	case PressureCritical:
+		return 80
+	default:
+		return 0
+	}
 }
 
 type statusRecorder struct {

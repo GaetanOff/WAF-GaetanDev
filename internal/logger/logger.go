@@ -75,6 +75,7 @@ func (l Logger) WriteSecurityEvent(event SecurityEvent) {
 		slog.String("risk_decision", event.RiskDecision),
 		slog.Float64("risk_confidence", event.RiskConfidence),
 		slog.Bool("shadow_mode", event.ShadowMode),
+		slog.String("global_pressure", event.GlobalPressure),
 		slog.Float64("latency_ms", event.LatencyMS),
 		slog.Float64("waf_latency_ms", event.WAFLatencyMS),
 		nullableInt("upstream_status", event.UpstreamStatus),

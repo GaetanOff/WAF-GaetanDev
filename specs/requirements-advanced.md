@@ -1,8 +1,9 @@
 ---
-status: draft
-version: 2.1.0-draft
+status: implemented
+version: 2.1.0
 last-reviewed: 2026-06-09
-extends: requirements.md (v2.0.0-draft)
+reviewed-by: GaetanDev
+extends: requirements.md (v2.0.0)
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)

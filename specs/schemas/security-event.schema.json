@@ -79,6 +79,11 @@
       "type": "boolean",
       "description": "true si la decision de risque etait calculee en log-only"
     },
+    "global_pressure": {
+      "type": "string",
+      "enum": ["normal", "elevated", "high", "critical"],
+      "description": "Niveau de pression globale anti-DDoS observe pour cette requete"
+    },
     "latency_ms": {
       "type": "number",
       "description": "Latence totale de traitement en millisecondes (WAF + upstream)"
