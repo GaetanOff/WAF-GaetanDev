@@ -135,15 +135,18 @@ func (r domainRoute) matches(host string) bool {
 }
 
 func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout time.Duration) *httputil.ReverseProxy {
-	proxy := httputil.NewSingleHostReverseProxy(target)
-	originalDirector := proxy.Director
-	proxy.Director = func(r *http.Request) {
-		clientIP := realIP(r)
-		originalDirector(r)
-		r.Host = target.Host
-		r.Header.Set("X-Real-IP", clientIP)
-		if r.Header.Get("X-WAF-Score") == "" {
-			r.Header.Set("X-WAF-Score", defaultWAFScore)
+	proxy := &httputil.ReverseProxy{}
+	// Rewrite remplace Director (déprécié depuis Go 1.26). SetURL route vers
+	// l'upstream (scheme/host/path) et fixe l'hôte sortant ; SetXForwarded
+	// préserve les en-têtes X-Forwarded-* que l'ancien director ajoutait.
+	proxy.Rewrite = func(pr *httputil.ProxyRequest) {
+		clientIP := realIP(pr.In)
+		pr.SetURL(target)
+		pr.SetXForwarded()
+		pr.Out.Host = target.Host
+		pr.Out.Header.Set("X-Real-IP", clientIP)
+		if pr.Out.Header.Get("X-WAF-Score") == "" {
+			pr.Out.Header.Set("X-WAF-Score", defaultWAFScore)
 		}
 	}
 	proxy.Transport = &http.Transport{
