@@ -185,6 +185,16 @@ last-reviewed: 2026-06-03
 | 2026-06-08 | Slice 9.10 | `go vet ./...` | pass | No vet findings |
 | 2026-06-08 | Slice 9.10 | `go build ./...` | pass | Maintenance middleware wired between slowloris and security headers |
 
+## Security Scan Triage (Semgrep OSS)
+
+Décisions sur les findings remontés par le workflow Semgrep en code scanning.
+Chaque suppression (`nosemgrep`) est explicite et justifiée (SDD : pas de
+modification silencieuse, décisions tracées).
+
+| Date | Finding (rule id) | Fichier | Décision | Justification |
+|---|---|---|---|---|
+| 2026-06-09 | `crypto...use-of-md5` | `internal/tlsfp/ja3.go` | Supprimé (`nosemgrep`) — faux positif | MD5 imposé par la spec JA3 ; identifiant de fingerprint (FR-11), pas une signature. SHA-256 casserait l'interop avec les feeds JA3 et `ja3_blacklist`. |
+
 ## Quality Gates Checklist
 
 ### G1 — Spec Lint

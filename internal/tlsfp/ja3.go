@@ -26,7 +26,15 @@ func JA3String(version uint16, ciphers []uint16, extensions []uint16, curves []u
 }
 
 // JA3Hash retourne le MD5 hexadécimal d'une chaîne JA3 (le hash JA3 standard).
+//
+// MD5 est imposé par la spécification JA3 : le hash est un identifiant de
+// fingerprint (bucketing / corrélation), pas une signature de sécurité, et
+// doit rester du MD5 pour rester interopérable avec les feeds de threat
+// intelligence qui publient des hashes JA3 en MD5. La résistance aux
+// collisions n'est pas un objectif ici, et l'entrée n'est pas un secret.
+// Remplacer MD5 par SHA-256 casserait toute comparaison avec ja3_blacklist.
 func JA3Hash(ja3 string) string {
+	// nosemgrep: go.lang.security.audit.crypto.use_of_weak_crypto.use-of-md5
 	sum := md5.Sum([]byte(ja3))
 	return hex.EncodeToString(sum[:])
 }
