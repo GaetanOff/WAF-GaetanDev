@@ -138,18 +138,40 @@
           "type": "integer",
           "default": 50000,
           "minimum": 1,
-          "description": "Seuil global de trafic en req/s avant activation du mode dégradé"
+          "description": "Baseline de trafic global en req/s utilisée pour calculer le niveau de pression adaptative"
         },
         "global_window": {
           "type": "string",
           "default": "1s",
           "description": "Fenêtre glissante utilisée pour compter le trafic global"
         },
+        "pressure_levels": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Multiplicateurs appliqués à global_requests_per_second pour classer la pression globale",
+          "properties": {
+            "elevated_multiplier": {
+              "type": "number",
+              "minimum": 1,
+              "default": 1
+            },
+            "high_multiplier": {
+              "type": "number",
+              "minimum": 1,
+              "default": 2
+            },
+            "critical_multiplier": {
+              "type": "number",
+              "minimum": 1,
+              "default": 4
+            }
+          }
+        },
         "retry_after_seconds": {
           "type": "integer",
           "default": 5,
           "minimum": 1,
-          "description": "Valeur du header Retry-After en mode dégradé"
+          "description": "Valeur par défaut du header Retry-After pour les réponses volumétriques explicites par IP; la pression globale seule ne doit pas produire de 503"
         }
       }
     },

@@ -1,7 +1,8 @@
 ---
-status: approved
-version: 1.0.0
-last-reviewed: 2026-06-03
+status: draft
+version: 2.0.0-draft
+last-reviewed: 2026-06-09
+change: "FR-08 remplace le blocage global 503 par un mode de pression adaptative"
 ---
 
 # Requirements — WAF Anti-DDoS / Anti-Bot
@@ -69,8 +70,12 @@ last-reviewed: 2026-06-03
 ### FR-08 — Anti-DDoS
 - Le WAF DOIT détecter une augmentation anormale du taux de requêtes par IP et par domaine
 - Le WAF DOIT implémenter un circuit-breaker par IP : blocage temporaire après N violations consécutives
-- Le WAF DOIT supporter la configuration d'un seuil global de trafic (req/s total) avec réponse dégradée
-- Le WAF DOIT implémenter un slow-down progressif (503 avec Retry-After croissant) avant le blocage complet
+- Le WAF DOIT supporter la configuration d'un seuil global de trafic (req/s total) servant de baseline de pression, sans blocage global automatique
+- Le WAF DOIT calculer un niveau de pression global explicite : `normal`, `elevated`, `high`, `critical`
+- Le WAF NE DOIT PAS retourner HTTP 503, HTTP 403 ou ouvrir un blocage complet uniquement parce que le seuil global de trafic est dépassé
+- Le WAF DOIT utiliser la pression globale comme signal adaptatif pour renforcer les mitigations réversibles : contribution `rate`/`global_pressure`, challenge plus fréquent des visiteurs inconnus, difficulté PoW accrue, rate limit plus strict pour visiteurs inconnus ou suspects
+- Le WAF DOIT laisser les visiteurs connus, les visiteurs avec cookie valide et les bots vérifiés continuer selon les contrôles par IP, blacklist explicite, circuit-breaker et moteur de risque
+- Le WAF DOIT exposer le niveau de pression courant dans les logs et métriques afin de permettre l'alerte et la calibration
 
 ### FR-09 — Journalisation des événements de sécurité
 - Le WAF DOIT journaliser chaque événement de sécurité (bloc, challenge, rate-limit) en JSON structuré

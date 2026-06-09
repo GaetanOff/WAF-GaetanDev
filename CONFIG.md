@@ -125,17 +125,35 @@ antiddos:
   enabled: true
   global_requests_per_second: 50000
   global_window: "1s"
+  pressure_levels:
+    elevated_multiplier: 1
+    high_multiplier: 2
+    critical_multiplier: 4
   retry_after_seconds: 5
 ```
 
-Compteur global (toutes IPs confondues). Quand le seuil est dépassé, le WAF passe en **mode dégradé** : toutes les nouvelles requêtes reçoivent un **HTTP 503** jusqu'à ce que le trafic redescende.
+Compteur global (toutes IPs confondues) utilisé pour calculer un **niveau de pression adaptative**. La pression globale ne bloque pas le trafic à elle seule : elle sert de signal pour renforcer les mitigations réversibles (challenge, throttling, difficulté PoW) et pour alimenter le moteur de risque.
+
+Niveaux de pression :
+
+| Niveau | Condition par défaut | Effet attendu |
+|---|---|---|
+| `normal` | < `global_requests_per_second` | Comportement normal. |
+| `elevated` | >= `global_requests_per_second × elevated_multiplier` | Friction accrue pour visiteurs inconnus ou suspects. |
+| `high` | >= `global_requests_per_second × high_multiplier` | Challenge/throttling plus fréquents, PoW plus difficile. |
+| `critical` | >= `global_requests_per_second × critical_multiplier` | Mitigations réversibles maximales pour inconnus/suspects ; visiteurs connus favorisés s'ils restent sous leurs limites par IP. |
+
+Le WAF **ne doit pas** retourner HTTP 503 ou HTTP 403 uniquement parce que le trafic global dépasse un seuil. Les blocages durs restent réservés aux contrôles explicites : blacklist, honeypot, circuit-breaker par IP, threat intel critique, JA3 blacklisté, ou score de risque corroboré.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
-| `enabled` | bool | `true` | Active le mode dégradé global. |
-| `global_requests_per_second` | int | `50000` | Seuil de requêtes/seconde (toutes IPs) déclenchant le mode dégradé. À ajuster selon la capacité réelle de votre upstream. |
+| `enabled` | bool | `true` | Active le calcul de pression globale anti-DDoS. |
+| `global_requests_per_second` | int | `50000` | Baseline de requêtes/seconde (toutes IPs) utilisée pour calculer la pression. À ajuster selon la capacité réelle du WAF et de l'upstream. |
 | `global_window` | durée | `"1s"` | Fenêtre glissante du compteur global. |
-| `retry_after_seconds` | int | `5` | Valeur du header `Retry-After` envoyé en mode dégradé. |
+| `pressure_levels.elevated_multiplier` | float | `1` | Multiplicateur du seuil global à partir duquel la pression devient `elevated`. |
+| `pressure_levels.high_multiplier` | float | `2` | Multiplicateur du seuil global à partir duquel la pression devient `high`. |
+| `pressure_levels.critical_multiplier` | float | `4` | Multiplicateur du seuil global à partir duquel la pression devient `critical`. |
+| `retry_after_seconds` | int | `5` | Valeur par défaut du header `Retry-After` pour les réponses volumétriques explicites par IP. La pression globale seule ne doit pas produire de 503. |
 
 ---
 
@@ -634,7 +652,7 @@ alerting:
       url: "https://discord.com/api/webhooks/..."
 ```
 
-Envoie des notifications vers Slack, Discord ou tout endpoint HTTP générique lors d'événements de sécurité critiques (mode dégradé activé, IP bloquée, etc.).
+Envoie des notifications vers Slack, Discord ou tout endpoint HTTP générique lors d'événements de sécurité critiques (pression globale critique, IP bloquée, circuit-breaker, honeypot, etc.).
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|

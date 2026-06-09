@@ -6,6 +6,7 @@ Feature: Protection Anti-DDoS
   Background:
     Given le WAF est configuré avec rate_limit.requests_per_second = 50
     And le WAF est configuré avec rate_limit.burst = 100
+    And le WAF est configuré avec antiddos.global_requests_per_second = 50000
     And le WAF est configuré avec trust.block_threshold = 10
 
   Scenario: Rate limiting — requêtes normales passent
@@ -43,11 +44,27 @@ Feature: Protection Anti-DDoS
     Then toutes les requêtes sont transmises à l'upstream
     And aucun 429 n'est retourné
 
-  Scenario: Seuil global de trafic dépassé
-    Given le WAF est en mode de protection renforcée (trafic global > seuil)
+  Scenario: Pression globale élevée — pas de blocage global automatique
+    Given le WAF observe un trafic global supérieur au seuil configuré
     When un nouveau visiteur sans score de confiance envoie une requête
-    Then le WAF retourne HTTP 503 avec header "Retry-After: 5"
-    And le log indique reason="global_rate_exceeded"
+    Then le WAF ne retourne pas HTTP 503 uniquement à cause de la pression globale
+    And la requête reçoit une mitigation réversible "CHALLENGE" ou "THROTTLE"
+    And le log indique global_pressure="elevated"
+
+  Scenario: Pression globale critique — visiteurs connus favorisés
+    Given le WAF observe un trafic global critique
+    And un visiteur possède un cookie WAF valide
+    When ce visiteur envoie une requête sous sa limite par IP
+    Then la requête est transmise à l'upstream
+    And le score du visiteur n'est pas diminué uniquement par la pression globale
+
+  Scenario: Pression globale critique — abus par IP toujours limité
+    Given le WAF observe un trafic global critique
+    And un visiteur inconnu dépasse son rate limit par IP
+    When il envoie une nouvelle requête
+    Then la requête reçoit une réponse HTTP 429
+    And le header "Retry-After" est présent dans la réponse 429
+    And le log indique action="RATE_LIMIT"
 
   Scenario: Journalisation d'un événement de rate limiting
     Given un visiteur avec l'IP "5.5.5.5" déclenche le rate limit

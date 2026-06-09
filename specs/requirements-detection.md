@@ -1,9 +1,9 @@
 ---
-status: approved
-version: 1.0.0
-last-reviewed: 2026-06-08
+status: draft
+version: 1.1.0-draft
+last-reviewed: 2026-06-09
 reviewed-by: GaetanDev
-extends: requirements-advanced.md (v2.0.0), requirements-ops.md
+extends: requirements-advanced.md (v2.1.0-draft), requirements-ops.md
 ---
 
 # Requirements Detection — Moteur de Risque & Décision (v4)
@@ -63,12 +63,13 @@ explicites (issus de la revue de spec) :
   **crédit de preuve humaine** (FR-37). Le state machine TRUSTED/MONITORED/
   CHALLENGED/BLOCKED reste exposé pour l'observabilité mais ne déclenche plus seul
   un blocage dur.
-- **Contrôles volumétriques orthogonaux.** Le rate limiting (`429`, FR-03) et le
-  mode dégradé anti-DDoS (`503`, FR-08) restent des contrôles **volumétriques
-  indépendants**, temporaires et récupérables (avec `Retry-After`). Ils ne sont
-  PAS soumis à l'exigence de corroboration de FR-35 (ce ne sont pas des blocages
-  de classification "bot"). Leurs signaux (`rate`) **alimentent** néanmoins la
-  fusion du Risk Score.
+- **Contrôles volumétriques orthogonaux.** Le rate limiting par IP (`429`,
+  FR-03) reste un contrôle volumétrique indépendant, temporaire et récupérable
+  (avec `Retry-After`). La pression globale anti-DDoS (FR-08) devient un
+  **signal adaptatif** : elle NE DOIT PAS produire seule un `503` ou un blocage
+  dur, mais elle PEUT augmenter les contributions `rate`/`global_pressure`,
+  renforcer le challenge, la difficulté PoW ou le throttling des visiteurs
+  inconnus/suspects. Ces signaux alimentent la fusion du Risk Score.
 - **Signaux déterministes inchangés.** Blacklist (FR-04), honeypot (FR-07/15),
   circuit breaker (FR-08) conservent leur blocage immédiat ; ils sont déclarés
   `deterministic_trigger` dans la RiskAssessment (FR-35).
@@ -76,9 +77,10 @@ explicites (issus de la revue de spec) :
   publient leurs signaux) et **avant** le proxy, en remplacement du middleware de
   décision du Trust Score. Le challenge JS (FR-06) devient une **action** de
   l'échelle graduée plutôt qu'une décision prise indépendamment.
-- **Sticky trust n'exempte pas du volumétrique.** Un visiteur en trust persistant
-  (FR-37) reste soumis au rate limiting et au mode dégradé global (protection
-  anti-flood même pour un humain authentifié).
+- **Sticky trust n'exempte pas du rate limiting.** Un visiteur en trust
+  persistant (FR-37) reste soumis au rate limiting par IP et aux triggers
+  déterministes. Il NE DOIT PAS être rejeté uniquement parce que la pression
+  globale est élevée.
 
 ---
 

@@ -1,7 +1,7 @@
 ---
 status: draft
 sprint: 5
-last-updated: 2026-06-04
+last-updated: 2026-06-09
 ---
 
 # Tasks — WAF Anti-DDoS / Anti-Bot
@@ -135,7 +135,8 @@ last-updated: 2026-06-04
 - [x] `antiddos.GlobalRateDetector` : sliding window, compteur req/s global
 - [x] Si dépassement seuil : nouveaux visiteurs → 503 + Retry-After
 - **Validation 2026-06-04** : `go test ./...`, `go vet ./...`, `go build -o waf ./cmd/waf` passent. Seuil global configurable via `antiddos.global_requests_per_second`, nouveaux visiteurs rejetés avec `503`, `Retry-After: 5`, reason `global_rate_exceeded`.
-- **Spec** : requirements FR-08
+- **Deprecated par spec 2026-06-09** : remplacé par T10.1 ; le dépassement du trafic global ne doit plus produire de 503 automatique.
+- **Spec** : requirements FR-08 v1.0.0, remplacé par requirements FR-08 v2.0.0-draft
 
 ---
 
@@ -522,7 +523,7 @@ last-updated: 2026-06-04
 - [x] Emission depuis le logger (interface `Alerter`) sur block / circuit_breaker / honeypot
 - [x] Config `alerting` (enabled opt-in, cooldown, max_retries, webhooks[]) + schema + exemple + validation
 - [x] Tests via httptest : delivery (payload Slack), cooldown dedup, retry sur echec
-- **Note** : emetteurs additionnels (mode degrade global, seuils) cablables via Notifier.Dispatch ; differes
+- **Note** : emetteurs additionnels (pression globale, seuils) cablables via Notifier.Dispatch ; differes
 - **Acceptance** : un evenement a forte severite declenche une alerte webhook (formatee selon le sink), sans flood (cooldown), sans bloquer la requete (async)
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build -o waf.exe ./cmd/waf` passent.
 - **Spec** : requirements-ops.md FR-29, NFR-12 ; schemas/alert.schema.json ; features/webhook-alerts.feature ; plan.md Slice 9.7
@@ -559,3 +560,18 @@ last-updated: 2026-06-04
 - **Acceptance** : en mode maintenance tout le trafic recoit une page 503 brandee (hors endpoints internes) ; hors maintenance les erreurs en texte brut sont remplacees par une page brandee, le reste est preserve
 - **Validation 2026-06-08** : `go test ./...`, `go vet ./...`, `go build ./...` passent.
 - **Spec** : requirements-ops.md FR-32 ; plan.md Slice 9.10
+
+---
+
+## Sprint 10 - Revision Anti-DDoS adaptative (Phase 10)
+
+### T10.1 - Remplacer le 503 global par la pression adaptative (FR-08 v2)
+- [ ] Remplacer `GlobalRateDetector` par un compteur de pression a cout borne (fenetre fixe ou anneau de buckets), sans slice de timestamps non bornee sur le chemin requete
+- [ ] Ajouter les niveaux `normal`, `elevated`, `high`, `critical` calcules depuis `antiddos.global_requests_per_second` et `antiddos.pressure_levels`
+- [ ] Supprimer le rejet automatique des nouveaux visiteurs en HTTP 503 base uniquement sur le seuil global
+- [ ] Publier la pression globale vers les headers internes/signaux du moteur de risque (`rate` ou `global_pressure`) et vers le controleur PoW adaptatif
+- [ ] Renforcer les mitigations reversibles pour visiteurs inconnus/suspects sous pression : challenge, throttling, difficulte PoW ; conserver les visiteurs connus/cookie valide sous leurs controles par IP
+- [ ] Exposer logs et metriques du niveau de pression courant
+- [ ] Tests Gherkin : pas de 503 global, visiteur connu favorise, abus par IP toujours 429, circuit-breaker inchangé
+- **Acceptance** : depasser le seuil global ne bloque jamais tout le trafic ni tous les nouveaux visiteurs par lui-meme ; les mitigations restent graduelles et reversibles.
+- **Spec** : requirements.md FR-08 v2.0.0-draft ; features/anti-ddos.feature ; ADR-016 ; schemas/config.schema.json

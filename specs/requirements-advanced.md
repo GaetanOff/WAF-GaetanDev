@@ -1,8 +1,8 @@
 ---
-status: approved
-version: 2.0.0
-last-reviewed: 2026-06-03
-extends: requirements.md (v1.0.0)
+status: draft
+version: 2.1.0-draft
+last-reviewed: 2026-06-09
+extends: requirements.md (v2.0.0-draft)
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)
@@ -151,7 +151,7 @@ extends: requirements.md (v1.0.0)
   - Nouvelles entrées blacklist (propagation < 1 s entre nœuds)
   - Ouverture de circuit-breaker pour une IP (tous les nœuds bloquent immédiatement)
   - Score de confiance d'un visiteur identifié comme très dangereux (score < 5)
-  - Activation du mode dégradé global (coordination de l'attaque)
+  - Publication du niveau de pression global (coordination de l'attaque sans blocage global automatique)
 - La propagation DOIT suivre un modèle **eventual consistency** (pas de transaction distribuée)
 - En cas de perte de Redis, chaque nœud DOIT continuer à fonctionner de manière autonome (dégradé mais opérationnel)
 - Le WAF DOIT exposer des métriques de synchronisation : `waf_cluster_sync_events_total`, `waf_cluster_lag_seconds`

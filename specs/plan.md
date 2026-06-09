@@ -124,9 +124,11 @@ last-reviewed: 2026-06-08
 - Ouverture après N violations consécutives, fermeture après durée configurable
 - Spec references : requirements FR-08, features/anti-ddos.feature
 
-**Slice 3.2 — Mode dégradé global**
-- Détecteur de taux global (sliding window sur toutes les requêtes)
-- Mode dégradé : requêtes non-trusted → 503 + Retry-After
+**Slice 3.2 — Pression globale adaptative**
+- Détecteur de taux global à coût borné (compteur par fenêtre ou anneau de buckets)
+- Classification de pression `normal` / `elevated` / `high` / `critical`
+- Aucun 503/403 global basé uniquement sur le volume total
+- Publication de la pression vers le moteur de risque, le challenge adaptatif, les métriques et les logs
 - Spec references : requirements FR-08
 
 ---
@@ -348,7 +350,7 @@ last-reviewed: 2026-06-08
 
 **Slice 8.10 — Backend Redis + synchronisation cluster (FR-20)**
 - `internal/storage/redis` : implémentation de l'interface `Store` ; Pub/Sub pour
-  blacklist / circuit-breaker / scores critiques / mode dégradé ; eventual
+  blacklist / circuit-breaker / scores critiques / pression globale ; eventual
   consistency ; fallback autonome si Redis tombe ; métriques cluster
 - Spec references : requirements-advanced FR-20, ADR-002, features/multi-node-sync.feature
 
