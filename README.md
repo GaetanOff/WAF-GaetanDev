@@ -57,7 +57,7 @@ Reverse proxy de protection écrit en Go, conçu pour s'intercaler entre
 
 ### Prérequis
 
-- Go **1.22+** (pour build/dev)
+- Go **1.26+** (pour build/dev)
 - Docker + Docker Compose (pour la pile de test)
 
 ### Build & exécution locale

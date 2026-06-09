@@ -74,7 +74,7 @@ func TestFuseProfilesAdjustRiskScore(t *testing.T) {
 	balanced := Fuse(contributions, DefaultFusionConfig(ProfileBalanced))
 	strict := Fuse(contributions, DefaultFusionConfig(ProfileStrict))
 
-	if !(lenient.RiskScore < balanced.RiskScore && balanced.RiskScore < strict.RiskScore) {
+	if lenient.RiskScore >= balanced.RiskScore || balanced.RiskScore >= strict.RiskScore {
 		t.Fatalf("profile scores not increasing by strictness: lenient=%d balanced=%d strict=%d", lenient.RiskScore, balanced.RiskScore, strict.RiskScore)
 	}
 }

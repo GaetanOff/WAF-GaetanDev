@@ -761,10 +761,10 @@ func validateRiskEngine(fields *[]string, cfg RiskEngine) {
 	validateRange(fields, "risk_engine.tiers.challenge", cfg.Tiers.Challenge, 0, 100)
 	validateRange(fields, "risk_engine.tiers.tarpit", cfg.Tiers.Tarpit, 0, 100)
 	validateRange(fields, "risk_engine.tiers.block", cfg.Tiers.Block, 0, 100)
-	if !(cfg.Tiers.Observe < cfg.Tiers.Throttle &&
-		cfg.Tiers.Throttle < cfg.Tiers.Challenge &&
-		cfg.Tiers.Challenge < cfg.Tiers.Tarpit &&
-		cfg.Tiers.Tarpit < cfg.Tiers.Block) {
+	if cfg.Tiers.Observe >= cfg.Tiers.Throttle ||
+		cfg.Tiers.Throttle >= cfg.Tiers.Challenge ||
+		cfg.Tiers.Challenge >= cfg.Tiers.Tarpit ||
+		cfg.Tiers.Tarpit >= cfg.Tiers.Block {
 		*fields = append(*fields, "risk_engine.tiers must be strictly increasing")
 	}
 	validateRange(fields, "risk_engine.family_corroboration_threshold", cfg.FamilyCorroborationThreshold, 0, 100)

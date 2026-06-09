@@ -47,7 +47,7 @@ Construire un reverse proxy WAF écrit en Go, hautement performant, qui s'interc
 
 ## Constraints
 
-- Développé en Go 1.22+
+- Développé en Go 1.26+
 - Doit fonctionner derrière Cloudflare (extraction IP réelle via `CF-Connecting-IP`)
 - Binaire unique, pas de dépendances runtime obligatoires (Redis optionnel)
 - Configuration YAML versionnable en Git

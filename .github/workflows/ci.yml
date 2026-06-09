@@ -20,9 +20,12 @@ jobs:
           go-version-file: go.mod
           cache: true
       - name: golangci-lint
-        uses: golangci/golangci-lint-action@v6
+        uses: golangci/golangci-lint-action@v7
         with:
-          version: v1.62.2
+          # golangci-lint v2 — v1 is EOL and cannot target Go 1.26.
+          # `latest` guarantees a build compiled with Go >= the module's
+          # toolchain (1.26); pin once a v2 release built with 1.26 is known.
+          version: latest
 
   test:
     name: Test (race + coverage)
