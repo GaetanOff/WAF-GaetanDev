@@ -593,8 +593,13 @@ func Default() Config {
 			CookieTTL:     "24h",
 			CookieName:    "waf_session",
 			PowDifficulty: 16,
-			MinElapsedMS:  500,
-			MaxElapsedMS:  10000,
+			// Plancher de durée désactivé par défaut (0) : sur un client rapide la
+			// PoW se résout en quelques dizaines de ms, et un plancher positif
+			// rejetait ces résolutions légitimes en challenge_too_fast -> boucle.
+			// La résistance anti-bot vient de la PoW + fingerprint + cookie, pas du
+			// chrono. Un opérateur peut réactiver un plancher en le passant > 0.
+			MinElapsedMS: 0,
+			MaxElapsedMS: 60000,
 		},
 		WhitelistUserAgents: []string{
 			"Googlebot",

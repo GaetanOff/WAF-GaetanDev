@@ -772,8 +772,8 @@ challenge:
   cookie_ttl: "24h"
   cookie_name: "waf_session"
   pow_difficulty: 16
-  min_elapsed_ms: 500
-  max_elapsed_ms: 10000
+  min_elapsed_ms: 0
+  max_elapsed_ms: 60000
 ```
 
 Le challenge JavaScript consiste en un Proof-of-Work SHA-256 (via `SubtleCrypto`) combiné à un fingerprint navigateur. Il n'y a aucun CAPTCHA visuel.
@@ -786,8 +786,8 @@ Le challenge JavaScript consiste en un Proof-of-Work SHA-256 (via `SubtleCrypto`
 | `cookie_ttl` | durée | `"24h"` | Durée de validité du cookie de session après un challenge réussi. |
 | `cookie_name` | string | `"waf_session"` | Nom du cookie de session déposé après le challenge. |
 | `pow_difficulty` | int [8–24] | `16` | Difficulté initiale du Proof-of-Work en bits. 16 bits ≈ 500ms sur un CPU standard. Augmenter augmente la charge pour le visiteur **et** pour les bots. |
-| `min_elapsed_ms` | int | `500` | Temps minimum (ms) pour résoudre le challenge. En dessous, la réponse est rejetée comme trop rapide (bot). |
-| `max_elapsed_ms` | int | `10000` | Temps maximum (ms). Au-delà, le challenge est considéré abandonné. |
+| `min_elapsed_ms` | int | `0` | Temps minimum (ms) pour résoudre le challenge. `0` = **plancher désactivé** (recommandé) : sur un client rapide la PoW se résout en quelques dizaines de ms, et un plancher positif rejetait ces résolutions légitimes (`challenge_too_fast`). La résistance anti-bot vient de la PoW + fingerprint + cookie, pas du chrono. Mettre `>0` pour réactiver un plancher. |
+| `max_elapsed_ms` | int | `60000` | Temps maximum (ms). Au-delà, le challenge est considéré abandonné. Marge large pour les appareils lents. |
 
 ---
 

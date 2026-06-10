@@ -55,7 +55,7 @@ change: "FR-08 remplace le blocage global 503 par un mode de pression adaptative
   - Un token unique signé (nonce + timestamp + IP hash) généré côté serveur
   - Un calcul proof-of-work (trouver N tel que SHA-256(nonce + N) commence par K zéros)
   - Un fingerprinting navigateur (user-agent, timezone, screen, langue, plugins, canvas hash, WebGL hash)
-  - Un timer de durée (doit prendre entre 500 ms et 10 s, sinon suspect)
+  - Un timer de durée : un plafond (`max_elapsed_ms`, défaut 60 s) au-delà duquel le challenge est considéré abandonné. Le plancher (`min_elapsed_ms`) est **désactivé par défaut** (0) car une PoW se résout en quelques dizaines de ms sur un client rapide et un plancher positif rejetait ces résolutions légitimes (`challenge_too_fast`). La résistance anti-bot repose sur la PoW + le fingerprint + le cookie, pas sur le chrono ; un opérateur peut réactiver un plancher (`min_elapsed_ms > 0`)
 - Le WAF DOIT valider la soumission du challenge via POST `/waf/verify`
 - Le WAF DOIT émettre un cookie de session signé HMAC-SHA256 après validation
 - Le WAF DOIT rediriger automatiquement vers l'URL originale après validation

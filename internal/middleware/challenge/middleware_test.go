@@ -180,6 +180,32 @@ func TestMiddlewareVerifyHeadlessWebGLDecrementsScore(t *testing.T) {
 	}
 }
 
+func TestMiddlewareVerifyAcceptsFastResolutionWhenFloorDisabled(t *testing.T) {
+	middleware, store := newTestChallengeMiddleware(t)
+	defer store.Close()
+	middleware.minElapsedMS = 0 // défaut : plancher "trop rapide" désactivé
+	middleware.scores.Set("3.3.3.3", "example.test", 35)
+	token, err := middleware.tokenIssuer.GenerateForRedirect("3.3.3.3", "example.test", "/page")
+	if err != nil {
+		t.Fatalf("GenerateForRedirect() error = %v", err)
+	}
+	nonce := solvePow(t, token, middleware.difficulty)
+	// elapsed_ms = 30 : résolution quasi instantanée d'un client rapide.
+	request := verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, nonce, 30))
+	response := httptest.NewRecorder()
+
+	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("next handler should not be called")
+	})).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (fast resolution accepted) body=%s", response.Code, response.Body.String())
+	}
+	if len(response.Result().Cookies()) != 1 {
+		t.Fatalf("expected one Set-Cookie after fast resolution")
+	}
+}
+
 func TestMiddlewareVerifyRejectsTimingErrors(t *testing.T) {
 	middleware, _ := newTestChallengeMiddleware(t)
 	token, err := middleware.tokenIssuer.GenerateForRedirect("3.3.3.3", "example.test", "/page")

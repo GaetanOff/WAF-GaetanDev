@@ -6,6 +6,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- Challenge JS (FR-06) — plancher de timing désactivé par défaut :
+  `challenge.min_elapsed_ms` passe de `500` à `0` et `max_elapsed_ms` de `10000`
+  à `60000`. Sur un client rapide la PoW se résout en quelques dizaines de ms ;
+  le plancher à 500 ms rejetait ces résolutions légitimes (`challenge_too_fast`)
+  → boucle de challenge. La résistance anti-bot vient de la PoW + fingerprint +
+  cookie, pas du chrono. Un opérateur peut réactiver un plancher (`> 0`).
+
 ### Fixed
 
 - Challenge JS (FR-06) : la page de challenge et les réponses `/waf/verify`

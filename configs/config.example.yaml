@@ -252,8 +252,8 @@ challenge:
   cookie_ttl: "24h"          # Durée du cookie de session
   cookie_name: "waf_session"
   pow_difficulty: 16         # 16 bits ≈ 500ms sur CPU standard
-  min_elapsed_ms: 500        # Trop rapide = bot
-  max_elapsed_ms: 10000      # Trop lent = abandon
+  min_elapsed_ms: 0          # 0 = plancher désactivé (recommandé). >0 rejette les résolutions trop rapides (faux positifs sur clients rapides)
+  max_elapsed_ms: 60000      # Trop lent = abandon (marge large pour appareils lents)
 
 # API Admin
 admin:

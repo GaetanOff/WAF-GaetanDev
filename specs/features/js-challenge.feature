@@ -6,8 +6,8 @@ Feature: Challenge JavaScript
   Background:
     Given le WAF est configuré avec challenge.pow_difficulty = 16
     And le WAF est configuré avec challenge.token_ttl = "30s"
-    And le WAF est configuré avec challenge.min_elapsed_ms = 500
-    And le WAF est configuré avec challenge.max_elapsed_ms = 10000
+    And le WAF est configuré avec challenge.min_elapsed_ms = 0
+    And le WAF est configuré avec challenge.max_elapsed_ms = 60000
 
   Scenario: Nouveau visiteur sans cookie — page de challenge servie
     Given un nouveau visiteur avec l'IP "3.3.3.3" (score = 50, sous le seuil 40 non atteint)
@@ -71,14 +71,22 @@ Feature: Challenge JavaScript
     And la réponse contient {"error": "invalid_pow"}
     And le score du visiteur est décrémenté de 20
 
-  Scenario: Challenge trop rapide (bot)
-    Given un visiteur soumet POST /waf/verify avec elapsed_ms = 50
+  Scenario: Résolution rapide acceptée (plancher désactivé par défaut)
+    Given challenge.min_elapsed_ms = 0 (défaut)
+    And un visiteur soumet POST /waf/verify avec elapsed_ms = 30 et une PoW valide
+    Then le WAF retourne HTTP 200 et émet le cookie de session
+    # Une PoW se résout en quelques dizaines de ms sur un client rapide : la
+    # rejeter comme "trop rapide" créait des faux positifs et une boucle.
+
+  Scenario: Plancher "trop rapide" actif uniquement s'il est configuré (>0)
+    Given challenge.min_elapsed_ms = 500 (plancher réactivé par l'opérateur)
+    And un visiteur soumet POST /waf/verify avec elapsed_ms = 50
     Then le WAF retourne HTTP 400
     And la réponse contient {"error": "challenge_too_fast"}
     And le score du visiteur est décrémenté de 20
 
   Scenario: Challenge trop lent (timeout côté client)
-    Given un visiteur soumet POST /waf/verify avec elapsed_ms = 15000
+    Given un visiteur soumet POST /waf/verify avec elapsed_ms = 65000
     Then le WAF retourne HTTP 400
     And la réponse contient {"error": "challenge_timeout"}
 
