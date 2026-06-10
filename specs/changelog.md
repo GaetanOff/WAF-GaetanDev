@@ -6,6 +6,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Spec (à implémenter)
+
+- FR-33 — Terminaison **TLS par domaine** (sélection par SNI) : le WAF pourra
+  terminer le TLS en présentant un certificat distinct par domaine
+  (`domains[].tls.cert_file`/`key_file`), choisi selon le SNI, à partir de
+  certificats existants sur disque (sans dépendre d'ACME). Bloc `server.tls`
+  ajouté au schéma de config. Spec rédigée (`draft`), implémentation à venir.
+  Voir `ADR-017`, `requirements-ops.md` FR-33, `features/per-domain-tls.feature`.
+
 ### Changed
 
 - FR-08 Anti-DDoS passe du mode degrade global `503` a un mode

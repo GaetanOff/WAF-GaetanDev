@@ -581,3 +581,18 @@ last-updated: 2026-06-09
   - Code mort supprime : override `statusRecorder.Write` no-op dans `antiddos/middleware.go`.
   - Tests ajoutes : `ratelimit` (throttle inconnu, visiteur TRUSTED epargne, pression normale, reversibilite) ; `adaptive` (4 niveaux distincts).
 - **Spec** : requirements.md FR-08 v2.0.0 ; features/anti-ddos.feature ; ADR-016 ; schemas/config.schema.json
+
+## Sprint 11 - Terminaison TLS par domaine (Phase 11)
+
+### T11.1 - TLS par domaine avec selection par SNI (FR-33) `[spec only — implementation differee]`
+- [ ] Ajouter le bloc `server.tls` (enabled, listen, min_version, cipher_suites, redirect_http, cert_file/key_file par defaut) et `domains[].tls` (cert_file, key_file) au parsing config + Validate (fail-fast si fichier manquant / cle non concordante)
+- [ ] Implementer `internal/tlsmgr` : chargement des paires PEM par domaine au demarrage + `tls.Config.GetCertificate` qui selectionne par SNI (exact + wildcard `*.example.com`)
+- [ ] Repli sur le certificat par defaut si SNI sans correspondance ; sinon refus de handshake (`unrecognized_name`)
+- [ ] Cabler le listener HTTPS dans `cmd/waf/main.go` a cote du chemin ACME (mutuellement exclusifs sur un meme listener) ; redirection HTTP->HTTPS si `redirect_http`
+- [ ] Exposer `waf_tls_cert_expiry_seconds{domain}` par certificat charge
+- [ ] (Optionnel, hors premiere tranche) hot-reload des certs sur SIGHUP
+- [ ] Tests : selection SNI (exact/wildcard/inconnu), fail-fast (fichier manquant, cle non concordante), plancher TLS 1.2, redirection 301
+- [ ] Doc deploiement : bascule OpenResty en HTTP interne + `set_real_ip_from` (DEPLOYMENT.md)
+- **Acceptance** : un client en TLS recoit le certificat correspondant a son SNI ; un SNI sans cert et sans defaut est refuse sans servir de cert arbitraire ; un cert manquant empeche le demarrage.
+- **Statut** : spec redigee (draft), implementation a venir.
+- **Spec** : requirements-ops.md FR-33 (draft) ; features/per-domain-tls.feature ; ADR-017 ; schemas/config.schema.json

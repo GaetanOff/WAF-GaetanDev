@@ -46,6 +46,48 @@
         "graceful_shutdown_timeout": {
           "type": "string",
           "default": "15s"
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Terminaison TLS sur le WAF (FR-33). Si enabled, le WAF écoute en HTTPS et sélectionne le certificat par SNI parmi les certificats statiques définis par domaine (domains[].tls), avec repli optionnel sur cert_file/key_file pour les SNI sans correspondance.",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": false,
+              "description": "Terminer le TLS directement sur le WAF (sinon le TLS est terminé en amont, ex: Cloudflare)"
+            },
+            "listen": {
+              "type": "string",
+              "default": ":443",
+              "description": "Adresse d'écoute HTTPS",
+              "example": ":443"
+            },
+            "min_version": {
+              "type": "string",
+              "enum": ["1.2", "1.3"],
+              "default": "1.2",
+              "description": "Version TLS minimale acceptée"
+            },
+            "cipher_suites": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "Liste explicite de cipher suites (TLS 1.2). Vide = défaut sécurisé Go"
+            },
+            "redirect_http": {
+              "type": "boolean",
+              "default": true,
+              "description": "Rediriger le trafic HTTP (server.listen) vers HTTPS en 301"
+            },
+            "cert_file": {
+              "type": "string",
+              "description": "Certificat PEM par défaut, servi pour les SNI sans correspondance dans domains[].tls. Optionnel : si absent, un SNI inconnu provoque un refus de handshake."
+            },
+            "key_file": {
+              "type": "string",
+              "description": "Clé privée PEM du certificat par défaut"
+            }
+          }
         }
       }
     },
@@ -721,6 +763,24 @@
           "type": "array",
           "items": { "type": "string" },
           "description": "Paths qui ne déclenchent jamais le challenge"
+        },
+        "tls": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["cert_file", "key_file"],
+          "description": "Certificat TLS propre à ce domaine, sélectionné par SNI quand server.tls.enabled = true (FR-33). Le host (exact ou wildcard *.example.com) sert de clé de correspondance SNI.",
+          "properties": {
+            "cert_file": {
+              "type": "string",
+              "description": "Chemin du certificat PEM (chaîne complète : leaf + intermédiaires) pour ce domaine",
+              "example": "/etc/waf/certs/example.com/fullchain.pem"
+            },
+            "key_file": {
+              "type": "string",
+              "description": "Chemin de la clé privée PEM pour ce domaine",
+              "example": "/etc/waf/certs/example.com/privkey.pem"
+            }
+          }
         }
       }
     },
