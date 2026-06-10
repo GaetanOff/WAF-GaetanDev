@@ -194,6 +194,7 @@ change: "Ajout FR-33 — terminaison TLS par domaine (sélection par SNI), voir 
 - Les pages d'erreur custom DOIVENT être des templates Go (`html/template`) avec variables injectables :
   - `{{.StatusCode}}`, `{{.Domain}}`, `{{.RetryAfter}}`, `{{.RequestID}}`
 - Le WAF DOIT supporter le mode `maintenance_forced: true` : forcer la page de maintenance pour tout le trafic (outil de déploiement)
+- Les **pages d'erreur brandées** (remplacement du corps 4xx/5xx) ne DOIVENT s'appliquer qu'aux **navigations de navigateur** (`Accept: text/html`). Les appels API/XHR (`Accept: application/json`, `*/*`, ou absent) DOIVENT conserver leur corps d'erreur d'origine (souvent JSON), sinon les clients `fetch`/`axios` ne peuvent plus parser la réponse. La page de maintenance forcée (503) reste servie à tous
 
 ## FR-33 — Terminaison TLS par domaine (sélection par SNI)
 

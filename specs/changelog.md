@@ -8,6 +8,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- Pages d'erreur (FR-32) — le remplacement du corps d'erreur 4xx/5xx par la page
+  HTML brandée ne s'applique plus qu'aux **navigations de navigateur**
+  (`Accept: text/html`). Les appels API/XHR (`application/json`, `*/*`, ou Accept
+  absent) conservent leur corps d'erreur d'origine (souvent JSON), pour que les
+  clients `fetch`/`axios` puissent le parser. La page de maintenance forcée (503)
+  reste servie à tous.
 - Anti-bot (FR-07) — respect de `risk_engine.shadow_mode` : en calibration, les
   blocages **heuristiques** (UA d'automation, headers navigateur manquants…) sont
   observés et publiés au moteur de risque sans être appliqués, pour ne pas casser

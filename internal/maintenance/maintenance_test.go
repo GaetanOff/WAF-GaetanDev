@@ -32,13 +32,15 @@ func TestMaintenanceModeServes503ForAllButInternal(t *testing.T) {
 	}
 }
 
-func TestErrorPageReplacesPlainBody(t *testing.T) {
+func TestErrorPageReplacesPlainBodyForBrowserNavigation(t *testing.T) {
 	m := New(config.Maintenance{Enabled: false, ErrorPages: true})
 	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		http.Error(w, "forbidden", http.StatusForbidden)
 	}))
 	resp := httptest.NewRecorder()
-	handler.ServeHTTP(resp, httptest.NewRequest(http.MethodGet, "http://x/", nil))
+	request := httptest.NewRequest(http.MethodGet, "http://x/", nil)
+	request.Header.Set("Accept", "text/html") // navigation navigateur
+	handler.ServeHTTP(resp, request)
 
 	if resp.Code != http.StatusForbidden {
 		t.Fatalf("status = %d, want 403", resp.Code)
@@ -49,6 +51,36 @@ func TestErrorPageReplacesPlainBody(t *testing.T) {
 	}
 	if strings.Contains(body, "forbidden\n") {
 		t.Fatal("original plain body leaked")
+	}
+}
+
+// Un appel API (Accept != text/html) doit conserver le corps d'erreur d'origine
+// (souvent JSON) : sinon les clients fetch/axios ne peuvent plus le parser.
+func TestErrorPagePreservesApiErrorBody(t *testing.T) {
+	m := New(config.Maintenance{Enabled: false, ErrorPages: true})
+	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.WriteHeader(http.StatusUnauthorized)
+		_, _ = w.Write([]byte(`{"code":401,"message":"Wrong username or password."}`))
+	}))
+	for _, accept := range []string{"application/json", "application/json, text/plain, */*", "*/*", ""} {
+		resp := httptest.NewRecorder()
+		request := httptest.NewRequest(http.MethodPost, "http://x/rest/login", nil)
+		if accept != "" {
+			request.Header.Set("Accept", accept)
+		}
+		handler.ServeHTTP(resp, request)
+
+		if resp.Code != http.StatusUnauthorized {
+			t.Fatalf("Accept=%q: status = %d, want 401", accept, resp.Code)
+		}
+		body := resp.Body.String()
+		if !strings.Contains(body, `"message":"Wrong username or password."`) {
+			t.Fatalf("Accept=%q: API JSON error body was clobbered: %q", accept, body)
+		}
+		if strings.Contains(body, "Protected by") {
+			t.Fatalf("Accept=%q: API error must not get branded HTML page", accept)
+		}
 	}
 }
 

@@ -54,6 +54,17 @@ Feature: Page de Maintenance & Erreurs Custom
     When un visiteur déclenche le rate limit (RetryAfter = 30s)
     Then le WAF sert la page 429 avec "Réessayez dans 30 secondes"
 
+  Scenario: Page d'erreur brandée servie à une navigation de navigateur
+    Given error_pages activé
+    When un visiteur navigateur (Accept "text/html") reçoit une erreur 403
+    Then le corps d'erreur est remplacé par la page HTML brandée
+
+  Scenario: Appel API — le corps d'erreur d'origine est préservé
+    Given error_pages activé
+    When un appel API (Accept "application/json") reçoit une erreur 401 avec un corps JSON
+    Then le WAF ne remplace PAS le corps : le JSON d'origine est renvoyé tel quel
+    # fetch/axios doivent pouvoir parser l'erreur ; une page HTML les casserait.
+
   Scenario: Assets statiques servis même en mode maintenance
     Given le WAF est en mode maintenance forcé
     When un visiteur demande GET "/favicon.ico"

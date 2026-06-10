@@ -8,6 +8,7 @@ package maintenance
 import (
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/gaetandev/waf/internal/config"
 )
@@ -41,12 +42,22 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 				return
 			}
 		}
-		if m.errorPages {
+		// Les pages d'erreur brandées ne concernent que les navigations de
+		// navigateur (Accept: text/html). Les appels API/XHR (fetch, axios…)
+		// attendent le corps d'origine (souvent JSON) : on ne le remplace pas,
+		// sinon le client ne peut plus parser la réponse d'erreur.
+		if m.errorPages && wantsHTML(r) {
 			next.ServeHTTP(&pageWriter{ResponseWriter: w}, r)
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// wantsHTML indique que le client attend une page HTML (navigation navigateur),
+// par opposition à un appel API/XHR.
+func wantsHTML(r *http.Request) bool {
+	return strings.Contains(r.Header.Get("Accept"), "text/html")
 }
 
 // pageWriter remplace le corps des réponses d'erreur (4xx/5xx) en texte brut
