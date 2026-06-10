@@ -1,9 +1,9 @@
 ---
-status: draft
-version: 3.1.0-draft
-last-reviewed: 2026-06-03
+status: approved
+version: 3.1.0
+last-reviewed: 2026-06-10
 extends: requirements-advanced.md (v2.0.0)
-change: "Ajout FR-33 — terminaison TLS par domaine (sélection par SNI), voir ADR-017 [draft, spec only]"
+change: "Ajout FR-33 — terminaison TLS par domaine (sélection par SNI), voir ADR-017 ; implémenté en Slice 11.1"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -195,7 +195,7 @@ change: "Ajout FR-33 — terminaison TLS par domaine (sélection par SNI), voir 
   - `{{.StatusCode}}`, `{{.Domain}}`, `{{.RetryAfter}}`, `{{.RequestID}}`
 - Le WAF DOIT supporter le mode `maintenance_forced: true` : forcer la page de maintenance pour tout le trafic (outil de déploiement)
 
-## FR-33 — Terminaison TLS par domaine (sélection par SNI) `[draft]`
+## FR-33 — Terminaison TLS par domaine (sélection par SNI)
 
 > Étend FR-31. Permet au WAF de terminer le TLS en présentant un **certificat
 > distinct par domaine**, sélectionné par SNI à partir de certificats existants

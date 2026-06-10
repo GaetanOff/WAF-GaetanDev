@@ -6,14 +6,19 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
-### Spec (à implémenter)
+### Added
 
-- FR-33 — Terminaison **TLS par domaine** (sélection par SNI) : le WAF pourra
+- FR-33 — Terminaison **TLS par domaine** (sélection par SNI) : le WAF peut
   terminer le TLS en présentant un certificat distinct par domaine
-  (`domains[].tls.cert_file`/`key_file`), choisi selon le SNI, à partir de
-  certificats existants sur disque (sans dépendre d'ACME). Bloc `server.tls`
-  ajouté au schéma de config. Spec rédigée (`draft`), implémentation à venir.
-  Voir `ADR-017`, `requirements-ops.md` FR-33, `features/per-domain-tls.feature`.
+  (`domains[].tls.cert_file`/`key_file`), choisi selon le SNI (exact + wildcard),
+  à partir de certificats existants sur disque (sans dépendre d'ACME). Nouveau
+  bloc `server.tls` (enabled, listen, min_version, cipher_suites, redirect_http,
+  cert/clé par défaut), package `internal/tlsmgr`, métrique
+  `waf_tls_cert_expiry_seconds{domain}`, redirection HTTP→HTTPS, et fail-fast au
+  démarrage (cert manquant / clé non concordante). Un SNI sans correspondance et
+  sans cert par défaut provoque un refus de handshake. Mutuellement exclusif avec
+  ACME sur le même listener. Voir `ADR-017`, `requirements-ops.md` FR-33,
+  `features/per-domain-tls.feature`. (Slice 11.1)
 
 ### Changed
 

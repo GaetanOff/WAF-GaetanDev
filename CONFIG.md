@@ -53,6 +53,41 @@ server:
 | `idle_timeout` | durée | `"60s"` | Délai max d'inactivité sur une connexion keep-alive avant fermeture. |
 | `graceful_shutdown_timeout` | durée | `"15s"` | Délai accordé aux connexions en cours pour se terminer proprement lors d'un arrêt (SIGTERM). |
 
+### `server.tls` — Terminaison TLS par domaine (SNI)
+
+```yaml
+server:
+  tls:
+    enabled: false
+    listen: ":443"
+    min_version: "1.2"
+    cipher_suites: []
+    redirect_http: true
+    cert_file: ""        # certificat par défaut (optionnel)
+    key_file: ""
+```
+
+Quand `enabled: true`, le WAF **termine lui-même le TLS** et présente le
+certificat correspondant au domaine demandé (**SNI**), défini par
+`domains[].tls` (voir plus bas). À utiliser quand le WAF n'est **pas** derrière
+un terminateur TLS amont (Cloudflare, LB). Mutuellement exclusif avec `acme`
+sur le même listener.
+
+| Clé | Type | Défaut | Description |
+|---|---|---|---|
+| `enabled` | bool | `false` | Terminer le TLS sur le WAF. Si `false`, le WAF écoute en HTTP (TLS terminé en amont). |
+| `listen` | string | `":443"` | Adresse d'écoute HTTPS. |
+| `min_version` | string | `"1.2"` | Version TLS minimale : `"1.2"` ou `"1.3"`. Les versions inférieures sont refusées. |
+| `cipher_suites` | liste | `[]` | Liste explicite de cipher suites (TLS 1.2). Vide = défaut sécurisé de Go. Un nom inconnu/non sûr fait échouer le démarrage. |
+| `redirect_http` | bool | `true` | Rediriger le trafic HTTP (`server.listen`) vers HTTPS en `301`. |
+| `cert_file` | string | `""` | Certificat PEM **par défaut**, servi pour un SNI sans correspondance. Si absent, un SNI inconnu provoque un refus de handshake. |
+| `key_file` | string | `""` | Clé privée PEM du certificat par défaut. |
+
+**Fail-fast** : un certificat manquant, illisible, ou dont la clé ne correspond
+pas au certificat fait **échouer le démarrage** du WAF (on ne sert jamais un
+vhost cassé). La métrique `waf_tls_cert_expiry_seconds{domain}` expose la date
+d'expiration (timestamp Unix) de chaque certificat chargé.
+
 ---
 
 ## `upstream` — Upstream par défaut
@@ -881,6 +916,11 @@ Surcharge les paramètres globaux pour un domaine spécifique. Les entrées sont
 | `rate_limit_override.burst` | int | Burst spécifique à ce domaine. |
 | `trust_override.challenge_threshold` | int | Seuil de challenge JS spécifique à ce domaine. |
 | `trust_override.block_threshold` | int | Seuil de blocage spécifique à ce domaine. |
+| `tls.cert_file` | string | Chemin du certificat PEM (chaîne complète) présenté pour ce domaine quand `server.tls.enabled: true` (sélection par SNI). |
+| `tls.key_file` | string | Chemin de la clé privée PEM correspondante. |
+
+> Le `host` (exact ou wildcard `*.`) sert de clé de correspondance SNI. Voir
+> [`server.tls`](#servertls--terminaison-tls-par-domaine-sni) pour le bloc global.
 
 ---
 

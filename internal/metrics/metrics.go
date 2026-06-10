@@ -35,6 +35,7 @@ type Metrics struct {
 	powDifficulty   prometheus.Gauge
 	globalPressure  *prometheus.GaugeVec
 	clusterEvents   *prometheus.CounterVec
+	tlsCertExpiry   *prometheus.GaugeVec
 	mu              sync.Mutex
 	visitors        map[string]string
 	now             func() time.Time
@@ -97,11 +98,21 @@ func New() *Metrics {
 			Name: "waf_cluster_sync_events_total",
 			Help: "Cluster synchronization events applied, by type.",
 		}, []string{"type"}),
+		tlsCertExpiry: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "waf_tls_cert_expiry_seconds",
+			Help: "Unix timestamp of the TLS certificate expiry (NotAfter) per domain.",
+		}, []string{"domain"}),
 		visitors: make(map[string]string),
 		now:      time.Now,
 	}
-	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.clusterEvents)
+	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.clusterEvents, m.tlsCertExpiry)
 	return m
+}
+
+// SetTLSCertExpiry publie l'instant d'expiration (NotAfter) du certificat d'un
+// domaine en timestamp Unix (FR-33). L'alerte calcule le delta avec time().
+func (m *Metrics) SetTLSCertExpiry(domain string, notAfter time.Time) {
+	m.tlsCertExpiry.WithLabelValues(domain).Set(float64(notAfter.Unix()))
 }
 
 // SetPowDifficulty publie la difficulté courante du PoW adaptatif (FR-14).

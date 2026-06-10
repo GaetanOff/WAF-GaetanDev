@@ -245,3 +245,103 @@ func writeConfig(t *testing.T, content string) string {
 
 	return path
 }
+
+// validBaseConfig retourne une config minimale qui passe Validate(), pour
+// isoler la validation d'un sous-ensemble (ici server.tls / FR-33).
+func validBaseConfig() Config {
+	cfg := Default()
+	cfg.Version = "1.0"
+	cfg.Server.Listen = ":8080"
+	cfg.Upstream.Address = "http://origin:80"
+	cfg.Challenge.Enabled = false
+	cfg.Admin.Enabled = false
+	return cfg
+}
+
+func TestValidateServerTLS(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*Config)
+		wantErr bool
+	}{
+		{
+			name: "valid per-domain tls",
+			mutate: func(c *Config) {
+				c.Server.TLS.Enabled = true
+				c.Domains = []DomainConfig{{Host: "a.example.com", Upstream: "http://a", TLS: &DomainTLS{CertFile: "a.crt", KeyFile: "a.key"}}}
+			},
+			wantErr: false,
+		},
+		{
+			name: "valid default cert only",
+			mutate: func(c *Config) {
+				c.Server.TLS.Enabled = true
+				c.Server.TLS.CertFile = "def.crt"
+				c.Server.TLS.KeyFile = "def.key"
+			},
+			wantErr: false,
+		},
+		{
+			name: "mutually exclusive with acme",
+			mutate: func(c *Config) {
+				c.Server.TLS.Enabled = true
+				c.Server.TLS.CertFile = "def.crt"
+				c.Server.TLS.KeyFile = "def.key"
+				c.ACME.Enabled = true
+				c.ACME.Domains = []string{"a.example.com"}
+			},
+			wantErr: true,
+		},
+		{
+			name: "no certificate source",
+			mutate: func(c *Config) {
+				c.Server.TLS.Enabled = true
+			},
+			wantErr: true,
+		},
+		{
+			name: "domain tls missing key",
+			mutate: func(c *Config) {
+				c.Server.TLS.Enabled = true
+				c.Domains = []DomainConfig{{Host: "a.example.com", Upstream: "http://a", TLS: &DomainTLS{CertFile: "a.crt"}}}
+			},
+			wantErr: true,
+		},
+		{
+			name: "default cert missing key",
+			mutate: func(c *Config) {
+				c.Server.TLS.Enabled = true
+				c.Server.TLS.CertFile = "def.crt"
+			},
+			wantErr: true,
+		},
+		{
+			name: "invalid min version",
+			mutate: func(c *Config) {
+				c.Server.TLS.Enabled = true
+				c.Server.TLS.MinVersion = "1.1"
+				c.Server.TLS.CertFile = "def.crt"
+				c.Server.TLS.KeyFile = "def.key"
+			},
+			wantErr: true,
+		},
+		{
+			name:    "disabled tls is always valid",
+			mutate:  func(c *Config) { c.Server.TLS.Enabled = false },
+			wantErr: false,
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validBaseConfig()
+			tt.mutate(&cfg)
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Fatal("Validate() expected an error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("Validate() unexpected error = %v", err)
+			}
+		})
+	}
+}

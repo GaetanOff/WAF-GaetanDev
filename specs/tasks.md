@@ -584,15 +584,15 @@ last-updated: 2026-06-09
 
 ## Sprint 11 - Terminaison TLS par domaine (Phase 11)
 
-### T11.1 - TLS par domaine avec selection par SNI (FR-33) `[spec only — implementation differee]`
-- [ ] Ajouter le bloc `server.tls` (enabled, listen, min_version, cipher_suites, redirect_http, cert_file/key_file par defaut) et `domains[].tls` (cert_file, key_file) au parsing config + Validate (fail-fast si fichier manquant / cle non concordante)
-- [ ] Implementer `internal/tlsmgr` : chargement des paires PEM par domaine au demarrage + `tls.Config.GetCertificate` qui selectionne par SNI (exact + wildcard `*.example.com`)
-- [ ] Repli sur le certificat par defaut si SNI sans correspondance ; sinon refus de handshake (`unrecognized_name`)
-- [ ] Cabler le listener HTTPS dans `cmd/waf/main.go` a cote du chemin ACME (mutuellement exclusifs sur un meme listener) ; redirection HTTP->HTTPS si `redirect_http`
-- [ ] Exposer `waf_tls_cert_expiry_seconds{domain}` par certificat charge
-- [ ] (Optionnel, hors premiere tranche) hot-reload des certs sur SIGHUP
-- [ ] Tests : selection SNI (exact/wildcard/inconnu), fail-fast (fichier manquant, cle non concordante), plancher TLS 1.2, redirection 301
-- [ ] Doc deploiement : bascule OpenResty en HTTP interne + `set_real_ip_from` (DEPLOYMENT.md)
+### T11.1 - TLS par domaine avec selection par SNI (FR-33)
+- [x] Ajouter le bloc `server.tls` (enabled, listen, min_version, cipher_suites, redirect_http, cert_file/key_file par defaut) et `domains[].tls` (cert_file, key_file) au parsing config + Validate (fail-fast si fichier manquant / cle non concordante)
+- [x] Implementer `internal/tlsmgr` : chargement des paires PEM par domaine au demarrage + `tls.Config.GetCertificate` qui selectionne par SNI (exact + wildcard `*.example.com`)
+- [x] Repli sur le certificat par defaut si SNI sans correspondance ; sinon refus de handshake (`unrecognized_name`)
+- [x] Cabler le listener HTTPS dans `cmd/waf/main.go` a cote du chemin ACME (mutuellement exclusifs sur un meme listener) ; redirection HTTP->HTTPS si `redirect_http`
+- [x] Exposer `waf_tls_cert_expiry_seconds{domain}` par certificat charge
+- [ ] (Optionnel, hors premiere tranche) hot-reload des certs sur SIGHUP — **non implemente** (renouvellement gere en amont, redeploiement acceptable)
+- [x] Tests : selection SNI (exact/wildcard/inconnu), fail-fast (fichier manquant, cle non concordante), plancher TLS 1.2, redirection 301
+- [ ] Doc deploiement : bascule OpenResty en HTTP interne + `set_real_ip_from` (DEPLOYMENT.md) — **a faire au moment de la bascule prod**
 - **Acceptance** : un client en TLS recoit le certificat correspondant a son SNI ; un SNI sans cert et sans defaut est refuse sans servir de cert arbitraire ; un cert manquant empeche le demarrage.
-- **Statut** : spec redigee (draft), implementation a venir.
-- **Spec** : requirements-ops.md FR-33 (draft) ; features/per-domain-tls.feature ; ADR-017 ; schemas/config.schema.json
+- **Validation 2026-06-10** : `go test ./...`, `go vet ./...`, `go build ./...` passent ; schema JSON config valide ; **smoke test handshake reel** (openssl s_client) : SNI alpha→cert alpha, SNI beta→cert beta, SNI inconnu→alert TLS (refus), HTTP→HTTPS 301.
+- **Spec** : requirements-ops.md FR-33 ; features/per-domain-tls.feature ; ADR-017 ; schemas/config.schema.json

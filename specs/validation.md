@@ -190,6 +190,9 @@ last-reviewed: 2026-06-03
 | 2026-06-09 | Slice 10.1 | `go build -o waf.exe ./cmd/waf` | pass | Binary builds after adaptive pressure integration |
 | 2026-06-09 | Slice 10.1 | JSON schema parse | pass | `specs/schemas/config.schema.json` and `specs/schemas/security-event.schema.json` parse successfully |
 | 2026-06-09 | Slice 10.1 (code review) | `go test ./... && go vet ./...` | pass | Post-implementation review fixes: real THROTTLE in ratelimit (rate+capacity ×0.8/0.5/0.25 for non-TRUSTED, recomputed per request → reversible); adaptive bug fixed (high≠critical, +highExtraBits=6); removed dead `statusRecorder.Write` no-op; added ratelimit + adaptive pressure tests |
+| 2026-06-10 | Slice 11.1 | `go test ./...` | pass | FR-33 per-domain TLS via SNI: new `internal/tlsmgr` (load PEM pairs, GetCertificate by SNI exact+wildcard, default fallback / reject), config `server.tls`+`domains[].tls` with fail-fast validation, `waf_tls_cert_expiry_seconds{domain}` metric, HTTP→HTTPS redirect |
+| 2026-06-10 | Slice 11.1 | `go vet ./...` | pass | No vet findings |
+| 2026-06-10 | Slice 11.1 | smoke test (openssl s_client) | pass | Live TLS handshake: SNI alpha→cert alpha, SNI beta→cert beta, unknown SNI→TLS alert (no cert served), HTTP→HTTPS 301 |
 
 ## Security Scan Triage (Semgrep OSS)
 

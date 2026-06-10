@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 	"time"
 
@@ -42,6 +43,7 @@ import (
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/threatintel"
 	"github.com/gaetandev/waf/internal/tlsfp"
+	"github.com/gaetandev/waf/internal/tlsmgr"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/upstream"
 )
@@ -291,6 +293,22 @@ func run() error {
 		server.Addr = cfg.ACME.TLSListen
 		server.TLSConfig = acmeManager.TLSConfig()
 	}
+	// Terminaison TLS par domaine via SNI (FR-33). Mutuellement exclusif avec
+	// ACME sur le même listener (garanti par config.Validate). Le chargement des
+	// certificats échoue vite (fichier manquant / clé non concordante).
+	var tlsManager *tlsmgr.Manager
+	if cfg.Server.TLS.Enabled {
+		tlsManager, err = tlsmgr.New(*cfg)
+		if err != nil {
+			return err
+		}
+		server.Addr = cfg.Server.TLS.Listen
+		server.TLSConfig = tlsManager.TLSConfig()
+		for domain, notAfter := range tlsManager.Expiries() {
+			metrics.SetTLSCertExpiry(domain, notAfter)
+		}
+	}
+	tlsEnabled := acmeManager != nil || tlsManager != nil
 	var adminServer *admin.Server
 	if cfg.Admin.Enabled {
 		adminServer, err = admin.NewServer(*cfg, store, scoreManager, accessRules, startedAt)
@@ -301,10 +319,10 @@ func run() error {
 
 	errs := make(chan error, 1)
 	go func() {
-		slog.Info("starting waf", "listen", server.Addr, "tls", acmeManager != nil)
+		slog.Info("starting waf", "listen", server.Addr, "tls", tlsEnabled)
 		var serveErr error
-		if acmeManager != nil {
-			serveErr = server.ListenAndServeTLS("", "") // certs fournis par autocert
+		if tlsEnabled {
+			serveErr = server.ListenAndServeTLS("", "") // certs fournis par autocert ou tlsmgr (GetCertificate)
 		} else {
 			serveErr = server.ListenAndServe()
 		}
@@ -327,6 +345,21 @@ func run() error {
 			}
 		}()
 		defer func() { _ = challengeServer.Close() }()
+	}
+	// Redirection HTTP -> HTTPS (FR-33) quand le WAF termine lui-même le TLS par
+	// domaine et que redirect_http est actif.
+	if tlsManager != nil && cfg.Server.TLS.RedirectHTTP {
+		redirectServer := &http.Server{
+			Addr:              cfg.Server.Listen,
+			Handler:           http.HandlerFunc(redirectToHTTPS),
+			ReadHeaderTimeout: headerTimeout,
+		}
+		go func() {
+			if err := redirectServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+				errs <- err
+			}
+		}()
+		defer func() { _ = redirectServer.Close() }()
 	}
 	if adminServer != nil {
 		go func() {
@@ -424,6 +457,20 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 		handler = secheaders.New(cfg.SecurityHeaders).Handler(handler)
 	}
 	return handler
+}
+
+// redirectToHTTPS répond une redirection permanente vers le même hôte/chemin en
+// HTTPS (FR-33), en préservant la query string.
+func redirectToHTTPS(w http.ResponseWriter, r *http.Request) {
+	target := "https://" + stripPort(r.Host) + r.URL.RequestURI()
+	http.Redirect(w, r, target, http.StatusMovedPermanently)
+}
+
+func stripPort(hostport string) string {
+	if colon := strings.IndexByte(hostport, ':'); colon >= 0 {
+		return hostport[:colon]
+	}
+	return hostport
 }
 
 func healthHandler(w http.ResponseWriter, _ *http.Request) {

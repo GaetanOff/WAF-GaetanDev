@@ -1,8 +1,8 @@
 ---
-status: proposed
+status: accepted
 date: 2026-06-10
 deciders: GaetanDev
-relates-to: requirements-ops.md (FR-31, FR-33 draft), features/per-domain-tls.feature
+relates-to: requirements-ops.md (FR-31, FR-33), features/per-domain-tls.feature
 ---
 
 # ADR-017 — Terminaison TLS par domaine (sélection par SNI)
@@ -94,9 +94,9 @@ acceptable au départ).
   `features/per-domain-tls.feature`.
 - Schéma de config : ajout de `server.tls` et `domains[].tls`
   (`schemas/config.schema.json`).
-- Nouveau package d'implémentation prévu `internal/tlsmgr` (chargement + cache des
-  certs + `GetCertificate` SNI) ; câblage dans `cmd/waf/main.go` à côté du chemin
-  ACME existant. **Implémentation différée** (cet ADR et la spec sont en `draft`).
+- Package `internal/tlsmgr` (chargement des certs + `GetCertificate` SNI),
+  câblé dans `cmd/waf/main.go` à côté du chemin ACME existant. **Implémenté en
+  Slice 11.1** (vérifié par tests unitaires + smoke test handshake réel).
 - Impact déploiement (hors code) : OpenResty bascule en HTTP interne, l'upstream
   par défaut du WAF pointe vers OpenResty, et `set_real_ip_from` fait confiance au
   WAF. À documenter dans `DEPLOYMENT.md` au moment de l'implémentation.

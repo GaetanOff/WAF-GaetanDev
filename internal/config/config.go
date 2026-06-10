@@ -61,12 +61,32 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Listen                  string `yaml:"listen"`
-	AdminListen             string `yaml:"admin_listen"`
-	ReadTimeout             string `yaml:"read_timeout"`
-	WriteTimeout            string `yaml:"write_timeout"`
-	IdleTimeout             string `yaml:"idle_timeout"`
-	GracefulShutdownTimeout string `yaml:"graceful_shutdown_timeout"`
+	Listen                  string    `yaml:"listen"`
+	AdminListen             string    `yaml:"admin_listen"`
+	ReadTimeout             string    `yaml:"read_timeout"`
+	WriteTimeout            string    `yaml:"write_timeout"`
+	IdleTimeout             string    `yaml:"idle_timeout"`
+	GracefulShutdownTimeout string    `yaml:"graceful_shutdown_timeout"`
+	TLS                     ServerTLS `yaml:"tls"`
+}
+
+// ServerTLS configure la terminaison TLS sur le WAF (FR-33, ADR-017). Les
+// certificats par domaine sont définis dans Domains[].TLS et sélectionnés par
+// SNI ; CertFile/KeyFile fournissent un certificat par défaut optionnel.
+type ServerTLS struct {
+	Enabled      bool     `yaml:"enabled"`
+	Listen       string   `yaml:"listen"`
+	MinVersion   string   `yaml:"min_version"`
+	CipherSuites []string `yaml:"cipher_suites"`
+	RedirectHTTP bool     `yaml:"redirect_http"`
+	CertFile     string   `yaml:"cert_file"`
+	KeyFile      string   `yaml:"key_file"`
+}
+
+// DomainTLS porte le certificat statique d'un domaine, sélectionné par SNI.
+type DomainTLS struct {
+	CertFile string `yaml:"cert_file"`
+	KeyFile  string `yaml:"key_file"`
 }
 
 type UpstreamConfig struct {
@@ -321,6 +341,7 @@ type DomainConfig struct {
 	TrustOverride     *TrustOverride     `yaml:"trust_override"`
 	ProtectedPaths    []string           `yaml:"protected_paths"`
 	PublicPaths       []string           `yaml:"public_paths"`
+	TLS               *DomainTLS         `yaml:"tls"`
 }
 
 type RateLimitOverride struct {
@@ -393,6 +414,12 @@ func Default() Config {
 			WriteTimeout:            "30s",
 			IdleTimeout:             "60s",
 			GracefulShutdownTimeout: "15s",
+			TLS: ServerTLS{
+				Enabled:      false, // opt-in : terminaison TLS par domaine (FR-33)
+				Listen:       ":443",
+				MinVersion:   "1.2",
+				RedirectHTTP: true,
+			},
 		},
 		Upstream: UpstreamConfig{
 			Timeout:      "30s",
@@ -700,6 +727,7 @@ func (c *Config) Validate() error {
 	if c.ACME.Enabled && len(c.ACME.Domains) == 0 {
 		fields = append(fields, "acme.domains must not be empty when enabled")
 	}
+	validateServerTLS(&fields, c)
 	if c.SelfProtection.Enabled {
 		validateDuration(&fields, "self_protection.admin_lockout", c.SelfProtection.AdminLockout)
 		if c.SelfProtection.VerifyMaxPerMinute < 1 {
@@ -761,6 +789,43 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// validateServerTLS valide la terminaison TLS par domaine (FR-33). Les
+// vérifications de chargement réel des fichiers (parse PEM, concordance
+// cert/clé) sont faites au démarrage par internal/tlsmgr (fail-fast).
+func validateServerTLS(fields *[]string, c *Config) {
+	if !c.Server.TLS.Enabled {
+		return
+	}
+	if c.ACME.Enabled {
+		*fields = append(*fields, "server.tls.enabled and acme.enabled are mutually exclusive on the same listener")
+	}
+	requireString(fields, "server.tls.listen", c.Server.TLS.Listen)
+	if c.Server.TLS.MinVersion != "" {
+		validateEnum(fields, "server.tls.min_version", c.Server.TLS.MinVersion, "1.2", "1.3")
+	}
+	// Certificat par défaut : cert_file et key_file vont par paire.
+	hasDefault := c.Server.TLS.CertFile != "" || c.Server.TLS.KeyFile != ""
+	if hasDefault {
+		requireString(fields, "server.tls.cert_file", c.Server.TLS.CertFile)
+		requireString(fields, "server.tls.key_file", c.Server.TLS.KeyFile)
+	}
+	// Certificats par domaine : paire complète obligatoire si le bloc tls existe.
+	domainsWithTLS := 0
+	for i, domain := range c.Domains {
+		if domain.TLS == nil {
+			continue
+		}
+		domainsWithTLS++
+		prefix := fmt.Sprintf("domains[%d].tls", i)
+		requireString(fields, prefix+".cert_file", domain.TLS.CertFile)
+		requireString(fields, prefix+".key_file", domain.TLS.KeyFile)
+	}
+	// Avec TLS activé, il faut au moins une source de certificat.
+	if !hasDefault && domainsWithTLS == 0 {
+		*fields = append(*fields, "server.tls.enabled requires at least one certificate (server.tls.cert_file/key_file or a domains[].tls entry)")
+	}
 }
 
 func validatePressureLevels(fields *[]string, cfg PressureLevels) {
