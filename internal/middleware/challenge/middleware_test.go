@@ -21,6 +21,7 @@ func TestMiddlewareServesChallengePageWithoutCookie(t *testing.T) {
 	middleware, _ := newTestChallengeMiddleware(t)
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/article/123?ref=x", nil)
 	request.RemoteAddr = "3.3.3.3:1234"
+	request.Header.Set("Accept", "text/html")
 	response := httptest.NewRecorder()
 
 	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -39,10 +40,36 @@ func TestMiddlewareServesChallengePageWithoutCookie(t *testing.T) {
 	}
 }
 
+func TestMiddlewareBypassesNonNavigationRequests(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+	// Un appel API (fetch/axios) sans cookie : Accept != text/html. Il ne peut
+	// pas exécuter le challenge JS, donc il doit passer outre, pas être challengé.
+	for _, accept := range []string{"application/json", "application/json, text/plain, */*", "*/*"} {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test/api/v1/users", nil)
+		request.RemoteAddr = "3.3.3.3:1234"
+		request.Header.Set("Accept", accept)
+		response := httptest.NewRecorder()
+
+		called := false
+		middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			called = true
+			w.WriteHeader(http.StatusOK)
+		})).ServeHTTP(response, request)
+
+		if !called {
+			t.Fatalf("Accept=%q: next handler should be called (API call must bypass challenge)", accept)
+		}
+		if strings.Contains(response.Body.String(), "Protected by GaetanDev.fr") {
+			t.Fatalf("Accept=%q: API call must not receive the challenge page", accept)
+		}
+	}
+}
+
 func TestMiddlewareChallengePageIsNotCacheable(t *testing.T) {
 	middleware, _ := newTestChallengeMiddleware(t)
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
 	request.RemoteAddr = "3.3.3.3:1234"
+	request.Header.Set("Accept", "text/html")
 	response := httptest.NewRecorder()
 
 	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {

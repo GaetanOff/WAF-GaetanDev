@@ -61,6 +61,7 @@ change: "FR-08 remplace le blocage global 503 par un mode de pression adaptative
 - Le WAF DOIT rediriger automatiquement vers l'URL originale après validation
 - La page DOIT afficher le design fourni avec chronomètre et branding "Protected by GaetanDev.fr"
 - Le WAF DOIT rejeter les challenges soumis après expiration (TTL: 30 s)
+- Le WAF NE DOIT servir le challenge JS que pour une **navigation de navigateur** (méthode `GET`/`HEAD` avec `Accept` contenant `text/html`). Les appels API/XHR (`fetch`, `axios`, clients mobiles…) ne peuvent pas exécuter le JS : ils contournent le challenge (et restent couverts par le rate-limit, le moteur de risque, etc.) au lieu d'être cassés par une page HTML
 - La page de challenge et les réponses de `/waf/verify` (succès comme erreur) DOIVENT être non-cacheables (`Cache-Control: no-store`, `Pragma: no-cache`, `Expires: 0`) : le token est court et lié à l'IP, un cache CDN figerait un token expiré pour tous les visiteurs → boucle de challenge infinie
 
 ### FR-07 — Anti-Bot
@@ -69,6 +70,7 @@ change: "FR-08 remplace le blocage global 503 par un mode de pression adaptative
 - Le WAF DOIT détecter les requêtes vers des URLs honeypot configurables
 - Le WAF DOIT appliquer des règles basées sur la présence/absence de certains headers (Accept, Accept-Language, Accept-Encoding)
 - Le WAF DOIT scorer négativement les user-agents de headless browsers (Headless Chrome, PhantomJS, Puppeteer-known signatures)
+- En mode calibration (`risk_engine.shadow_mode`), le WAF DOIT **observer** les blocages heuristiques de l'anti-bot (UA suspect, headers manquants…) sans les appliquer, afin de ne pas casser le trafic API/serveur légitime non-navigateur le temps de l'observation. Le honeypot, signal **déterministe** sans faux positif, RESTE bloquant même en shadow
 
 ### FR-08 — Anti-DDoS
 - Le WAF DOIT détecter une augmentation anormale du taux de requêtes par IP et par domaine

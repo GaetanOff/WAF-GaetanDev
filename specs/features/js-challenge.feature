@@ -34,8 +34,15 @@ Feature: Challenge JavaScript
 
   Scenario: Visiteur sous le seuil de confiance — challenge déclenché
     Given un visiteur avec score = 30 (sous challenge_threshold = 40)
-    When il envoie une requête GET "/page"
+    When il envoie une requête GET "/page" avec Accept "text/html"
     Then le WAF sert la page de challenge
+
+  Scenario: Appel API/XHR — challenge contourné (pas de navigation navigateur)
+    Given un visiteur sans cookie sous le seuil de confiance
+    When il envoie une requête GET "/api/v1/users" avec Accept "application/json"
+    Then le WAF ne sert PAS la page de challenge
+    And la requête est transmise (couverte par rate-limit + moteur de risque)
+    # fetch/axios/mobile ne peuvent pas exécuter le JS : les challenger les casse.
 
   Scenario: Challenge JS réussi — cookie émis et redirect
     Given un visiteur a reçu la page de challenge avec un token valide

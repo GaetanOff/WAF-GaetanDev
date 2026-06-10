@@ -196,6 +196,8 @@ last-reviewed: 2026-06-03
 | 2026-06-10 | FR-01 `upstream.preserve_host` | `go test ./... && go vet ./...` | pass | New option to forward the inbound Host to the upstream (vhost routing). Threaded through newReverseProxy + WithPool; table test asserts default rewrites to upstream host and preserve_host keeps inbound host |
 | 2026-06-10 | FR-06 challenge no-store | `go test ./internal/middleware/challenge/` | pass | Challenge page + /waf/verify (success & error) now send Cache-Control: no-store / Pragma / Expires; tests assert no-store on page and on verify error. Prevents CDN caching an expired IP-bound token (challenge loop) |
 | 2026-06-10 | FR-06 timing floor default | `go test ./... && go vet ./...` | pass | Default min_elapsed_ms 500→0 (too-fast floor off), max_elapsed_ms 10000→60000. Fast PoW (~30ms) was rejected as challenge_too_fast → loop. Test asserts a 30ms resolution is accepted when floor=0; the configurable floor still rejects when set >0 |
+| 2026-06-10 | FR-07 anti-bot shadow_mode | `go test ./... && go vet ./...` | pass | In shadow_mode, heuristic anti-bot blocks are observed (passed through) not enforced; honeypot still blocks. antibot.New gains a shadow param. Test asserts automation UA passes in shadow while /.env honeypot still 403 |
+| 2026-06-10 | FR-06 challenge navigation-only | `go test ./... && go vet ./...` | pass | Challenge served only for browser navigation (GET/HEAD + Accept: text/html); API/XHR bypass. Test asserts JSON/`*/*` Accept calls reach next handler without the challenge page. Existing page tests updated to send Accept: text/html |
 
 ## Security Scan Triage (Semgrep OSS)
 

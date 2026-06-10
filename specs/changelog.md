@@ -8,6 +8,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- Anti-bot (FR-07) — respect de `risk_engine.shadow_mode` : en calibration, les
+  blocages **heuristiques** (UA d'automation, headers navigateur manquants…) sont
+  observés et publiés au moteur de risque sans être appliqués, pour ne pas casser
+  le trafic API/serveur légitime non-navigateur. Le **honeypot** (déterministe)
+  reste bloquant même en shadow. `antibot.New` prend désormais un paramètre `shadow`.
+- Challenge JS (FR-06) — servi uniquement pour une **navigation de navigateur**
+  (`GET`/`HEAD` + `Accept: text/html`). Les appels API/XHR (`fetch`, `axios`,
+  mobile) contournent le challenge au lieu de recevoir une page HTML qu'ils ne
+  peuvent pas exécuter ; ils restent couverts par le rate-limit et le moteur de
+  risque.
 - Challenge JS (FR-06) — plancher de timing désactivé par défaut :
   `challenge.min_elapsed_ms` passe de `500` à `0` et `max_elapsed_ms` de `10000`
   à `60000`. Sur un client rapide la PoW se résout en quelques dizaines de ms ;

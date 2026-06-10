@@ -161,6 +161,44 @@ func TestAutomationUserAgentSetsScoreToZeroAndBlocks(t *testing.T) {
 	}
 }
 
+func TestShadowModeObservesHeuristicBlockButHoneypotStillBlocks(t *testing.T) {
+	store := memory.New(100)
+	defer store.Close()
+	cfg := config.Default()
+	cfg.Version = "1.0"
+	cfg.Server.Listen = ":0"
+	cfg.Upstream.Address = "http://example.test"
+	cfg.Challenge.Enabled = false
+	cfg.Admin.Enabled = false
+	manager, err := trust.NewScoreManager(store, cfg)
+	if err != nil {
+		t.Fatalf("trust.NewScoreManager() error = %v", err)
+	}
+	middleware := New(NewRules(cfg), manager, true) // shadow / calibration
+	// En prod avec risk_engine activé, l'aval de l'anti-bot est le moteur de risque
+	// (qui observe en shadow), pas un gate de score. On modélise donc un handler
+	// terminal neutre pour tester le comportement propre de l'anti-bot.
+	passNext := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+
+	// UA d'automation : bloqué en enforcement, observé (laissé passer) en shadow.
+	automation := requestFrom("1.2.3.4:1234", "/")
+	automation.Header.Set("User-Agent", "Selenium")
+	rec := httptest.NewRecorder()
+	middleware.Handler(passNext).ServeHTTP(rec, automation)
+	if rec.Code == http.StatusForbidden {
+		t.Fatalf("shadow mode must not block heuristic automation UA, got 403")
+	}
+
+	// Honeypot : reste bloquant même en shadow (déterministe, sans faux positif).
+	honeypot := requestFrom("2.3.4.5:1234", "/.env")
+	honeypot.Header.Set("User-Agent", "Mozilla/5.0")
+	rec2 := httptest.NewRecorder()
+	middleware.Handler(passNext).ServeHTTP(rec2, honeypot)
+	if rec2.Code != http.StatusForbidden {
+		t.Fatalf("honeypot must block even in shadow mode, got %d", rec2.Code)
+	}
+}
+
 func TestWhitelistedActionBypassesAntiBot(t *testing.T) {
 	middleware, store := newTestMiddleware(t)
 	defer store.Close()
@@ -195,7 +233,7 @@ func newTestMiddleware(t *testing.T) (Middleware, *memory.Store) {
 	if err != nil {
 		t.Fatalf("trust.NewScoreManager() error = %v", err)
 	}
-	return New(NewRules(cfg), manager), store
+	return New(NewRules(cfg), manager, false), store
 }
 
 func requestFrom(remoteAddr string, path string) *http.Request {

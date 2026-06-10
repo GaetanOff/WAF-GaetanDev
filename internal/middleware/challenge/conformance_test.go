@@ -23,6 +23,7 @@ func TestConformanceRealTemplateBrandingAndTimer(t *testing.T) {
 	middleware := newRealTemplateMiddleware(t)
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
 	request.RemoteAddr = "3.3.3.3:1234"
+	request.Header.Set("Accept", "text/html")
 	response := httptest.NewRecorder()
 
 	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
@@ -51,6 +52,7 @@ func TestConformanceRealTemplateHasNoExternalResources(t *testing.T) {
 	middleware := newRealTemplateMiddleware(t)
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
 	request.RemoteAddr = "3.3.3.3:1234"
+	request.Header.Set("Accept", "text/html")
 	response := httptest.NewRecorder()
 
 	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, request)
@@ -140,6 +142,7 @@ func TestConformanceForgedCookieServesChallengePage(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
 	request.RemoteAddr = "3.3.3.3:1234"
+	request.Header.Set("Accept", "text/html")
 	request.AddCookie(&cookie)
 	response := httptest.NewRecorder()
 
@@ -166,6 +169,7 @@ func TestConformanceExpiredCookieServesChallengePage(t *testing.T) {
 
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
 	request.RemoteAddr = "3.3.3.3:1234"
+	request.Header.Set("Accept", "text/html")
 	request.AddCookie(&cookie)
 	response := httptest.NewRecorder()
 
@@ -184,6 +188,7 @@ func TestConformancePassActionSkipsChallenge(t *testing.T) {
 	defer store.Close()
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
 	request.RemoteAddr = "3.3.3.3:1234"
+	request.Header.Set("Accept", "text/html")
 	request.Header.Set("X-WAF-Action", "PASS")
 	response := httptest.NewRecorder()
 

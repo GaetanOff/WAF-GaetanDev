@@ -165,7 +165,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	antiBot := antibot.New(antibot.NewRules(*cfg), scoreManager)
+	antiBot := antibot.New(antibot.NewRules(*cfg), scoreManager, cfg.RiskEngine.ShadowMode)
 	riskMiddleware, err := risk.NewMiddleware(store, scoreManager, *cfg)
 	if err != nil {
 		return err

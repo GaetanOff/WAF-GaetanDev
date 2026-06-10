@@ -405,6 +405,8 @@ func requestFromPath(remoteAddr string, path string) *http.Request {
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
 	request.URL.Path = path
 	request.RemoteAddr = remoteAddr
+	// Simule une navigation de navigateur : le challenge JS ne cible que ce cas.
+	request.Header.Set("Accept", "text/html")
 	return request
 }
 
@@ -423,7 +425,7 @@ func newTestAntiBot(t *testing.T, cfg config.Config) antibot.Middleware {
 	if err != nil {
 		t.Fatalf("trust.NewScoreManager() error = %v", err)
 	}
-	return antibot.New(antibot.NewRules(cfg), manager)
+	return antibot.New(antibot.NewRules(cfg), manager, cfg.RiskEngine.ShadowMode)
 }
 
 func newTestChallenge(t *testing.T, cfg config.Config) challenge.Middleware {

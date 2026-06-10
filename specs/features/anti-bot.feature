@@ -47,6 +47,19 @@ Feature: Détection Anti-Bot
     Then le score du visiteur est mis à 0
     And la requête reçoit une réponse HTTP 403
 
+  Scenario: Mode calibration (shadow_mode) — blocage heuristique observé, non appliqué
+    Given le WAF est configuré avec risk_engine.shadow_mode = true
+    And un visiteur avec un User-Agent d'automation "Selenium"
+    When il envoie une requête GET "/"
+    Then le WAF n'applique PAS le blocage HTTP 403 (heuristique observée seulement)
+    And le signal est publié au moteur de risque pour calibration
+
+  Scenario: Mode calibration — le honeypot reste bloquant
+    Given le WAF est configuré avec risk_engine.shadow_mode = true
+    When un visiteur envoie une requête GET "/.env"
+    Then la requête reçoit une réponse HTTP 403
+    # Le honeypot est déterministe et sans faux positif : il bloque même en shadow.
+
   Scenario: Bot légitime — Googlebot whitelisté
     Given une requête avec User-Agent "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
     When le WAF analyse la requête

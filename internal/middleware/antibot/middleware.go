@@ -20,10 +20,15 @@ const (
 type Middleware struct {
 	rules  Rules
 	scores *trust.ScoreManager
+	shadow bool
 }
 
-func New(rules Rules, scores *trust.ScoreManager) Middleware {
-	return Middleware{rules: rules, scores: scores}
+// New construit le middleware anti-bot. shadow (= risk_engine.shadow_mode) active
+// le mode calibration : les blocages heuristiques sont observés sans être appliqués
+// (le honeypot, déterministe, reste bloquant) afin de ne pas casser le trafic
+// API/serveur légitime non-navigateur.
+func New(rules Rules, scores *trust.ScoreManager, shadow bool) Middleware {
+	return Middleware{rules: rules, scores: scores, shadow: shadow}
 }
 
 func (m Middleware) Handler(next http.Handler) http.Handler {
@@ -51,12 +56,21 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 
 		r.Header.Set("X-WAF-Reason", decision.Reason)
 		if decision.Block || m.scores.State(visitorScore) == trust.StateBlocked {
+			isHoneypot := decision.Reason == ReasonHoneypot
 			action := "BLOCK"
-			if decision.Reason == ReasonHoneypot {
+			if isHoneypot {
 				action = "HONEYPOT"
 				// Le honeypot est un signal déterministe (FR-35) : on l'annonce
 				// pour l'observabilité tout en conservant le blocage immédiat.
 				w.Header().Set(headerDeterministicTrigger, "honeypot")
+			}
+			// Calibration (shadow_mode) : on observe les blocages heuristiques sans
+			// les appliquer (sinon le trafic API/serveur légitime — client OAuth
+			// non-navigateur, en-têtes navigateur absents — serait bloqué). Le
+			// honeypot reste bloquant car déterministe et sans faux positif.
+			if m.shadow && !isHoneypot {
+				next.ServeHTTP(w, r)
+				return
 			}
 			w.Header().Set("X-WAF-Action", action)
 			w.Header().Set("X-WAF-Reason", decision.Reason)

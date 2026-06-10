@@ -7,6 +7,7 @@ import (
 	"html/template"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
@@ -134,6 +135,14 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		// Le challenge JS n'a de sens que pour une navigation de navigateur (page
+		// HTML de premier niveau). Les appels API/XHR (fetch, axios, mobile…) ne
+		// peuvent pas exécuter le JS : on ne les challenge pas, sinon ils cassent.
+		// Ils restent couverts par le reste de la chaîne (rate-limit, risk engine…).
+		if !isBrowserNavigation(r) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		m.servePage(w, r)
 	})
 }
@@ -236,6 +245,17 @@ func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
 		Difficulty:  difficulty,
 		RedirectURL: redirectURL,
 	})
+}
+
+// isBrowserNavigation détecte une navigation de navigateur (chargement de page
+// HTML), seul cas où servir un challenge JS a du sens. Un GET/HEAD dont l'en-tête
+// Accept inclut "text/html" est une navigation ; les requêtes fetch/axios/XHR
+// envoient "application/json" ou "*/*" et sont donc exclues du challenge.
+func isBrowserNavigation(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	return strings.Contains(r.Header.Get("Accept"), "text/html")
 }
 
 // setNoStore interdit toute mise en cache (navigateur et CDN) de la réponse.
