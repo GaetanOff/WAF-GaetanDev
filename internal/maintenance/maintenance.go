@@ -60,8 +60,9 @@ func wantsHTML(r *http.Request) bool {
 	return strings.Contains(r.Header.Get("Accept"), "text/html")
 }
 
-// pageWriter remplace le corps des réponses d'erreur (4xx/5xx) en texte brut
-// par une page HTML brandée. Les réponses déjà HTML sont préservées.
+// pageWriter remplace le corps des réponses d'erreur (4xx/5xx) par une page HTML
+// brandée. Les 4xx déjà en HTML sont préservés (page/JSON légitime d'appli) ;
+// les 5xx sont brandés même en HTML (cf. shouldReplace).
 type pageWriter struct {
 	http.ResponseWriter
 	wroteHeader bool
@@ -73,7 +74,7 @@ func (w *pageWriter) WriteHeader(statusCode int) {
 		return
 	}
 	w.wroteHeader = true
-	if statusCode >= 400 && !isHTML(w.Header().Get("Content-Type")) {
+	if shouldReplace(statusCode, w.Header().Get("Content-Type")) {
 		title, msg := messageFor(statusCode)
 		body := page(title, msg)
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
@@ -84,6 +85,22 @@ func (w *pageWriter) WriteHeader(statusCode int) {
 		return
 	}
 	w.ResponseWriter.WriteHeader(statusCode)
+}
+
+// shouldReplace décide si le corps d'erreur doit être remplacé par la page
+// brandée. Les 5xx sont TOUJOURS brandés (même en HTML) : un 502/503/504 vient
+// d'une passerelle/origine en panne — c'est une page d'erreur générique d'un
+// reverse proxy en aval (nginx/OpenResty), pas du contenu applicatif à préserver.
+// Les 4xx ne sont brandés que si le corps n'est pas déjà du HTML, afin de
+// préserver les pages d'erreur ou le JSON légitimes des applications.
+func shouldReplace(status int, contentType string) bool {
+	if status >= 500 {
+		return true
+	}
+	if status >= 400 {
+		return !isHTML(contentType)
+	}
+	return false
 }
 
 func (w *pageWriter) Write(b []byte) (int, error) {

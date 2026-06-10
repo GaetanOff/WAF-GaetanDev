@@ -33,6 +33,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Pages d'erreur (FR-32) — les erreurs **5xx** (502/503/504) sont désormais
+  brandées **même quand le corps est déjà en HTML** : quand l'origine est down,
+  un reverse proxy en aval (nginx/OpenResty) renvoie sa page « 502 Bad Gateway »
+  générique en `text/html` ; elle est maintenant remplacée par la page WAF
+  brandée (sur navigation navigateur). Les **4xx** restent brandés uniquement si
+  non-HTML, pour préserver les pages d'erreur HTML légitimes des applications.
 - Challenge JS (FR-06) : la page de challenge et les réponses `/waf/verify`
   (succès et erreur) sont désormais non-cacheables (`Cache-Control: no-store`,
   `Pragma: no-cache`, `Expires: 0`). Sans cela, un CDN en « Cache Everything »

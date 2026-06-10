@@ -107,6 +107,54 @@ func TestErrorPagePreservesSuccessAndHTML(t *testing.T) {
 	}
 }
 
+// Une origine down renvoie souvent un 502 en text/html (page générique
+// nginx/OpenResty). Sur une navigation navigateur, le WAF DOIT la brander.
+func TestErrorPageBrandsHTMLGatewayError(t *testing.T) {
+	m := New(config.Maintenance{Enabled: false, ErrorPages: true})
+	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.WriteHeader(http.StatusBadGateway)
+		_, _ = w.Write([]byte("<html><head><title>502 Bad Gateway</title></head><body><center>openresty/1.27.1.1</center></body></html>"))
+	}))
+	resp := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "http://x/", nil)
+	request.Header.Set("Accept", "text/html")
+	handler.ServeHTTP(resp, request)
+
+	if resp.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", resp.Code)
+	}
+	body := resp.Body.String()
+	if !strings.Contains(body, "Protected by") {
+		t.Fatalf("5xx HTML gateway error must be branded: %q", body)
+	}
+	if strings.Contains(body, "openresty") {
+		t.Fatalf("original upstream gateway page leaked: %q", body)
+	}
+}
+
+// Un 4xx déjà en HTML (page d'erreur légitime d'une appli) reste préservé même
+// sur une navigation navigateur : on ne brande que les 4xx non-HTML.
+func TestErrorPagePreserves4xxHTMLForBrowser(t *testing.T) {
+	m := New(config.Maintenance{Enabled: false, ErrorPages: true})
+	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html; charset=utf-8")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte("<html>page introuvable (custom app)</html>"))
+	}))
+	resp := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "http://x/", nil)
+	request.Header.Set("Accept", "text/html")
+	handler.ServeHTTP(resp, request)
+
+	if resp.Code != http.StatusNotFound {
+		t.Fatalf("status = %d, want 404", resp.Code)
+	}
+	if !strings.Contains(resp.Body.String(), "custom app") {
+		t.Fatalf("legit 4xx HTML app page must be preserved: %q", resp.Body.String())
+	}
+}
+
 func TestDisabledIsPassthrough(t *testing.T) {
 	m := New(config.Maintenance{Enabled: false, ErrorPages: false})
 	resp := httptest.NewRecorder()

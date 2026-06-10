@@ -65,6 +65,18 @@ Feature: Page de Maintenance & Erreurs Custom
     Then le WAF ne remplace PAS le corps : le JSON d'origine est renvoyé tel quel
     # fetch/axios doivent pouvoir parser l'erreur ; une page HTML les casserait.
 
+  Scenario: Origine down — le 502 HTML générique est brandé
+    Given error_pages activé
+    And l'origine (ex: derrière OpenResty) renvoie un "502 Bad Gateway" en text/html
+    When un visiteur navigateur (Accept "text/html") reçoit ce 502
+    Then le WAF remplace la page passerelle générique par sa page brandée
+    # Les 5xx sont brandés même en HTML : ce n'est pas du contenu applicatif.
+
+  Scenario: Page 4xx HTML légitime d'une appli — préservée
+    Given error_pages activé
+    When une appli renvoie une page 404 personnalisée en text/html
+    Then le WAF ne la remplace pas (les 4xx HTML légitimes sont préservés)
+
   Scenario: Assets statiques servis même en mode maintenance
     Given le WAF est en mode maintenance forcé
     When un visiteur demande GET "/favicon.ico"
