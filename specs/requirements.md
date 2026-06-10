@@ -61,6 +61,7 @@ change: "FR-08 remplace le blocage global 503 par un mode de pression adaptative
 - Le WAF DOIT rediriger automatiquement vers l'URL originale après validation
 - La page DOIT afficher le design fourni avec chronomètre et branding "Protected by GaetanDev.fr"
 - Le WAF DOIT rejeter les challenges soumis après expiration (TTL: 30 s)
+- La page de challenge et les réponses de `/waf/verify` (succès comme erreur) DOIVENT être non-cacheables (`Cache-Control: no-store`, `Pragma: no-cache`, `Expires: 0`) : le token est court et lié à l'IP, un cache CDN figerait un token expiré pour tous les visiteurs → boucle de challenge infinie
 
 ### FR-07 — Anti-Bot
 - Le WAF DOIT analyser les headers HTTP pour détecter les bots (User-Agent vide, bot connus, headless browsers)

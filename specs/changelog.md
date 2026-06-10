@@ -6,6 +6,14 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- Challenge JS (FR-06) : la page de challenge et les réponses `/waf/verify`
+  (succès et erreur) sont désormais non-cacheables (`Cache-Control: no-store`,
+  `Pragma: no-cache`, `Expires: 0`). Sans cela, un CDN en « Cache Everything »
+  (ex: Cloudflare) pouvait figer un token de challenge expiré et lié à une IP
+  pour tous les visiteurs, provoquant une boucle de challenge infinie.
+
 ### Added
 
 - `upstream.preserve_host` (FR-01) — conserve l'en-tête `Host` entrant vers

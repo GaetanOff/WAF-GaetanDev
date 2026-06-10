@@ -194,6 +194,7 @@ last-reviewed: 2026-06-03
 | 2026-06-10 | Slice 11.1 | `go vet ./...` | pass | No vet findings |
 | 2026-06-10 | Slice 11.1 | smoke test (openssl s_client) | pass | Live TLS handshake: SNI alpha→cert alpha, SNI beta→cert beta, unknown SNI→TLS alert (no cert served), HTTP→HTTPS 301 |
 | 2026-06-10 | FR-01 `upstream.preserve_host` | `go test ./... && go vet ./...` | pass | New option to forward the inbound Host to the upstream (vhost routing). Threaded through newReverseProxy + WithPool; table test asserts default rewrites to upstream host and preserve_host keeps inbound host |
+| 2026-06-10 | FR-06 challenge no-store | `go test ./internal/middleware/challenge/` | pass | Challenge page + /waf/verify (success & error) now send Cache-Control: no-store / Pragma / Expires; tests assert no-store on page and on verify error. Prevents CDN caching an expired IP-bound token (challenge loop) |
 
 ## Security Scan Triage (Semgrep OSS)
 

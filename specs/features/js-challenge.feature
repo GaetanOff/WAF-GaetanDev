@@ -18,6 +18,20 @@ Feature: Challenge JavaScript
     And la réponse contient un chronomètre JavaScript
     And la réponse ne contient pas le contenu de la page "/article/123"
 
+  Scenario: La page de challenge n'est jamais mise en cache
+    Given un nouveau visiteur sans cookie
+    When le WAF sert la page de challenge
+    Then la réponse porte l'en-tête "Cache-Control: no-store, no-cache, must-revalidate, max-age=0"
+    And la réponse porte l'en-tête "Pragma: no-cache"
+    And la réponse porte l'en-tête "Expires: 0"
+    # Empêche un CDN (ex: Cloudflare "Cache Everything") de figer un token expiré
+    # pour tous les visiteurs, ce qui provoquerait une boucle de challenge infinie.
+
+  Scenario: Les réponses de /waf/verify ne sont jamais mises en cache
+    Given un visiteur soumet le challenge via POST "/waf/verify"
+    When le WAF répond (succès ou erreur)
+    Then la réponse porte l'en-tête "Cache-Control: no-store, no-cache, must-revalidate, max-age=0"
+
   Scenario: Visiteur sous le seuil de confiance — challenge déclenché
     Given un visiteur avec score = 30 (sous challenge_threshold = 40)
     When il envoie une requête GET "/page"

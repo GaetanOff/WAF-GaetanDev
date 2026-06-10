@@ -203,6 +203,7 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 		redirectURL = "/"
 	}
 	w.Header().Set("Content-Type", "application/json")
+	setNoStore(w)
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(verifyResponse{RedirectURL: redirectURL})
 }
@@ -225,12 +226,23 @@ func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Jamais mettre en cache : la page porte un token à durée de vie courte, lié
+	// à l'IP. Un cache CDN (ex: règle Cloudflare "Cache Everything") figerait un
+	// token expiré pour tous les visiteurs -> verify en échec -> boucle infinie.
+	setNoStore(w)
 	w.WriteHeader(http.StatusOK)
 	_ = m.template.Execute(w, PageData{
 		Token:       token,
 		Difficulty:  difficulty,
 		RedirectURL: redirectURL,
 	})
+}
+
+// setNoStore interdit toute mise en cache (navigateur et CDN) de la réponse.
+func setNoStore(w http.ResponseWriter) {
+	w.Header().Set("Cache-Control", "no-store, no-cache, must-revalidate, max-age=0")
+	w.Header().Set("Pragma", "no-cache")
+	w.Header().Set("Expires", "0")
 }
 
 func validateSubmission(submission Submission) error {
@@ -256,6 +268,7 @@ func writeTokenError(w http.ResponseWriter, err error) {
 
 func writeError(w http.ResponseWriter, status int, code string) {
 	w.Header().Set("Content-Type", "application/json")
+	setNoStore(w)
 	w.WriteHeader(status)
 	_ = json.NewEncoder(w).Encode(errorResponse{Error: code})
 }

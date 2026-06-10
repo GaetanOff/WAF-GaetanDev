@@ -39,6 +39,41 @@ func TestMiddlewareServesChallengePageWithoutCookie(t *testing.T) {
 	}
 }
 
+func TestMiddlewareChallengePageIsNotCacheable(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
+	request.RemoteAddr = "3.3.3.3:1234"
+	response := httptest.NewRecorder()
+
+	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("next handler should not be called")
+	})).ServeHTTP(response, request)
+
+	// La page porte un token court lié à l'IP : elle ne doit jamais être mise en
+	// cache (navigateur ou CDN), sinon un token figé casse verify pour tous.
+	if cc := response.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+		t.Fatalf("Cache-Control = %q, want no-store", cc)
+	}
+	if response.Header().Get("Pragma") != "no-cache" {
+		t.Fatalf("Pragma = %q, want no-cache", response.Header().Get("Pragma"))
+	}
+}
+
+func TestMiddlewareVerifyErrorIsNotCacheable(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+	// Soumission invalide -> writeError : doit aussi être non-cacheable.
+	request := httptest.NewRequest(http.MethodPost, "http://example.test/waf/verify", strings.NewReader("{}"))
+	request.RemoteAddr = "3.3.3.3:1234"
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+
+	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, request)
+
+	if cc := response.Header().Get("Cache-Control"); !strings.Contains(cc, "no-store") {
+		t.Fatalf("Cache-Control = %q, want no-store", cc)
+	}
+}
+
 func TestMiddlewareVerifySuccessIssuesCookieAndRedirect(t *testing.T) {
 	middleware, store := newTestChallengeMiddleware(t)
 	defer store.Close()
