@@ -193,6 +193,7 @@ last-reviewed: 2026-06-03
 | 2026-06-10 | Slice 11.1 | `go test ./...` | pass | FR-33 per-domain TLS via SNI: new `internal/tlsmgr` (load PEM pairs, GetCertificate by SNI exact+wildcard, default fallback / reject), config `server.tls`+`domains[].tls` with fail-fast validation, `waf_tls_cert_expiry_seconds{domain}` metric, HTTP→HTTPS redirect |
 | 2026-06-10 | Slice 11.1 | `go vet ./...` | pass | No vet findings |
 | 2026-06-10 | Slice 11.1 | smoke test (openssl s_client) | pass | Live TLS handshake: SNI alpha→cert alpha, SNI beta→cert beta, unknown SNI→TLS alert (no cert served), HTTP→HTTPS 301 |
+| 2026-06-10 | FR-01 `upstream.preserve_host` | `go test ./... && go vet ./...` | pass | New option to forward the inbound Host to the upstream (vhost routing). Threaded through newReverseProxy + WithPool; table test asserts default rewrites to upstream host and preserve_host keeps inbound host |
 
 ## Security Scan Triage (Semgrep OSS)
 

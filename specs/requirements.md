@@ -16,6 +16,7 @@ change: "FR-08 remplace le blocage global 503 par un mode de pression adaptative
 - Le WAF DOIT préserver tous les headers originaux et ajouter `X-Forwarded-For`, `X-Real-IP`
 - Le WAF DOIT supporter la configuration de plusieurs domaines avec upstreams distincts
 - Le WAF DOIT supporter les WebSockets (upgrade HTTP)
+- Le WAF DOIT pouvoir conserver l'en-tête `Host` entrant vers l'upstream (`upstream.preserve_host`) au lieu de le réécrire vers l'hôte de l'upstream — requis quand l'upstream route par `server_name` (ex: nginx/OpenResty en aval). Défaut : réécriture vers l'hôte upstream (comportement historique)
 
 ### FR-02 — Extraction IP Cloudflare
 - Le WAF DOIT extraire l'IP réelle depuis le header `CF-Connecting-IP` quand la requête provient d'un IP Cloudflare connu

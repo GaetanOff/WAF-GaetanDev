@@ -31,6 +31,7 @@ upstream:
   timeout: "30s"
   tls_verify: true
   max_idle_conns: 100
+  preserve_host: false         # true = conserve le Host entrant (upstream routant par vhost)
 
 # Intégration Cloudflare
 cloudflare:

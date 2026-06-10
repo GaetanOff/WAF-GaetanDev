@@ -29,14 +29,14 @@ type Handler struct {
 // WithPool active le load balancing : quand un pool est configuré, il sélectionne
 // l'upstream par requête (health-aware, FR-25/26) et prend la priorité sur le
 // routage par domaine. Un upstream qui échoue à la connexion est marqué non sain.
-func (h *Handler) WithPool(pool *upstream.Pool, tlsVerify bool, maxIdleConns int, timeout time.Duration) error {
+func (h *Handler) WithPool(pool *upstream.Pool, tlsVerify bool, maxIdleConns int, timeout time.Duration, preserveHost bool) error {
 	proxies := make(map[string]*httputil.ReverseProxy, len(pool.Upstreams()))
 	for _, u := range pool.Upstreams() {
 		target, err := url.Parse(u.Address)
 		if err != nil {
 			return fmt.Errorf("parse pool upstream %q: %w", u.Address, err)
 		}
-		proxy := newReverseProxy(target, tlsVerify, maxIdleConns, timeout)
+		proxy := newReverseProxy(target, tlsVerify, maxIdleConns, timeout, preserveHost)
 		member := u
 		proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
 			member.SetHealthy(false) // failover : exclure dès l'échec de connexion
@@ -70,7 +70,7 @@ func NewHandler(cfg config.Config) (*Handler, error) {
 		defaultUpstream: defaultUpstream,
 		proxies:         make(map[string]*httputil.ReverseProxy),
 	}
-	handler.proxies[defaultUpstream.String()] = newReverseProxy(defaultUpstream, cfg.Upstream.TLSVerify, cfg.Upstream.MaxIdleConns, timeout)
+	handler.proxies[defaultUpstream.String()] = newReverseProxy(defaultUpstream, cfg.Upstream.TLSVerify, cfg.Upstream.MaxIdleConns, timeout, cfg.Upstream.PreserveHost)
 
 	for _, domain := range cfg.Domains {
 		upstream, err := url.Parse(domain.Upstream)
@@ -90,7 +90,7 @@ func NewHandler(cfg config.Config) (*Handler, error) {
 
 		key := upstream.String()
 		if _, exists := handler.proxies[key]; !exists {
-			handler.proxies[key] = newReverseProxy(upstream, cfg.Upstream.TLSVerify, cfg.Upstream.MaxIdleConns, timeout)
+			handler.proxies[key] = newReverseProxy(upstream, cfg.Upstream.TLSVerify, cfg.Upstream.MaxIdleConns, timeout, cfg.Upstream.PreserveHost)
 		}
 	}
 
@@ -134,16 +134,23 @@ func (r domainRoute) matches(host string) bool {
 	return host == r.host
 }
 
-func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout time.Duration) *httputil.ReverseProxy {
+func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout time.Duration, preserveHost bool) *httputil.ReverseProxy {
 	proxy := &httputil.ReverseProxy{}
 	// Rewrite remplace Director (déprécié depuis Go 1.26). SetURL route vers
 	// l'upstream (scheme/host/path) et fixe l'hôte sortant ; SetXForwarded
 	// préserve les en-têtes X-Forwarded-* que l'ancien director ajoutait.
 	proxy.Rewrite = func(pr *httputil.ProxyRequest) {
 		clientIP := realIP(pr.In)
+		inHost := pr.In.Host
 		pr.SetURL(target)
 		pr.SetXForwarded()
-		pr.Out.Host = target.Host
+		// Par défaut, l'hôte sortant est celui de l'upstream. Avec preserveHost,
+		// on conserve le Host entrant pour que l'upstream route par vhost.
+		if preserveHost {
+			pr.Out.Host = inHost
+		} else {
+			pr.Out.Host = target.Host
+		}
 		pr.Out.Header.Set("X-Real-IP", clientIP)
 		if pr.Out.Header.Get("X-WAF-Score") == "" {
 			pr.Out.Header.Set("X-WAF-Score", defaultWAFScore)

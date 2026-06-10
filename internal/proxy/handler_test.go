@@ -99,6 +99,60 @@ func TestHandlerReturnsBadGatewayWhenUpstreamIsDown(t *testing.T) {
 	}
 }
 
+func TestHandlerPreserveHost(t *testing.T) {
+	tests := []struct {
+		name         string
+		preserveHost bool
+		wantHostFn   func(upstreamHost string) string
+	}{
+		{
+			name:         "default rewrites host to upstream",
+			preserveHost: false,
+			wantHostFn:   func(upstreamHost string) string { return upstreamHost },
+		},
+		{
+			name:         "preserve_host keeps inbound host",
+			preserveHost: true,
+			wantHostFn:   func(string) string { return "client.example.com" },
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			gotHost := make(chan string, 1)
+			upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotHost <- r.Host
+				_, _ = w.Write([]byte("ok"))
+			}))
+			t.Cleanup(upstream.Close)
+
+			cfg := config.Default()
+			cfg.Version = "1.0"
+			cfg.Server.Listen = ":0"
+			cfg.Upstream.Address = upstream.URL
+			cfg.Upstream.Timeout = "1s"
+			cfg.Upstream.MaxIdleConns = 10
+			cfg.Upstream.PreserveHost = tt.preserveHost
+			cfg.Challenge.Enabled = false
+			cfg.Admin.Enabled = false
+
+			handler, err := NewHandler(cfg)
+			if err != nil {
+				t.Fatalf("NewHandler() error = %v", err)
+			}
+
+			request := httptest.NewRequest(http.MethodGet, "http://client.example.com/page", nil)
+			request.Host = "client.example.com"
+			handler.ServeHTTP(httptest.NewRecorder(), request)
+
+			upstreamHost := strings.TrimPrefix(upstream.URL, "http://")
+			want := tt.wantHostFn(upstreamHost)
+			if got := <-gotHost; got != want {
+				t.Fatalf("upstream saw Host = %q, want %q", got, want)
+			}
+		})
+	}
+}
+
 func newTestHandler(t *testing.T, upstream string, domains []config.DomainConfig) *Handler {
 	t.Helper()
 

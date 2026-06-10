@@ -94,6 +94,11 @@ type UpstreamConfig struct {
 	Timeout      string `yaml:"timeout"`
 	TLSVerify    bool   `yaml:"tls_verify"`
 	MaxIdleConns int    `yaml:"max_idle_conns"`
+	// PreserveHost conserve l'en-tête Host entrant vers l'upstream au lieu de le
+	// réécrire vers l'hôte de l'upstream. Indispensable quand l'upstream route
+	// par nom d'hôte (ex: un nginx/OpenResty en aval qui sélectionne le vhost
+	// par server_name). Défaut false = comportement historique (Host = upstream).
+	PreserveHost bool `yaml:"preserve_host"`
 }
 
 type Cloudflare struct {

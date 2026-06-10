@@ -108,6 +108,7 @@ Upstream utilisé quand aucune entrée `domains` ne correspond au `Host` de la r
 | `timeout` | durée | `"30s"` | Délai max pour recevoir la réponse de l'upstream (connect + read). |
 | `tls_verify` | bool | `true` | Vérifier le certificat TLS de l'upstream. Mettre à `false` uniquement en dev avec des certificats auto-signés. |
 | `max_idle_conns` | int | `100` | Taille du pool de connexions HTTP keep-alive vers l'upstream. Augmenter si l'upstream reçoit un trafic soutenu élevé. |
+| `preserve_host` | bool | `false` | Conserver l'en-tête `Host` entrant vers l'upstream au lieu de le réécrire vers l'hôte de l'upstream. **Indispensable quand l'upstream route par vhost** (`server_name` nginx/OpenResty en aval). `false` = comportement historique (Host = hôte upstream). |
 
 ---
 

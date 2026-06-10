@@ -115,6 +115,11 @@
           "type": "integer",
           "default": 100,
           "minimum": 1
+        },
+        "preserve_host": {
+          "type": "boolean",
+          "default": false,
+          "description": "Conserver l'en-tête Host entrant vers l'upstream (au lieu de le réécrire vers l'hôte upstream). Requis quand l'upstream route par vhost (ex: nginx/OpenResty en aval)."
         }
       }
     },

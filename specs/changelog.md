@@ -8,6 +8,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Added
 
+- `upstream.preserve_host` (FR-01) — conserve l'en-tête `Host` entrant vers
+  l'upstream au lieu de le réécrire vers l'hôte de l'upstream. Requis quand
+  l'upstream route par `server_name` (nginx/OpenResty en aval). Défaut `false`
+  (comportement historique). S'applique au routage par domaine et au pool
+  d'upstreams (`WithPool`).
+
+
 - FR-33 — Terminaison **TLS par domaine** (sélection par SNI) : le WAF peut
   terminer le TLS en présentant un certificat distinct par domaine
   (`domains[].tls.cert_file`/`key_file`), choisi selon le SNI (exact + wildcard),

@@ -119,7 +119,7 @@ func run() error {
 		if err != nil {
 			return err
 		}
-		if err := proxyHandler.WithPool(pool, cfg.Upstream.TLSVerify, cfg.Upstream.MaxIdleConns, upstreamTimeout); err != nil {
+		if err := proxyHandler.WithPool(pool, cfg.Upstream.TLSVerify, cfg.Upstream.MaxIdleConns, upstreamTimeout, cfg.Upstream.PreserveHost); err != nil {
 			return err
 		}
 		hcInterval, err := parseDuration("upstream_pool.health_check.interval", cfg.UpstreamPool.HealthCheck.Interval)
