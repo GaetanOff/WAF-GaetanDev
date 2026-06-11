@@ -13,6 +13,7 @@ import (
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/upstreamtime"
 	"github.com/google/uuid"
 )
 
@@ -154,6 +155,41 @@ func TestMiddlewareRealBlockStillAlerts(t *testing.T) {
 	}
 	if alerter.calls != 1 {
 		t.Fatalf("alerter appelé %d fois, want 1 (vrai blocage WAF)", alerter.calls)
+	}
+}
+
+// waf_latency_ms doit exclure le temps upstream : ici total = 100ms, upstream =
+// 40ms → waf = 60ms (et non 100ms comme avant, où c'était un doublon du total).
+func TestMiddlewareWAFLatencyExcludesUpstream(t *testing.T) {
+	var output bytes.Buffer
+	log := NewWithWriter(config.Default().Logging, &output)
+	t0 := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
+	times := []time.Time{t0, t0.Add(100 * time.Millisecond)}
+	idx := 0
+	log.now = func() time.Time {
+		v := times[idx]
+		if idx < len(times)-1 {
+			idx++
+		}
+		return v
+	}
+	scores, store := newTestScoreManager(t)
+	defer store.Close()
+	handler := log.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		upstreamtime.FromContext(r.Context()).Add(40 * time.Millisecond) // simule l'upstream
+		w.WriteHeader(http.StatusOK)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+	request.RemoteAddr = "1.2.3.4:1234"
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	event := decodeEvent(t, output.String())
+	if event["latency_ms"] != float64(100) {
+		t.Fatalf("latency_ms = %v, want 100", event["latency_ms"])
+	}
+	if event["waf_latency_ms"] != float64(60) {
+		t.Fatalf("waf_latency_ms = %v, want 60 (total - upstream)", event["waf_latency_ms"])
 	}
 }
 

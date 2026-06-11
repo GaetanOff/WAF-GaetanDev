@@ -13,6 +13,7 @@ import (
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/upstream"
+	"github.com/gaetandev/waf/internal/upstreamtime"
 )
 
 const defaultWAFScore = "50"
@@ -98,6 +99,10 @@ func NewHandler(cfg config.Config) (*Handler, error) {
 }
 
 func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// Le temps passé dans proxy.ServeHTTP (round-trip upstream + streaming de la
+	// réponse) est compté comme temps upstream, pour distinguer waf_latency_ms du
+	// total. Recorder absent (chaîne sans logger) → Add est un no-op.
+	recorder := upstreamtime.FromContext(r.Context())
 	if h.pool != nil {
 		member, ok := h.pool.Pick(realIP(r))
 		if !ok {
@@ -106,13 +111,17 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		member.Acquire()
 		defer member.Release()
+		started := time.Now()
 		h.poolProxies[member.Address].ServeHTTP(w, r)
+		recorder.Add(time.Since(started))
 		return
 	}
 
 	target := h.resolveUpstream(r.Host)
 	proxy := h.proxies[target.String()]
+	started := time.Now()
 	proxy.ServeHTTP(w, r)
+	recorder.Add(time.Since(started))
 }
 
 func (h *Handler) resolveUpstream(host string) *url.URL {

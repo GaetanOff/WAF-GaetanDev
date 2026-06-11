@@ -10,6 +10,7 @@ import (
 	"github.com/gaetandev/waf/internal/gdpr"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/upstreamtime"
 	"github.com/google/uuid"
 )
 
@@ -24,11 +25,18 @@ func (l Logger) Middleware(scores *trust.ScoreManager, next http.Handler) http.H
 		recorder := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 		w.Header().Set(requestIDHeader, requestID)
 
-		r = withRequestID(r, requestID)
+		// Chronomètre upstream : le proxy y cumule le temps passé à parler à
+		// l'origine, pour isoler waf_latency_ms (temps WAF) de latency_ms (total).
+		ctx, upstreamRec := upstreamtime.WithRecorder(r.Context())
+		r = withRequestID(r.WithContext(ctx), requestID)
 		next.ServeHTTP(recorder, r)
 
 		elapsed := l.now().Sub(startedAt).Seconds() * 1000
-		event := l.securityEvent(r, recorder, scores, requestID, startedAt, elapsed)
+		wafLatency := elapsed - upstreamRec.Total().Seconds()*1000
+		if wafLatency < 0 {
+			wafLatency = 0
+		}
+		event := l.securityEvent(r, recorder, scores, requestID, startedAt, elapsed, wafLatency)
 		l.WriteSecurityEvent(event)
 		if l.Alerter != nil && isAlertable(event.Action) {
 			l.Alerter.Notify(alert.Event{
@@ -87,7 +95,7 @@ func withRequestID(r *http.Request, requestID string) *http.Request {
 	return r.WithContext(ctx)
 }
 
-func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores *trust.ScoreManager, requestID string, startedAt time.Time, elapsedMS float64) SecurityEvent {
+func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores *trust.ScoreManager, requestID string, startedAt time.Time, elapsedMS float64, wafLatencyMS float64) SecurityEvent {
 	ip := cloudflare.RealIP(r)
 	trustScore := currentTrustScore(r, scores, ip)
 	action := normalizedAction(r, recorder)
@@ -114,7 +122,7 @@ func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores 
 		ShadowMode:     r.Header.Get("X-WAF-Risk-Shadow-Mode") == "true",
 		GlobalPressure: globalPressure(r),
 		LatencyMS:      elapsedMS,
-		WAFLatencyMS:   elapsedMS,
+		WAFLatencyMS:   wafLatencyMS,
 		UpstreamStatus: upstreamStatus(action, recorder.statusCode),
 		CFRay:          optionalHeader(r, "CF-Ray"),
 		CFCountry:      optionalHeader(r, "CF-IPCountry"),

@@ -39,6 +39,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- `waf_latency_ms` (FR-09) — mesure désormais le temps réellement passé **dans le
+  WAF** (`latency_ms` total − temps upstream), au lieu d'être un doublon exact de
+  `latency_ms`. Un nouveau chronomètre (`internal/upstreamtime`, porté par le
+  contexte de requête) est alimenté par le proxy autour de l'appel upstream
+  (round-trip + streaming) ; le middleware de log le soustrait. Permet enfin de
+  distinguer l'overhead WAF de la latence d'origine (ex: un stream SSE de 135s
+  n'affiche plus 135000 en `waf_latency_ms`).
 - Classification d'action (FR-09) — un statut **5xx/4xx provenant de l'upstream**
   (origine down → 502, ou 403/404 applicatif) n'est plus étiqueté `BLOCK`.
   `actionFromStatus` mappait tout `≥500`/`403` en blocage WAF, alors que toutes
