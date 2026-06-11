@@ -8,6 +8,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- Webhooks d'alerte (FR-29) — payload enrichi. Discord reçoit désormais un
+  **embed** (couleur par sévérité, titre avec emoji, champs Domaine/Action/IP/
+  Pays/Méthode/Chemin/Raison/Score, timestamp, footer avec request_id) au lieu
+  d'un simple `content` texte ; Slack reçoit un **attachment** coloré équivalent ;
+  le sink générique reçoit l'`Alert` JSON enrichie. L'événement source transporte
+  maintenant IP, chemin, méthode, action, request_id, pays et score de confiance.
 - Pages d'erreur (FR-32) — le remplacement du corps d'erreur 4xx/5xx par la page
   HTML brandée ne s'applique plus qu'aux **navigations de navigateur**
   (`Accept: text/html`). Les appels API/XHR (`application/json`, `*/*`, ou Accept

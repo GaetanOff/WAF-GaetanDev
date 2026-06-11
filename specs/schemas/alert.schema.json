@@ -50,6 +50,14 @@
       "type": "string",
       "description": "Description détaillée de l'alerte"
     },
+    "reason": { "type": "string", "description": "Raison technique (ex: honeypot_path)" },
+    "ip": { "type": "string", "description": "IP du visiteur (anonymisée si RGPD)" },
+    "path": { "type": "string", "description": "Chemin de la requête" },
+    "method": { "type": "string", "description": "Méthode HTTP" },
+    "action": { "type": "string", "description": "Action WAF (BLOCK, HONEYPOT, CIRCUIT_BREAK…)" },
+    "request_id": { "type": "string", "description": "Corrélation avec le log de sécurité" },
+    "country": { "type": "string", "description": "Pays (CF-IPCountry)" },
+    "trust_score": { "type": "integer", "description": "Score de confiance du visiteur" },
     "data": {
       "type": ["object", "null"],
       "description": "Données contextuelles spécifiques au trigger",

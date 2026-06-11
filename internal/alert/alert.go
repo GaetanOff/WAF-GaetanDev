@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 )
@@ -18,14 +19,37 @@ const (
 	SinkDiscord = "discord"
 )
 
-// Alert est le payload d'alerte (cf. schemas/alert.schema.json, forme condensée).
+// Event décrit l'événement de sécurité source d'une alerte (entrée du Notifier).
+// Le Notifier en dérive l'Alert enrichie (sévérité, titre, payload formaté).
+type Event struct {
+	Trigger    string
+	Domain     string
+	Reason     string
+	IP         string
+	Path       string
+	Method     string
+	Action     string
+	RequestID  string
+	Country    string
+	TrustScore int
+}
+
+// Alert est le payload d'alerte enrichi (cf. schemas/alert.schema.json).
 type Alert struct {
-	Timestamp string `json:"timestamp"`
-	Trigger   string `json:"trigger"`
-	Severity  string `json:"severity"`
-	Domain    string `json:"domain"`
-	Title     string `json:"title"`
-	Message   string `json:"message"`
+	Timestamp  string `json:"timestamp"`
+	Trigger    string `json:"trigger"`
+	Severity   string `json:"severity"`
+	Domain     string `json:"domain"`
+	Title      string `json:"title"`
+	Message    string `json:"message"`
+	Reason     string `json:"reason,omitempty"`
+	IP         string `json:"ip,omitempty"`
+	Path       string `json:"path,omitempty"`
+	Method     string `json:"method,omitempty"`
+	Action     string `json:"action,omitempty"`
+	RequestID  string `json:"request_id,omitempty"`
+	Country    string `json:"country,omitempty"`
+	TrustScore int    `json:"trust_score"`
 }
 
 // Sink est une destination de webhook.
@@ -84,15 +108,23 @@ func (n *Notifier) worker() {
 	}
 }
 
-// Notify construit et dispatche une alerte à partir d'un événement WAF.
-func (n *Notifier) Notify(trigger string, domain string, reason string) {
+// Notify construit et dispatche une alerte enrichie à partir d'un événement WAF.
+func (n *Notifier) Notify(ev Event) {
 	n.Dispatch(Alert{
-		Timestamp: n.now().UTC().Format(time.RFC3339),
-		Trigger:   trigger,
-		Severity:  severityFor(trigger),
-		Domain:    domain,
-		Title:     "WAF " + trigger,
-		Message:   reason,
+		Timestamp:  n.now().UTC().Format(time.RFC3339),
+		Trigger:    ev.Trigger,
+		Severity:   severityFor(ev.Trigger),
+		Domain:     ev.Domain,
+		Title:      titleFor(ev.Trigger),
+		Message:    messageFor(ev),
+		Reason:     ev.Reason,
+		IP:         ev.IP,
+		Path:       ev.Path,
+		Method:     ev.Method,
+		Action:     ev.Action,
+		RequestID:  ev.RequestID,
+		Country:    ev.Country,
+		TrustScore: ev.TrustScore,
 	})
 }
 
@@ -159,20 +191,177 @@ func (n *Notifier) Close() {
 	<-n.done
 }
 
-// encode formate le payload selon le type de sink (Slack/Discord/générique).
+// encode formate le payload selon le type de sink. Discord et Slack reçoivent un
+// message riche (embed / attachment coloré avec champs) ; le générique reçoit
+// l'Alert JSON complète.
 func encode(sinkType string, alert Alert) []byte {
-	text := "[" + alert.Severity + "] " + alert.Title + " — " + alert.Domain + " : " + alert.Message
 	var payload any
 	switch sinkType {
 	case SinkSlack:
-		payload = map[string]string{"text": text}
+		payload = slackPayload{Attachments: []slackAttachment{slackAttachmentFor(alert)}}
 	case SinkDiscord:
-		payload = map[string]string{"content": text}
+		payload = discordPayload{Embeds: []discordEmbed{discordEmbedFor(alert)}}
 	default:
 		payload = alert
 	}
 	data, _ := json.Marshal(payload)
 	return data
+}
+
+// --- Rendu Discord (embeds) ---------------------------------------------------
+
+type discordPayload struct {
+	Embeds []discordEmbed `json:"embeds"`
+}
+
+type discordEmbed struct {
+	Title       string         `json:"title"`
+	Description string         `json:"description,omitempty"`
+	Color       int            `json:"color"`
+	Fields      []discordField `json:"fields,omitempty"`
+	Footer      discordFooter  `json:"footer"`
+	Timestamp   string         `json:"timestamp"`
+}
+
+type discordField struct {
+	Name   string `json:"name"`
+	Value  string `json:"value"`
+	Inline bool   `json:"inline"`
+}
+
+type discordFooter struct {
+	Text string `json:"text"`
+}
+
+func discordEmbedFor(a Alert) discordEmbed {
+	fields := make([]discordField, 0, 6)
+	for _, kv := range a.fields() {
+		fields = append(fields, discordField{Name: kv[0], Value: kv[1], Inline: true})
+	}
+	return discordEmbed{
+		Title:       a.Title,
+		Description: a.Message,
+		Color:       discordColor(a.Severity),
+		Fields:      fields,
+		Footer:      discordFooter{Text: footerText(a)},
+		Timestamp:   a.Timestamp,
+	}
+}
+
+func discordColor(severity string) int {
+	switch severity {
+	case "critical":
+		return 0xE74C3C // rouge
+	case "warning":
+		return 0xE67E22 // orange
+	default:
+		return 0x3498DB // bleu
+	}
+}
+
+// --- Rendu Slack (attachments) ------------------------------------------------
+
+type slackPayload struct {
+	Attachments []slackAttachment `json:"attachments"`
+}
+
+type slackAttachment struct {
+	Color  string       `json:"color"`
+	Title  string       `json:"title"`
+	Text   string       `json:"text,omitempty"`
+	Fields []slackField `json:"fields,omitempty"`
+	Footer string       `json:"footer"`
+}
+
+type slackField struct {
+	Title string `json:"title"`
+	Value string `json:"value"`
+	Short bool   `json:"short"`
+}
+
+func slackAttachmentFor(a Alert) slackAttachment {
+	fields := make([]slackField, 0, 6)
+	for _, kv := range a.fields() {
+		fields = append(fields, slackField{Title: kv[0], Value: kv[1], Short: true})
+	}
+	return slackAttachment{
+		Color:  slackColor(a.Severity),
+		Title:  a.Title,
+		Text:   a.Message,
+		Fields: fields,
+		Footer: footerText(a),
+	}
+}
+
+func slackColor(severity string) string {
+	switch severity {
+	case "critical":
+		return "#E74C3C"
+	case "warning":
+		return "#E67E22"
+	default:
+		return "#3498DB"
+	}
+}
+
+// --- Helpers communs ----------------------------------------------------------
+
+// fields retourne les paires label/valeur non vides à afficher, dans l'ordre.
+func (a Alert) fields() [][2]string {
+	out := make([][2]string, 0, 6)
+	add := func(label, value string) {
+		if value != "" {
+			out = append(out, [2]string{label, value})
+		}
+	}
+	add("Domaine", a.Domain)
+	add("Action", a.Action)
+	add("IP", a.IP)
+	add("Pays", a.Country)
+	add("Méthode", a.Method)
+	add("Chemin", a.Path)
+	add("Raison", a.Reason)
+	add("Score", strconv.Itoa(a.TrustScore))
+	return out
+}
+
+func footerText(a Alert) string {
+	if a.RequestID != "" {
+		return "WAF GaetanDev • req " + a.RequestID
+	}
+	return "WAF GaetanDev"
+}
+
+// titleFor produit un titre lisible (avec emoji) à partir du trigger.
+func titleFor(trigger string) string {
+	switch trigger {
+	case "honeypot":
+		return "🍯 Honeypot déclenché"
+	case "circuit_breaker":
+		return "🔌 Circuit breaker ouvert"
+	case "degraded_mode":
+		return "🌊 Mode dégradé (anti-DDoS)"
+	case "block":
+		return "⛔ Requête bloquée"
+	default:
+		return "🛡️ Alerte WAF"
+	}
+}
+
+// messageFor produit une phrase de description lisible pour l'embed.
+func messageFor(ev Event) string {
+	switch ev.Trigger {
+	case "honeypot":
+		return "Accès à un chemin piège (honeypot) — IP marquée et bloquée."
+	case "circuit_breaker":
+		return "Trop de violations consécutives : circuit ouvert pour cette IP."
+	case "degraded_mode":
+		return "Pression de trafic élevée : mitigations renforcées."
+	case "block":
+		return "Requête bloquée par le pare-feu applicatif."
+	default:
+		return ""
+	}
 }
 
 func severityFor(trigger string) string {

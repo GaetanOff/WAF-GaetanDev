@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gaetandev/waf/internal/alert"
 	"github.com/gaetandev/waf/internal/config"
 )
 
@@ -34,7 +35,7 @@ type Logger struct {
 // Alerter reçoit une notification d'événement de sécurité (interface structurelle
 // satisfaite par internal/alert.Notifier).
 type Alerter interface {
-	Notify(trigger string, domain string, reason string)
+	Notify(alert.Event)
 }
 
 func New(cfg config.Logging) Logger {

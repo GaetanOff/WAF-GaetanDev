@@ -6,6 +6,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/gaetandev/waf/internal/alert"
 	"github.com/gaetandev/waf/internal/gdpr"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
@@ -30,9 +31,27 @@ func (l Logger) Middleware(scores *trust.ScoreManager, next http.Handler) http.H
 		event := l.securityEvent(r, recorder, scores, requestID, startedAt, elapsed)
 		l.WriteSecurityEvent(event)
 		if l.Alerter != nil && isAlertable(event.Action) {
-			l.Alerter.Notify(alertTrigger(event.Action), event.Domain, event.Reason)
+			l.Alerter.Notify(alert.Event{
+				Trigger:    alertTrigger(event.Action),
+				Domain:     event.Domain,
+				Reason:     event.Reason,
+				IP:         event.IP,
+				Path:       event.Path,
+				Method:     event.Method,
+				Action:     event.Action,
+				RequestID:  event.RequestID,
+				Country:    valueOrEmpty(event.CFCountry),
+				TrustScore: event.TrustScore,
+			})
 		}
 	})
+}
+
+func valueOrEmpty(s *string) string {
+	if s == nil {
+		return ""
+	}
+	return *s
 }
 
 // isAlertable indique si une action mérite une alerte webhook (FR-29).

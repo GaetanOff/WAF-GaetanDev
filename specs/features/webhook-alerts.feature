@@ -38,6 +38,16 @@ Feature: Alerting & Webhooks
         "embeds": [{"title": "WAF Alert — Upstream Down", "color": 15158332, ...}]
       }
 
+  Scenario: Alerte Discord enrichie (embed coloré avec champs)
+    Given un sink de type "discord" configuré
+    When un événement honeypot déclenche une alerte
+    Then le body est un embed Discord (clé "embeds") et non un simple "content"
+    And l'embed a une couleur selon la sévérité (rouge=critical, orange=warning, bleu=info)
+    And l'embed a un titre lisible avec emoji (ex: "🍯 Honeypot déclenché")
+    And l'embed liste en champs : Domaine, Action, IP, Pays, Méthode, Chemin, Raison, Score
+    And l'embed porte un timestamp et un footer "WAF GaetanDev • req <request_id>"
+    # Slack reçoit l'équivalent en attachment coloré ; le générique reçoit l'Alert JSON enrichie.
+
   Scenario: Alerte generic HTTP — payload JSON conforme au schema
     Given un visiteur touche un chemin honeypot
     When le trigger "honeypot_triggered" se déclenche
