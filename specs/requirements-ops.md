@@ -238,3 +238,12 @@ change: "Ajout FR-33 — terminaison TLS par domaine (sélection par SNI), voir 
 ### NFR-14 — ACME/TLS
 - Renouvellement automatique : déclenché ≥ 30 jours avant expiration
 - Rotation de certificat sans interruption de service (swap atomique du tls.Config)
+
+### NFR-16 — Journalisation non bloquante
+- L'écriture des événements de sécurité NE DOIT JAMAIS bloquer le goroutine de
+  requête : tampon en mémoire + écriture stdout/stderr dans un goroutine de fond.
+- Tampon plein (sortie lente : rotation, disque, pipe non consommé) → la ligne est
+  abandonnée (compteur `dropped` exposé), jamais d'attente sur l'I/O.
+- Rationale : une écriture bloquée figerait le middleware de log (le plus externe),
+  retiendrait la connexion keep-alive, et provoquerait des timeouts en cascade via
+  le pool de connexions partagé de Cloudflare vers l'origine.

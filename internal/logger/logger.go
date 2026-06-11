@@ -25,6 +25,10 @@ type Logger struct {
 	// Alerter, si défini, reçoit les événements à forte sévérité pour
 	// déclencher des alertes webhook (FR-29). Optionnel.
 	Alerter Alerter
+
+	// async, non-nil en production (New), réalise l'écriture stdout hors du
+	// chemin de requête. nil avec NewWithWriter (écriture synchrone, tests).
+	async *asyncWriter
 }
 
 // Alerter reçoit une notification d'événement de sécurité (interface structurelle
@@ -38,7 +42,30 @@ func New(cfg config.Logging) Logger {
 	if cfg.Output == "stderr" {
 		output = os.Stderr
 	}
-	return NewWithWriter(cfg, output)
+	// L'écriture vers stdout/stderr est rendue asynchrone : le chemin de requête
+	// ne doit jamais bloquer sur l'I/O de log (cf. asyncWriter, NFR-16).
+	async := newAsyncWriter(output, asyncBufferSize)
+	logger := NewWithWriter(cfg, async)
+	logger.async = async
+	return logger
+}
+
+// Close arrête proprement le writer asynchrone (vidage best-effort de la file).
+// No-op pour un logger synchrone (NewWithWriter).
+func (l Logger) Close() error {
+	if l.async != nil {
+		return l.async.Close()
+	}
+	return nil
+}
+
+// Dropped retourne le nombre d'événements de log abandonnés faute de place dans
+// le tampon asynchrone (sortie trop lente). 0 pour un logger synchrone.
+func (l Logger) Dropped() int64 {
+	if l.async != nil {
+		return l.async.Dropped()
+	}
+	return 0
 }
 
 func NewWithWriter(cfg config.Logging, output io.Writer) Logger {

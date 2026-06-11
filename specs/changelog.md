@@ -33,6 +33,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Journalisation non bloquante (FR-09, NFR-16) — l'écriture des événements de
+  sécurité passe par un tampon + un goroutine de fond (`asyncWriter`). Avant,
+  `slog` écrivait sur `os.Stdout` de façon synchrone dans le middleware de log
+  (le plus externe) : si le consommateur de stdout ralentissait (rotation Docker,
+  disque, pipe non lu), le goroutine de requête se figeait, la connexion
+  keep-alive n'était pas libérée, et Cloudflare (pool de connexions partagé)
+  accumulait des timeouts en cascade sur des services aléatoires. Désormais le
+  chemin de requête ne bloque jamais sur l'I/O de log ; à saturation les lignes
+  sont abandonnées (compteur `Dropped()`).
 - Pages d'erreur (FR-32) — les erreurs **5xx** (502/503/504) sont désormais
   brandées **même quand le corps est déjà en HTML** : quand l'origine est down,
   un reverse proxy en aval (nginx/OpenResty) renvoie sa page « 502 Bad Gateway »

@@ -260,6 +260,7 @@ func run() error {
 		}
 	}
 	securityLogger := waflogger.New(cfg.Logging)
+	defer func() { _ = securityLogger.Close() }() // vide le writer async à l'arrêt
 	securityLogger.AnonymizeIP = cfg.GDPR.AnonymizeIP // RGPD (FR-28)
 	// Alerting webhooks (FR-29) : le logger émet une alerte sur les événements
 	// à forte sévérité (block / circuit / honeypot), avec cooldown.

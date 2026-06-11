@@ -200,6 +200,7 @@ last-reviewed: 2026-06-03
 | 2026-06-10 | FR-06 challenge navigation-only | `go test ./... && go vet ./...` | pass | Challenge served only for browser navigation (GET/HEAD + Accept: text/html); API/XHR bypass. Test asserts JSON/`*/*` Accept calls reach next handler without the challenge page. Existing page tests updated to send Accept: text/html |
 | 2026-06-10 | FR-32 error pages navigation-only | `go test ./internal/maintenance/` | pass | Branded error-page replacement gated by Accept: text/html. New test: API JSON 401 body preserved for Accept json/`*/*`/empty; browser nav still gets branded page. Forced maintenance 503 still served to all |
 | 2026-06-10 | FR-32 brand 5xx HTML | `go test ./internal/maintenance/ && go vet ./...` | pass | shouldReplace: 5xx always branded (even text/html gateway page from nginx/OpenResty when origin down), 4xx only non-HTML. Tests: 502 text/html → branded (openresty body gone); 404 text/html app page → preserved |
+| 2026-06-11 | FR-09/NFR-16 async logging | `go test ./... && go vet ./...` | pass | Log writes moved off the request path via asyncWriter (buffer + background goroutine, drop on overflow). Root-caused from prod timeouts: synchronous slog→stdout stalled keep-alive reuse → Cloudflare cascade timeouts. Tests: Write never blocks on a blocked consumer (+drops counted); all lines flushed in normal mode. NewWithWriter stays synchronous (tests unaffected) |
 
 ## Security Scan Triage (Semgrep OSS)
 

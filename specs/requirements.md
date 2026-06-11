@@ -86,6 +86,7 @@ change: "FR-08 remplace le blocage global 503 par un mode de pression adaptative
 - Le WAF DOIT journaliser chaque événement de sécurité (bloc, challenge, rate-limit) en JSON structuré
 - Chaque log DOIT contenir : timestamp, request_id, ip, domain, path, action, reason, trust_score
 - Le WAF DOIT supporter les niveaux de log : debug, info, warn, error
+- L'écriture des logs NE DOIT PAS bloquer le traitement des requêtes : elle est asynchrone (tampon + écriture en arrière-plan). Si la sortie ralentit (rotation, disque, pipe non lu) et que le tampon est plein, les lignes sont abandonnées (compteur exposé) plutôt que de bloquer le chemin de requête (voir NFR-16)
 - Le WAF DOIT exposer les métriques Prometheus sur `/waf/metrics`
 - Les métriques DOIVENT inclure : req_total, req_blocked_total, req_challenged_total, req_latency_histogram
 
