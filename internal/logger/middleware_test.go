@@ -9,11 +9,16 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gaetandev/waf/internal/alert"
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/google/uuid"
 )
+
+type recordingAlerter struct{ calls int }
+
+func (a *recordingAlerter) Notify(alert.Event) { a.calls++ }
 
 func TestMiddlewareWritesSecurityEventJSONWithoutQueryString(t *testing.T) {
 	var output bytes.Buffer
@@ -91,6 +96,64 @@ func TestMiddlewareLogsRateLimitActionFromResponseHeaders(t *testing.T) {
 	}
 	if event["upstream_status"] != nil {
 		t.Fatalf("upstream_status = %v, want null", event["upstream_status"])
+	}
+}
+
+// Un 5xx renvoyé par l'UPSTREAM (origine down) ne pose pas X-WAF-Action : ce
+// n'est pas un blocage WAF. Il doit être loggé action=PASS avec le vrai
+// upstream_status, et ne JAMAIS déclencher d'alerte webhook (sinon spam à chaque
+// hoquet d'origine).
+func TestMiddlewareUpstream5xxIsPassNotBlock(t *testing.T) {
+	var output bytes.Buffer
+	log := NewWithWriter(config.Default().Logging, &output)
+	alerter := &recordingAlerter{}
+	log.Alerter = alerter
+	scores, store := newTestScoreManager(t)
+	defer store.Close()
+	handler := log.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		http.Error(w, "bad gateway", http.StatusBadGateway) // origine down, aucune décision WAF
+	}))
+	request := httptest.NewRequest(http.MethodGet, "http://grafana.example/", nil)
+	request.RemoteAddr = "1.2.3.4:1234"
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	event := decodeEvent(t, output.String())
+	if event["action"] != ActionPass {
+		t.Fatalf("action = %q, want PASS (un 5xx upstream n'est pas un blocage WAF)", event["action"])
+	}
+	if event["upstream_status"] != float64(http.StatusBadGateway) {
+		t.Fatalf("upstream_status = %v, want 502", event["upstream_status"])
+	}
+	if alerter.calls != 0 {
+		t.Fatalf("alerter appelé %d fois, want 0 (pas de fausse alerte sur 5xx upstream)", alerter.calls)
+	}
+}
+
+// Un vrai blocage WAF (X-WAF-Action posé) doit rester BLOCK et alerter.
+func TestMiddlewareRealBlockStillAlerts(t *testing.T) {
+	var output bytes.Buffer
+	log := NewWithWriter(config.Default().Logging, &output)
+	alerter := &recordingAlerter{}
+	log.Alerter = alerter
+	scores, store := newTestScoreManager(t)
+	defer store.Close()
+	handler := log.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-WAF-Action", ActionBlock)
+		w.Header().Set("X-WAF-Reason", "blacklist")
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+	request.RemoteAddr = "1.2.3.4:1234"
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	event := decodeEvent(t, output.String())
+	if event["action"] != ActionBlock {
+		t.Fatalf("action = %q, want BLOCK", event["action"])
+	}
+	if alerter.calls != 1 {
+		t.Fatalf("alerter appelé %d fois, want 1 (vrai blocage WAF)", alerter.calls)
 	}
 }
 

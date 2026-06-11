@@ -212,28 +212,17 @@ func (m *Metrics) observeGlobalPressure(r *http.Request) {
 	}
 }
 
+// normalizedAction dérive l'action depuis X-WAF-Action. Sans cet en-tête, le
+// statut vient de l'upstream (et non d'une décision WAF) : action PASS, pour ne
+// pas gonfler waf_blocked_total avec les 5xx d'origine (cf. logger.normalizedAction).
 func normalizedAction(r *http.Request, recorder *statusRecorder) string {
 	action := recorder.Header().Get("X-WAF-Action")
 	if action == "" {
 		action = r.Header.Get("X-WAF-Action")
 	}
-	if action == "" {
-		action = actionFromStatus(recorder.statusCode)
-	}
 	switch action {
 	case actionPass, actionChallenge, actionBlock, actionRateLimit, actionCircuitBreak, actionHoneypot:
 		return action
-	default:
-		return actionPass
-	}
-}
-
-func actionFromStatus(statusCode int) string {
-	switch {
-	case statusCode == http.StatusTooManyRequests:
-		return actionRateLimit
-	case statusCode == http.StatusForbidden || statusCode >= http.StatusInternalServerError:
-		return actionBlock
 	default:
 		return actionPass
 	}

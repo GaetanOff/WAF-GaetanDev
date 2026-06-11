@@ -39,6 +39,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Classification d'action (FR-09) — un statut **5xx/4xx provenant de l'upstream**
+  (origine down → 502, ou 403/404 applicatif) n'est plus étiqueté `BLOCK`.
+  `actionFromStatus` mappait tout `≥500`/`403` en blocage WAF, alors que toutes
+  les vraies décisions du WAF posent `X-WAF-Action`. Sans cet en-tête, l'action
+  est désormais `PASS` avec le vrai `upstream_status`. Corrige : faux `BLOCK` dans
+  `waf_blocked_total`, fausses **alertes webhook** à chaque hoquet d'origine, et
+  `upstream_status` masqué (`null`) sur ces réponses.
 - Store mémoire (NFR-17) — le nettoyage périodique (`CleanupExpired`, toutes les
   60s) ne tient plus le verrou global pendant tout le balayage : il collecte les
   clés expirées sans verrou puis supprime par clé sous verrou court. Avant, le

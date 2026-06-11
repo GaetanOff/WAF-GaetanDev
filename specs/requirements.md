@@ -84,6 +84,7 @@ change: "FR-08 remplace le blocage global 503 par un mode de pression adaptative
 
 ### FR-09 — Journalisation des événements de sécurité
 - Le WAF DOIT journaliser chaque événement de sécurité (bloc, challenge, rate-limit) en JSON structuré
+- L'`action` loggée DOIT refléter une décision RÉELLE du WAF (en-tête `X-WAF-Action` posé par un middleware) ; un statut provenant de l'**upstream** (ex: 502 origine indisponible, 403/404 applicatif) DOIT être loggé `action=PASS` avec son `upstream_status` réel — jamais comme un blocage WAF (sinon métriques `waf_blocked_total` faussées et fausses alertes webhook)
 - Chaque log DOIT contenir : timestamp, request_id, ip, domain, path, action, reason, trust_score
 - Le WAF DOIT supporter les niveaux de log : debug, info, warn, error
 - L'écriture des logs NE DOIT PAS bloquer le traitement des requêtes : elle est asynchrone (tampon + écriture en arrière-plan). Si la sortie ralentit (rotation, disque, pipe non lu) et que le tampon est plein, les lignes sont abandonnées (compteur exposé) plutôt que de bloquer le chemin de requête (voir NFR-16)

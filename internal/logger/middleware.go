@@ -171,28 +171,20 @@ func currentTrustScore(r *http.Request, scores *trust.ScoreManager, ip string) i
 	return scores.Get(ip, r.Host).Score
 }
 
+// normalizedAction dérive l'action depuis l'en-tête X-WAF-Action. Toutes les
+// vraies décisions du WAF (access, antibot, ratelimit, circuit-breaker, rules,
+// trust, risk) posent cet en-tête. En son absence, l'action est PASS : le statut
+// observé vient alors de l'UPSTREAM (ex: 502 origine down, 403/404 applicatif)
+// et ne doit PAS être compté comme un blocage WAF — sinon faux BLOCK dans les
+// métriques/logs et fausses alertes webhook à chaque hoquet d'origine.
 func normalizedAction(r *http.Request, recorder *statusRecorder) string {
 	action := recorder.Header().Get("X-WAF-Action")
 	if action == "" {
 		action = r.Header.Get("X-WAF-Action")
 	}
-	if action == "" {
-		action = actionFromStatus(recorder.statusCode)
-	}
 	switch action {
 	case ActionPass, ActionChallenge, ActionBlock, ActionRateLimit, ActionCircuitBreak, ActionHoneypot:
 		return action
-	default:
-		return ActionPass
-	}
-}
-
-func actionFromStatus(statusCode int) string {
-	switch {
-	case statusCode == http.StatusTooManyRequests:
-		return ActionRateLimit
-	case statusCode == http.StatusForbidden || statusCode >= http.StatusInternalServerError:
-		return ActionBlock
 	default:
 		return ActionPass
 	}
