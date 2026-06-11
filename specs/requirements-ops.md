@@ -213,7 +213,8 @@ change: "Ajout FR-33 — terminaison TLS par domaine (sélection par SNI), voir 
 - Le WAF DOIT servir un certificat **par défaut** (`server.tls.cert_file` / `key_file`) pour un SNI sans correspondance, s'il est configuré ; **sinon** le handshake DOIT être refusé (`unrecognized_name`), sans servir silencieusement un certificat arbitraire
 - Le WAF DOIT supporter **TLS 1.2 et 1.3**, avec un plancher configurable `server.tls.min_version` (défaut `1.2`), et refuser les versions inférieures
 - Le WAF DOIT permettre une liste explicite de cipher suites (`server.tls.cipher_suites`), avec un défaut sécurisé si la liste est vide
-- Quand `server.tls.redirect_http: true`, le WAF DOIT rediriger le trafic HTTP (`server.listen`) vers HTTPS en `301`
+- Quand `server.tls.redirect_http: true`, le WAF DOIT rediriger le trafic HTTP (`server.listen`) vers HTTPS en `301`, en préservant chemin et query
+- Le handler de redirection DOIT valider le `Host` entrant contre la liste des domaines configurés (exact ou wildcard) avant de rediriger ; un `Host` non reconnu DOIT recevoir `400 Bad Request` (protection contre l'open-redirect par injection de header `Host`)
 - Le WAF DOIT exposer `waf_tls_cert_expiry_seconds{domain}` pour chaque certificat chargé (réutilise FR-31)
 - Le WAF DEVRAIT recharger les certificats sans redémarrage (`SIGHUP`) — **optionnel**, hors première tranche
 - Le renouvellement des certificats statiques est géré **hors WAF** (outillage amont) ; ACME (FR-31) reste un mécanisme complémentaire et n'est pas activé simultanément sur le même listener dans la première version

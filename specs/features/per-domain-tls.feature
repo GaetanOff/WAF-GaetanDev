@@ -68,6 +68,17 @@ Feature: Terminaison TLS par domaine (sélection par SNI)
     When un client envoie une requête HTTP sur "http://alpha.example.com/page"
     Then le WAF répond une redirection 301 vers "https://alpha.example.com/page"
 
+  Scenario: Redirection HTTP vers HTTPS — Host inconnu rejeté (open-redirect)
+    Given server.tls.redirect_http = true
+    When un client envoie une requête HTTP avec Host "evil.com" sur le port d'écoute
+    Then le WAF répond 400 Bad Request sans effectuer de redirection
+
+  Scenario: Redirection HTTP vers HTTPS — chemin double-slash neutralisé
+    Given server.tls.redirect_http = true
+    When un client envoie une requête HTTP sur "http://alpha.example.com" avec chemin "//evil.com/x"
+    Then le WAF répond une redirection 301 dont l'URL cible commence par "https://alpha.example.com/"
+    And l'URL cible ne contient pas "evil.com" comme host
+
   Scenario: Inspection L7 après terminaison TLS
     Given un client établit une connexion TLS valide avec SNI "alpha.example.com"
     When il envoie une requête HTTP applicative

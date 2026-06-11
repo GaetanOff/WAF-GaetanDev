@@ -91,6 +91,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   (comportement historique). S'applique au routage par domaine et au pool
   d'upstreams (`WithPool`).
 
+### Fixed
+
+- Redirection HTTP→HTTPS (FR-33) — protection contre l'**open-redirect** par
+  injection de header `Host` et par chemin double-slash. Le handler valide
+  désormais le `Host` entrant contre la liste des domaines configurés (exact +
+  wildcard) avant de rediriger ; un host non reconnu reçoit `400 Bad Request`.
+  L'URL cible est construite via `url.URL{Scheme, Host, Path, RawQuery}` au
+  lieu d'une concaténation de strings : un chemin `//evil.com/x` ne peut plus
+  parasiter le host dans l'URL de redirection.
+
 
 - FR-33 — Terminaison **TLS par domaine** (sélection par SNI) : le WAF peut
   terminer le TLS en présentant un certificat distinct par domaine

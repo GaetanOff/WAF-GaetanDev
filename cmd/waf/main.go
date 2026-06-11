@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"os/signal"
 	"strings"
@@ -352,7 +353,7 @@ func run() error {
 	if tlsManager != nil && cfg.Server.TLS.RedirectHTTP {
 		redirectServer := &http.Server{
 			Addr:              cfg.Server.Listen,
-			Handler:           http.HandlerFunc(redirectToHTTPS),
+			Handler:           redirectToHTTPS(cfg.Domains),
 			ReadHeaderTimeout: headerTimeout,
 		}
 		go func() {
@@ -460,11 +461,47 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	return handler
 }
 
-// redirectToHTTPS répond une redirection permanente vers le même hôte/chemin en
-// HTTPS (FR-33), en préservant la query string.
-func redirectToHTTPS(w http.ResponseWriter, r *http.Request) {
-	target := "https://" + stripPort(r.Host) + r.URL.RequestURI()
-	http.Redirect(w, r, target, http.StatusMovedPermanently)
+// redirectToHTTPS renvoie un handler de redirection HTTP→HTTPS qui valide le
+// Host entrant contre les domaines configurés avant de rediriger. Un Host non
+// reconnu reçoit un 400 : sans cette garde, un attaquant peut injecter un Host
+// arbitraire et forcer une redirection vers un domaine tiers (open-redirect).
+func redirectToHTTPS(domains []config.DomainConfig) http.HandlerFunc {
+	allowed := make([]string, len(domains))
+	for i, d := range domains {
+		allowed[i] = d.Host
+	}
+	return func(w http.ResponseWriter, r *http.Request) {
+		host := stripPort(r.Host)
+		if !hostAllowed(host, allowed) {
+			http.Error(w, "bad request", http.StatusBadRequest)
+			return
+		}
+		// Construire l'URL via url.URL plutôt que par concaténation de strings
+		// pour éviter l'open-redirect par chemin commençant par "//evil.com"
+		// (ex: r.URL.Path = "//evil.com/x" → navigateur interprète comme host).
+		target := &url.URL{
+			Scheme:   "https",
+			Host:     host,
+			Path:     r.URL.Path,
+			RawQuery: r.URL.RawQuery,
+		}
+		http.Redirect(w, r, target.String(), http.StatusMovedPermanently)
+	}
+}
+
+// hostAllowed vérifie qu'un host correspond à l'un des patterns configurés
+// (exact ou wildcard de la forme "*.example.com").
+func hostAllowed(host string, patterns []string) bool {
+	for _, p := range patterns {
+		if strings.HasPrefix(p, "*.") {
+			if strings.HasSuffix(host, p[1:]) { // p[1:] == ".example.com"
+				return true
+			}
+		} else if host == p {
+			return true
+		}
+	}
+	return false
 }
 
 func stripPort(hostport string) string {
