@@ -129,7 +129,7 @@ threat_intel:
 # Difficulte de PoW adaptative (FR-14) : monte sous attaque, redescend (decay)
 adaptive:
   enabled: true
-  max_difficulty: 24         # plafond de bits sous attaque critique
+  max_difficulty: 16         # plafond de bits sous attaque critique
   decay_tau: "5m"            # constante de temps de retour au niveau normal
 
 # Regles geographiques (FR-16) : base sur CF-IPCountry (ignore si absent)
@@ -248,7 +248,7 @@ maintenance:
 challenge:
   enabled: true
   # secret_key: "change-me-in-production-min-32-chars" # Préférer env var
-  token_ttl: "30s"           # Durée de validité du nonce
+  token_ttl: "90s"           # Durée de validité du nonce
   cookie_ttl: "24h"          # Durée du cookie de session
   cookie_name: "waf_session"
   pow_difficulty: 16         # 16 bits ≈ 500ms sur CPU standard
