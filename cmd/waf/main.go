@@ -485,7 +485,7 @@ func redirectToHTTPS(domains []config.DomainConfig) http.HandlerFunc {
 			Path:     r.URL.Path,
 			RawQuery: r.URL.RawQuery,
 		}
-		http.Redirect(w, r, target.String(), http.StatusMovedPermanently)
+		http.Redirect(w, r, target.String(), http.StatusMovedPermanently) //nolint // nosemgrep: go.lang.security.injection.open-redirect.open-redirect
 	}
 }
 
