@@ -2,6 +2,7 @@ package memory
 
 import (
 	"container/list"
+	"sort"
 	"sync"
 	"time"
 
@@ -56,10 +57,11 @@ func (s *Store) GetVisitor(key string) (*storage.VisitorState, bool) {
 		return nil, false
 	}
 
-	s.mu.Lock()
-	s.touchLocked(key)
-	s.mu.Unlock()
-
+	// Lecture sans verrou : sync.Map.Load est concurrent, et on ne fait PAS de
+	// « touch » LRU ici. Chaque requête appelle GetVisitor plusieurs fois ; le
+	// faire sous s.mu sérialisait le chemin chaud. L'éviction suit donc l'ordre
+	// du dernier SetVisitor (les visiteurs actifs sont écrits via Apply, donc
+	// récents) : approximation « least-recently-set » de la LRU.
 	return cloneVisitor(visitor), true
 }
 
@@ -127,11 +129,18 @@ func (s *Store) SetBucket(key string, bucket storage.RateBucket) {
 	s.buckets.Store(key, bucket)
 }
 
+// CleanupExpired purge les entrées expirées et borne le nombre de buckets.
+//
+// Le balayage NE tient PAS le verrou s.mu : on collecte d'abord les clés
+// expirées via Range (sûr et concurrent sur sync.Map), puis on supprime par clé
+// sous verrou court. Auparavant, s.mu était tenu pendant TOUT le balayage des
+// deux maps — or chaque requête prend s.mu sur chaque GetVisitor, donc le sweep
+// figeait toutes les requêtes pendant sa durée (gels périodiques ~toutes les
+// 60s sous charge, proportionnels à la taille des maps).
 func (s *Store) CleanupExpired() {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
 	now := s.now()
+
+	var expiredVisitors []string
 	s.visitors.Range(func(key, value any) bool {
 		keyString, ok := key.(string)
 		if !ok {
@@ -143,10 +152,27 @@ func (s *Store) CleanupExpired() {
 			return true
 		}
 		if isExpired(now, visitor.ExpiresAt) {
-			s.deleteVisitorLocked(keyString)
+			expiredVisitors = append(expiredVisitors, keyString)
 		}
 		return true
 	})
+	for _, key := range expiredVisitors {
+		s.DeleteVisitor(key) // verrou court par clé, jamais tenu pendant tout le sweep
+	}
+
+	s.cleanupBuckets(now)
+}
+
+// cleanupBuckets supprime les buckets expirés puis borne leur nombre à
+// maxVisitors en évinçant les moins récemment rafraîchis. Les buckets n'ont pas
+// d'éviction LRU propre (SetBucket est lock-free) : sans cette borne, la map
+// grossit indéfiniment avec le nombre d'IP vues.
+func (s *Store) cleanupBuckets(now time.Time) {
+	type agedBucket struct {
+		key  string
+		last time.Time
+	}
+	live := make([]agedBucket, 0)
 	s.buckets.Range(func(key, value any) bool {
 		keyString, ok := key.(string)
 		if !ok {
@@ -159,9 +185,18 @@ func (s *Store) CleanupExpired() {
 		}
 		if isExpired(now, bucket.ExpiresAt) {
 			s.buckets.Delete(keyString)
+			return true
 		}
+		live = append(live, agedBucket{key: keyString, last: bucket.LastRefill})
 		return true
 	})
+	if len(live) <= s.maxVisitors {
+		return
+	}
+	sort.Slice(live, func(i, j int) bool { return live[i].last.Before(live[j].last) })
+	for _, b := range live[:len(live)-s.maxVisitors] {
+		s.buckets.Delete(b.key)
+	}
 }
 
 func (s *Store) Close() {

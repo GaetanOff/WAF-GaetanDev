@@ -33,6 +33,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- Store mémoire (NFR-17) — le nettoyage périodique (`CleanupExpired`, toutes les
+  60s) ne tient plus le verrou global pendant tout le balayage : il collecte les
+  clés expirées sans verrou puis supprime par clé sous verrou court. Avant, le
+  sweep tenait `s.mu` pendant tout le parcours des maps visitors + buckets, ce qui
+  figeait toutes les requêtes (chacune prend `s.mu` à chaque `GetVisitor`) pendant
+  sa durée → micro-gels périodiques sous charge. De plus : `GetVisitor` ne prend
+  plus de verrou (lecture lock-free, éviction « least-recently-set »), et la map
+  des buckets de rate-limit est désormais bornée (éviction des moins récemment
+  rafraîchis) au lieu de grossir indéfiniment.
 - Journalisation non bloquante (FR-09, NFR-16) — l'écriture des événements de
   sécurité passe par un tampon + un goroutine de fond (`asyncWriter`). Avant,
   `slog` écrivait sur `os.Stdout` de façon synchrone dans le middleware de log

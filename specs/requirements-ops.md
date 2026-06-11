@@ -239,6 +239,16 @@ change: "Ajout FR-33 — terminaison TLS par domaine (sélection par SNI), voir 
 - Renouvellement automatique : déclenché ≥ 30 jours avant expiration
 - Rotation de certificat sans interruption de service (swap atomique du tls.Config)
 
+### NFR-17 — Store mémoire : pas de gel périodique
+- Le nettoyage périodique du store (entrées expirées) NE DOIT PAS tenir le verrou
+  global pendant tout le balayage : collecter les clés expirées sans verrou, puis
+  supprimer par clé sous verrou court. Sinon le sweep fige toutes les requêtes
+  (chaque requête prend le verrou) pendant sa durée.
+- Les lectures du store (`GetVisitor`) NE DOIVENT PAS prendre de verrou en écriture
+  sur le chemin chaud.
+- Le nombre de buckets de rate-limit DOIT être borné (éviction des moins récemment
+  rafraîchis) : ils n'ont pas d'éviction LRU propre et grossiraient sans limite.
+
 ### NFR-16 — Journalisation non bloquante
 - L'écriture des événements de sécurité NE DOIT JAMAIS bloquer le goroutine de
   requête : tampon en mémoire + écriture stdout/stderr dans un goroutine de fond.
