@@ -1,15 +1,16 @@
 ---
-status: implemented
-version: 1.1.0
-last-reviewed: 2026-06-09
+status: draft
+version: 1.2.0-draft
+last-reviewed: 2026-06-19
 reviewed-by: GaetanDev
 extends: requirements-advanced.md (v2.1.0), requirements-ops.md
+change: "Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 [draft, spec only]"
 ---
 
 # Requirements Detection — Moteur de Risque & Décision (v4)
 
 > Étend le système anti-bot / anti-DDoS existant pour le rendre **plus efficace
-> tout en minimisant les faux positifs**. Les IDs FR-33 à FR-38 font suite aux
+> tout en minimisant les faux positifs**. Les IDs FR-33 à FR-39 font suite aux
 > FR-01 à FR-32 existants ; NFR-15 à NFR-17 font suite aux NFR-01 à NFR-14.
 >
 > **Ce document NE remplace PAS** les détecteurs existants (FR-07/08 anti-bot/DDoS,
@@ -201,6 +202,60 @@ explicites (issus de la revue de spec) :
   - `waf_verified_bot_total{bot}` (crawlers vérifiés)
 - Le mode shadow et les profils DOIVENT être commutables à chaud (API admin / SIGHUP).
 
+## FR-39 — Mode « Sous Attaque » (challenge forcé piloté par la pression) `[draft]`
+
+> Étend FR-08 (pression adaptative, ADR-016) et FR-34 (échelle graduée). Comble la
+> faille mise en évidence par l'incident du 2026-06-19 : un flood L7 **distribué**
+> (chaque requête « propre », chaque IP sous sa limite) reste sous le palier
+> `CHALLENGE` et sature l'origine. Décision : voir ADR-018.
+
+- Le WAF DOIT calculer la pression (FR-08) **par domaine** quand
+  `antiddos.under_attack.scope: per_domain` (défaut), et globalement quand
+  `scope: global`. Le compteur par domaine DOIT être à coût borné (anneau de
+  buckets par domaine) et le nombre de domaines suivis DOIT être plafonné par
+  éviction LRU (`max_tracked_domains`).
+- Le WAF DOIT entrer en **mode sous attaque** pour un scope dès que sa pression
+  atteint `under_attack.trigger_pressure` (défaut `high` ; valeurs admises
+  `elevated | high | critical`).
+- En mode sous attaque, toute requête **sans clearance** DOIT être forcée à au
+  moins `CHALLENGE`, **indépendamment de son `risk_score`**. Une **clearance** est
+  l'un de :
+  - cookie de session `waf_session` valide (FR-06),
+  - bot **vérifié** par reverse-DNS forward-confirm (FR-36),
+  - IP/CIDR en **whitelist** explicite (FR-04),
+  - **trust persistant** « sticky » consécutif à un challenge réussi (FR-37).
+- Une requête **avec** clearance DOIT passer **sans friction ajoutée** par le mode
+  sous attaque (récupération : un seul PoW résolu débloque le visiteur ensuite).
+- Le mode sous attaque NE DOIT PAS, à lui seul, produire un `503`, `403` ou blocage
+  dur (conforme ADR-016) : la seule action qu'il **force** est une mitigation
+  **réversible** (`CHALLENGE`).
+- **Clients non-navigateurs.** Un challenge JS est insoluble pour un client
+  non-navigateur (API/XHR, mobile, CLI). Sous attaque :
+  - Le WAF DOIT **relâcher** l'heuristique de navigation (FR-06) : un `GET`/`HEAD`
+    sans clearance est considéré **challengeable** même sans `Accept: text/html`
+    (un vrai navigateur l'envoie de toute façon ; un outil de flood qui l'omet et
+    ne sait pas rendre la page est filtré).
+  - Le WAF NE DOIT PAS challenger une requête négociant **explicitement** un type
+    non-HTML (`Accept: application/json`) ni une méthode non idempotente : ces
+    requêtes sans clearance DOIVENT être plafonnées à `THROTTLE`/`TARPIT` plutôt
+    que recevoir une page JS insoluble (garde-fou anti-FP pour API légitimes).
+- Le mode DOIT être **réversible avec hystérésis** pour éviter le battement :
+  entrée à `trigger_pressure` ; sortie uniquement lorsque la pression du scope
+  retombe à `exit_pressure` (défaut `elevated`) et **s'y maintient** pendant
+  `cooldown` (défaut `30s`).
+- Le mode DOIT être compatible **shadow** (FR-38) via `under_attack.shadow: true` :
+  l'état sous attaque est **calculé et journalisé** (`under_attack: true`) mais le
+  challenge **n'est pas forcé** (calibration ≥ 24 h avant activation, NFR-15).
+- **Observabilité** (FR-09, FR-29) :
+  - L'événement de sécurité DOIT porter un champ booléen `under_attack`.
+  - Le WAF DOIT exposer `waf_under_attack{domain}` (jauge 0/1) et
+    `waf_under_attack_challenges_total{domain}` (compteur).
+  - Le WAF DOIT émettre une **alerte** (FR-29) à l'**entrée** et à la **sortie** du
+    mode sous attaque, par scope, avec déduplication (cooldown d'alerte FR-29).
+- **Déterminisme & coût** : la décision d'entrée/sortie et le forçage DOIVENT être
+  en temps constant par requête (conforme NFR-16, < 50 µs synchrone) ; aucune I/O
+  bloquante.
+
 ---
 
 ## Contrat de Configuration
@@ -249,6 +304,26 @@ Les profils `lenient` / `strict` DOIVENT ajuster `tiers`, `block_min_confidence`
 et `weights` (strict = seuils plus bas, lenient = plus hauts). La configuration
 DOIT être validée au démarrage (bornes croissantes, poids ≥ 0, confiance dans
 [0..1]) avec des messages d'erreur explicites.
+
+Le mode sous attaque (FR-39) est piloté par un sous-bloc `antiddos.under_attack`
+(défauts ci-dessous) :
+
+```yaml
+antiddos:
+  # ... global_requests_per_second, global_window, pressure_levels ...
+  under_attack:
+    enabled: true
+    scope: "per_domain"        # per_domain | global — granularité d'évaluation de la pression
+    trigger_pressure: "high"   # elevated | high | critical — entrée en mode sous attaque
+    exit_pressure: "elevated"  # plancher d'hystérésis pour sortir du mode
+    cooldown: "30s"            # durée sous exit_pressure avant de quitter le mode
+    shadow: false              # true = calcule/journalise sans forcer le challenge (FR-38)
+    max_tracked_domains: 1024  # plafond LRU des compteurs par domaine (scope per_domain)
+```
+
+La configuration DOIT être validée au démarrage : `scope` et `*_pressure` dans les
+ensembles admis, `trigger_pressure` ≥ `exit_pressure` (ordre `elevated < high <
+critical`), `cooldown` durée valide > 0, `max_tracked_domains` ≥ 1.
 
 ---
 

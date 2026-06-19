@@ -6,6 +6,22 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Spec (à implémenter)
+
+- FR-39 — Mode **« sous attaque »** (challenge forcé piloté par la pression).
+  Comble la faille révélée par l'incident du 2026-06-19 : un flood applicatif (L7)
+  **distribué** (chaque requête « propre », chaque IP sous sa limite) reste sous le
+  palier `CHALLENGE` du moteur de risque et sature l'origine. Sous pression avérée
+  (`high`/`critical`, évaluée **par domaine** par défaut), le WAF force le challenge
+  JS de toute requête **sans clearance** (cookie `waf_session`, bot vérifié,
+  whitelist, sticky trust) : le PoW filtre le botnet sans moteur JS tandis que les
+  navigateurs réels et clients connus passent. Mitigation **réversible** (jamais de
+  blocage dur seul), avec **hystérésis** anti-battement et mode **shadow** (FR-38).
+  Bloc `antiddos.under_attack` ajouté au schéma de config ; champ de log
+  `under_attack` et métriques `waf_under_attack{domain}` prévus. Spec rédigée
+  (`draft`), implémentation à venir (Slice 12.1). Voir `ADR-018`,
+  `requirements-detection.md` FR-39, `features/anti-ddos.feature`.
+
 ### Changed
 
 - Webhooks d'alerte (FR-29) — payload enrichi. Discord reçoit désormais un

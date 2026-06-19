@@ -166,6 +166,14 @@ antiddos:
     high_multiplier: 2
     critical_multiplier: 4
   retry_after_seconds: 5
+  under_attack:
+    enabled: true
+    scope: "per_domain"
+    trigger_pressure: "high"
+    exit_pressure: "elevated"
+    cooldown: "30s"
+    shadow: false
+    max_tracked_domains: 1024
 ```
 
 Compteur global (toutes IPs confondues) utilisé pour calculer un **niveau de pression adaptative**. La pression globale ne bloque pas le trafic à elle seule : elle sert de signal pour renforcer les mitigations réversibles (challenge, throttling, difficulté PoW) et pour alimenter le moteur de risque.
@@ -190,6 +198,40 @@ Le WAF **ne doit pas** retourner HTTP 503 ou HTTP 403 uniquement parce que le tr
 | `pressure_levels.high_multiplier` | float | `2` | Multiplicateur du seuil global à partir duquel la pression devient `high`. |
 | `pressure_levels.critical_multiplier` | float | `4` | Multiplicateur du seuil global à partir duquel la pression devient `critical`. |
 | `retry_after_seconds` | int | `5` | Valeur par défaut du header `Retry-After` pour les réponses volumétriques explicites par IP. La pression globale seule ne doit pas produire de 503. |
+
+### `antiddos.under_attack` — Mode « sous attaque » (FR-39, ADR-018)
+
+Levier de **délestage** contre un flood applicatif (L7) **distribué** : un flood
+où chaque requête paraît propre (UA réaliste, `GET /`) et chaque IP reste sous sa
+limite passe sous le palier `CHALLENGE` du moteur de risque et sature l'origine. Le
+mode sous attaque, déclenché par la **pression** (évaluée **par domaine** par
+défaut), **force le challenge JS** de toute requête **sans clearance**. La preuve de
+travail filtre le botnet (incapable d'exécuter du JS) ; un navigateur réel la résout
+une fois, obtient un cookie `waf_session`, puis passe sans friction. C'est une
+mitigation **réversible** : elle ne produit jamais de blocage dur à elle seule.
+
+Une requête est **avec clearance** (donc épargnée) si elle présente : un cookie
+`waf_session` valide, un bot vérifié par reverse-DNS forward-confirm (FR-36), une IP
+whitelistée (FR-04), ou un trust persistant « sticky » après challenge réussi
+(FR-37). Les clients **non-navigateurs** (`Accept: application/json`, méthode non
+GET/HEAD) ne reçoivent jamais de page JS insoluble : ils restent soumis au rate
+limiting par IP et au moteur de risque.
+
+| Clé | Type | Défaut | Description |
+|---|---|---|---|
+| `enabled` | bool | `true` | Active le mode sous attaque. |
+| `scope` | enum | `"per_domain"` | `per_domain` circonscrit le mode au domaine attaqué ; `global` l'applique à tout le trafic. |
+| `trigger_pressure` | enum | `"high"` | Niveau de pression (`elevated`/`high`/`critical`) déclenchant l'entrée en mode sous attaque. |
+| `exit_pressure` | enum | `"elevated"` | Plancher d'hystérésis : le mode n'est quitté que sous ce niveau, maintenu pendant `cooldown`. Doit être `<= trigger_pressure`. |
+| `cooldown` | durée | `"30s"` | Durée pendant laquelle la pression doit rester sous `exit_pressure` avant de quitter le mode (anti-battement). |
+| `shadow` | bool | `false` | `true` = calcule et journalise `under_attack` **sans** forcer le challenge (calibration, FR-38). |
+| `max_tracked_domains` | int | `1024` | Plafond LRU du nombre de domaines suivis (scope `per_domain`). |
+
+> **Réglage.** `trigger_pressure` se calcule à partir de `global_requests_per_second`
+> et des `pressure_levels`. Pour une petite infra, abaisser `global_requests_per_second`
+> à la capacité réelle de l'upstream (ex. ~150) de sorte qu'un flood de quelques
+> centaines de req/s atteigne `high`. Déployer d'abord en `shadow: true` ≥ 24 h pour
+> mesurer le taux de faux positifs avant enforcement (NFR-15).
 
 ---
 

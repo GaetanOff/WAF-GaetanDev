@@ -596,3 +596,20 @@ last-updated: 2026-06-09
 - **Acceptance** : un client en TLS recoit le certificat correspondant a son SNI ; un SNI sans cert et sans defaut est refuse sans servir de cert arbitraire ; un cert manquant empeche le demarrage.
 - **Validation 2026-06-10** : `go test ./...`, `go vet ./...`, `go build ./...` passent ; schema JSON config valide ; **smoke test handshake reel** (openssl s_client) : SNI alpha→cert alpha, SNI beta→cert beta, SNI inconnu→alert TLS (refus), HTTP→HTTPS 301.
 - **Spec** : requirements-ops.md FR-33 ; features/per-domain-tls.feature ; ADR-017 ; schemas/config.schema.json
+
+## Sprint 12 - Mode "sous attaque" anti-DDoS L7 (Phase 12)
+
+### T12.1 - Mode sous attaque : challenge force pilote par la pression (FR-39) `[spec only — implementation differee]`
+- [ ] Ajouter le bloc `antiddos.under_attack` (enabled, scope, trigger_pressure, exit_pressure, cooldown, shadow, max_tracked_domains) au parsing config + Validate (enums admis, `trigger_pressure >= exit_pressure` selon l'ordre normal<elevated<high<critical, cooldown duree > 0, max_tracked_domains >= 1)
+- [ ] `internal/middleware/antiddos` : compteur de pression **par domaine** (anneau de buckets par domaine, nombre de domaines borne par LRU `max_tracked_domains`) ; `scope` choisit global vs per-domaine
+- [ ] `internal/middleware/antiddos` : controleur de mode sous attaque par scope avec **hysteresis** (entree a `trigger_pressure`, sortie sous `exit_pressure` maintenu pendant `cooldown`) ; expose l'etat via header interne `X-WAF-Under-Attack`
+- [ ] `internal/middleware/challenge` : si `X-WAF-Under-Attack=true` et requete **sans clearance** (pas de cookie `waf_session` valide), forcer le challenge ; relacher `isBrowserNavigation` pour les GET/HEAD ; ne pas challenger les requetes `Accept: application/json` ni les methodes non-GET/HEAD
+- [ ] Respecter `shadow` : calculer/journaliser `under_attack=true` sans forcer le challenge
+- [ ] `internal/logger` : ajouter le champ `under_attack` a l'evenement de securite (FR-09)
+- [ ] `internal/metrics` : exposer `waf_under_attack{domain}` (jauge) et `waf_under_attack_challenges_total{domain}` (compteur)
+- [ ] Alerte (FR-29) a l'entree et a la sortie du mode sous attaque, par scope (cooldown de dedup)
+- [ ] Cabler dans `cmd/waf/main.go` (observer de transition -> alerte ; header consomme par le challenge)
+- [ ] Tests : detecteur par domaine, hysteresis du controleur (entree/sortie/cooldown), forcage du challenge (sans cookie -> CHALLENGE ; cookie valide -> PASS ; bot verifie/whitelist epargnes ; API JSON non challengee), portee par domaine, mode shadow, validation config
+- **Acceptance** : sous pression `high`/`critical` sur un domaine, un visiteur sans clearance est force au CHALLENGE quel que soit son risk_score ; un visiteur avec cookie/sticky-trust/bot-verifie/whitelist passe sans friction ; le mode est reversible (PoW resolu -> cookie -> passage) et per-domaine ; aucun blocage dur n'est produit par le seul mode sous attaque.
+- **Statut** : spec redigee (draft), implementation a venir.
+- **Spec** : requirements-detection.md FR-39 (draft) ; features/anti-ddos.feature ; ADR-018 ; schemas/config.schema.json

@@ -219,6 +219,51 @@
           "default": 5,
           "minimum": 1,
           "description": "Valeur par défaut du header Retry-After pour les réponses volumétriques explicites par IP; la pression globale seule ne doit pas produire de 503"
+        },
+        "under_attack": {
+          "type": "object",
+          "additionalProperties": false,
+          "description": "Mode « sous attaque » (FR-39, ADR-018): sous pression avérée, force le challenge JS des requêtes sans clearance pour délester un flood L7 distribué",
+          "properties": {
+            "enabled": {
+              "type": "boolean",
+              "default": true
+            },
+            "scope": {
+              "type": "string",
+              "enum": ["per_domain", "global"],
+              "default": "per_domain",
+              "description": "Granularité d'évaluation de la pression: per_domain (défaut) circonscrit le mode au domaine attaqué, global l'applique à tout le trafic"
+            },
+            "trigger_pressure": {
+              "type": "string",
+              "enum": ["elevated", "high", "critical"],
+              "default": "high",
+              "description": "Niveau de pression à partir duquel le scope entre en mode sous attaque"
+            },
+            "exit_pressure": {
+              "type": "string",
+              "enum": ["normal", "elevated", "high", "critical"],
+              "default": "elevated",
+              "description": "Plancher d'hystérésis: le mode n'est quitté que sous ce niveau, maintenu pendant cooldown. Doit être <= trigger_pressure"
+            },
+            "cooldown": {
+              "type": "string",
+              "default": "30s",
+              "description": "Durée pendant laquelle la pression doit rester sous exit_pressure avant de quitter le mode sous attaque"
+            },
+            "shadow": {
+              "type": "boolean",
+              "default": false,
+              "description": "true = calcule et journalise under_attack sans forcer le challenge (calibration, FR-38)"
+            },
+            "max_tracked_domains": {
+              "type": "integer",
+              "default": 1024,
+              "minimum": 1,
+              "description": "Plafond LRU du nombre de domaines suivis par le compteur de pression par domaine (scope per_domain)"
+            }
+          }
         }
       }
     },
