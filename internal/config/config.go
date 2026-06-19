@@ -121,6 +121,20 @@ type AntiDDoS struct {
 	GlobalWindow            string         `yaml:"global_window"`
 	PressureLevels          PressureLevels `yaml:"pressure_levels"`
 	RetryAfterSeconds       int            `yaml:"retry_after_seconds"`
+	UnderAttack             UnderAttack    `yaml:"under_attack"`
+}
+
+// UnderAttack configure le mode « sous attaque » (FR-39, ADR-018) : sous pression
+// avérée, le WAF force le challenge JS des requêtes sans clearance pour délester un
+// flood L7 distribué tout en laissant les humains récupérer via PoW.
+type UnderAttack struct {
+	Enabled           bool   `yaml:"enabled"`
+	Scope             string `yaml:"scope"`            // per_domain | global
+	TriggerPressure   string `yaml:"trigger_pressure"` // elevated | high | critical
+	ExitPressure      string `yaml:"exit_pressure"`    // normal | elevated | high | critical
+	Cooldown          string `yaml:"cooldown"`         // durée sous exit_pressure avant sortie
+	Shadow            bool   `yaml:"shadow"`           // calcule/journalise sans forcer (FR-38)
+	MaxTrackedDomains int    `yaml:"max_tracked_domains"`
 }
 
 type PressureLevels struct {
@@ -452,6 +466,15 @@ func Default() Config {
 				CriticalMultiplier: 4,
 			},
 			RetryAfterSeconds: 5,
+			UnderAttack: UnderAttack{
+				Enabled:           true,
+				Scope:             "per_domain",
+				TriggerPressure:   "high",
+				ExitPressure:      "elevated",
+				Cooldown:          "30s",
+				Shadow:            false,
+				MaxTrackedDomains: 1024,
+			},
 		},
 		Trust: Trust{
 			InitialScore:       50,
@@ -670,6 +693,7 @@ func (c *Config) Validate() error {
 	if c.AntiDDoS.RetryAfterSeconds < 1 {
 		fields = append(fields, "antiddos.retry_after_seconds must be >= 1")
 	}
+	validateUnderAttack(&fields, c.AntiDDoS.UnderAttack)
 	validateRange(&fields, "trust.initial_score", c.Trust.InitialScore, 0, 100)
 	validateRange(&fields, "trust.challenge_threshold", c.Trust.ChallengeThreshold, 0, 100)
 	validateRange(&fields, "trust.block_threshold", c.Trust.BlockThreshold, 0, 100)
@@ -850,6 +874,39 @@ func validatePressureLevels(fields *[]string, cfg PressureLevels) {
 	}
 	if cfg.ElevatedMultiplier > cfg.HighMultiplier || cfg.HighMultiplier > cfg.CriticalMultiplier {
 		*fields = append(*fields, "antiddos.pressure_levels multipliers must be ordered elevated <= high <= critical")
+	}
+}
+
+// pressureRank classe les niveaux de pression pour comparer trigger/exit (FR-39).
+// -1 = inconnu.
+func pressureRank(level string) int {
+	switch level {
+	case "normal":
+		return 0
+	case "elevated":
+		return 1
+	case "high":
+		return 2
+	case "critical":
+		return 3
+	default:
+		return -1
+	}
+}
+
+func validateUnderAttack(fields *[]string, cfg UnderAttack) {
+	if !cfg.Enabled {
+		return
+	}
+	validateEnum(fields, "antiddos.under_attack.scope", cfg.Scope, "per_domain", "global")
+	validateEnum(fields, "antiddos.under_attack.trigger_pressure", cfg.TriggerPressure, "elevated", "high", "critical")
+	validateEnum(fields, "antiddos.under_attack.exit_pressure", cfg.ExitPressure, "normal", "elevated", "high", "critical")
+	validateDuration(fields, "antiddos.under_attack.cooldown", cfg.Cooldown)
+	if trigger, exit := pressureRank(cfg.TriggerPressure), pressureRank(cfg.ExitPressure); trigger >= 0 && exit >= 0 && exit > trigger {
+		*fields = append(*fields, "antiddos.under_attack.exit_pressure must be <= trigger_pressure")
+	}
+	if cfg.MaxTrackedDomains < 1 {
+		*fields = append(*fields, "antiddos.under_attack.max_tracked_domains must be >= 1")
 	}
 }
 

@@ -34,6 +34,8 @@ type Metrics struct {
 	visitorsByState *prometheus.GaugeVec
 	powDifficulty   prometheus.Gauge
 	globalPressure  *prometheus.GaugeVec
+	underAttack     *prometheus.GaugeVec
+	underAttackHits *prometheus.CounterVec
 	clusterEvents   *prometheus.CounterVec
 	tlsCertExpiry   *prometheus.GaugeVec
 	mu              sync.Mutex
@@ -102,10 +104,18 @@ func New() *Metrics {
 			Name: "waf_tls_cert_expiry_seconds",
 			Help: "Unix timestamp of the TLS certificate expiry (NotAfter) per domain.",
 		}, []string{"domain"}),
+		underAttack: prometheus.NewGaugeVec(prometheus.GaugeOpts{
+			Name: "waf_under_attack",
+			Help: "Under-attack mode active (1) or not (0) per domain (FR-39).",
+		}, []string{"domain"}),
+		underAttackHits: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_under_attack_challenges_total",
+			Help: "Requests forced to challenge by under-attack mode, per domain (FR-39).",
+		}, []string{"domain"}),
 		visitors: make(map[string]string),
 		now:      time.Now,
 	}
-	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.clusterEvents, m.tlsCertExpiry)
+	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry)
 	return m
 }
 
@@ -118,6 +128,16 @@ func (m *Metrics) SetTLSCertExpiry(domain string, notAfter time.Time) {
 // SetPowDifficulty publie la difficulté courante du PoW adaptatif (FR-14).
 func (m *Metrics) SetPowDifficulty(bits int) {
 	m.powDifficulty.Set(float64(bits))
+}
+
+// SetUnderAttack publie l'état du mode sous attaque d'un scope sur transition
+// (FR-39), pour refléter immédiatement une sortie même sans trafic ultérieur.
+func (m *Metrics) SetUnderAttack(domain string, active bool) {
+	value := 0.0
+	if active {
+		value = 1
+	}
+	m.underAttack.WithLabelValues(domain).Set(value)
 }
 
 // IncClusterSync compte un événement de synchronisation cluster appliqué (FR-20).
@@ -149,6 +169,7 @@ func (m *Metrics) Middleware(scores *trust.ScoreManager, next http.Handler) http
 		m.observeRisk(r, recorder)
 		m.observeVisitor(r, scores)
 		m.observeGlobalPressure(r)
+		m.observeUnderAttack(r, action)
 	})
 }
 
@@ -209,6 +230,20 @@ func (m *Metrics) observeGlobalPressure(r *http.Request) {
 			value = 1
 		}
 		m.globalPressure.WithLabelValues(level).Set(value)
+	}
+}
+
+// observeUnderAttack publie l'état du mode sous attaque par domaine (FR-39) et
+// compte les requêtes forcées au challenge par ce mode.
+func (m *Metrics) observeUnderAttack(r *http.Request, action string) {
+	active := r.Header.Get("X-WAF-Under-Attack") == "true"
+	value := 0.0
+	if active {
+		value = 1
+	}
+	m.underAttack.WithLabelValues(r.Host).Set(value)
+	if active && action == actionChallenge {
+		m.underAttackHits.WithLabelValues(r.Host).Inc()
 	}
 }
 

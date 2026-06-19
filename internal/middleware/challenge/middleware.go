@@ -139,7 +139,8 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		// HTML de premier niveau). Les appels API/XHR (fetch, axios, mobile…) ne
 		// peuvent pas exécuter le JS : on ne les challenge pas, sinon ils cassent.
 		// Ils restent couverts par le reste de la chaîne (rate-limit, risk engine…).
-		if !isBrowserNavigation(r) {
+		underAttack := r.Header.Get("X-WAF-Under-Attack-Enforce") == "true"
+		if !shouldChallenge(r, underAttack) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -247,6 +248,17 @@ func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// shouldChallenge décide si une requête sans clearance doit recevoir un challenge.
+// En mode normal, seul un chargement de page navigateur est challengé. Sous attaque
+// (FR-39), l'heuristique de navigation est relâchée pour délester un flood L7 dont
+// les requêtes brutes n'envoient pas toujours "Accept: text/html".
+func shouldChallenge(r *http.Request, underAttack bool) bool {
+	if underAttack {
+		return isChallengeableUnderAttack(r)
+	}
+	return isBrowserNavigation(r)
+}
+
 // isBrowserNavigation détecte une navigation de navigateur (chargement de page
 // HTML), seul cas où servir un challenge JS a du sens. Un GET/HEAD dont l'en-tête
 // Accept inclut "text/html" est une navigation ; les requêtes fetch/axios/XHR
@@ -256,6 +268,18 @@ func isBrowserNavigation(r *http.Request) bool {
 		return false
 	}
 	return strings.Contains(r.Header.Get("Accept"), "text/html")
+}
+
+// isChallengeableUnderAttack relâche l'heuristique de navigation sous mode sous
+// attaque : tout GET/HEAD est challengeable (un vrai navigateur résout le PoW et
+// obtient un cookie), SAUF s'il négocie explicitement un type non-HTML
+// ("application/json") — un client API/XHR ne peut pas résoudre un challenge JS et
+// reste couvert par le rate-limit et le moteur de risque.
+func isChallengeableUnderAttack(r *http.Request) bool {
+	if r.Method != http.MethodGet && r.Method != http.MethodHead {
+		return false
+	}
+	return !strings.Contains(r.Header.Get("Accept"), "application/json")
 }
 
 // setNoStore interdit toute mise en cache (navigateur et CDN) de la réponse.

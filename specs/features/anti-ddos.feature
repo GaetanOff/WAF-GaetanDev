@@ -71,3 +71,69 @@ Feature: Protection Anti-DDoS
     Then un événement de sécurité est journalisé
     And l'événement contient les champs: timestamp, request_id, ip, action="RATE_LIMIT", trust_score
     And l'événement ne contient pas de query string sensible
+
+  # --- Mode "sous attaque" (FR-39, ADR-018) ---
+
+  Scenario: Sous attaque — flood L7 distribué forcé au challenge
+    Given antiddos.under_attack.enabled = true et scope = "per_domain"
+    And antiddos.under_attack.trigger_pressure = "high"
+    And la pression du domaine "status.gaetandev.fr" atteint "high"
+    When un visiteur sans cookie WAF valide envoie un "GET /" sur ce domaine
+    Then la requête reçoit un challenge JS "CHALLENGE"
+    And le challenge est forcé même si le risk_score est sous le palier challenge
+    And le log indique under_attack=true
+
+  Scenario: Sous attaque — visiteur avec clearance passe sans friction
+    Given le domaine "status.gaetandev.fr" est en mode sous attaque
+    And un visiteur possède un cookie WAF "waf_session" valide
+    When ce visiteur envoie une requête sous sa limite par IP
+    Then la requête est transmise à l'upstream
+    And aucun challenge n'est servi
+
+  Scenario: Sous attaque — récupération humaine via PoW
+    Given le domaine "status.gaetandev.fr" est en mode sous attaque
+    And un humain sans cookie reçoit un challenge JS
+    When il résout la preuve de travail et obtient un cookie "waf_session"
+    Then ses requêtes suivantes sont transmises à l'upstream sans challenge
+
+  Scenario: Sous attaque — bot vérifié non challengé
+    Given le domaine "status.gaetandev.fr" est en mode sous attaque
+    And un visiteur est un "Googlebot" vérifié par reverse-DNS forward-confirm
+    When il envoie une requête
+    Then la requête n'est pas challengée
+    And la requête est transmise à l'upstream
+
+  Scenario: Sous attaque — client API non-navigateur non challengé
+    Given le domaine "api.gaetandev.fr" est en mode sous attaque
+    When un client sans cookie envoie une requête avec l'en-tête "Accept: application/json"
+    Then la requête ne reçoit pas de page de challenge JS
+    And la requête reste soumise au rate limiting par IP et au moteur de risque
+
+  Scenario: Sous attaque — portée par domaine
+    Given antiddos.under_attack.scope = "per_domain"
+    And le domaine "status.gaetandev.fr" est en mode sous attaque
+    And le domaine "nextcloud.gaetandev.fr" reçoit un trafic normal
+    When un visiteur sans cookie envoie un "GET /" sur "nextcloud.gaetandev.fr"
+    Then la requête n'est pas forcée au challenge par le mode sous attaque
+
+  Scenario: Sous attaque — hystérésis de sortie
+    Given le domaine "status.gaetandev.fr" est en mode sous attaque
+    And antiddos.under_attack.exit_pressure = "elevated" et cooldown = "30s"
+    When la pression retombe à "elevated" pendant moins de 30 secondes
+    Then le domaine reste en mode sous attaque
+    When la pression reste sous "elevated" pendant plus de 30 secondes
+    Then le domaine quitte le mode sous attaque
+
+  Scenario: Sous attaque — mode shadow calcule sans appliquer
+    Given antiddos.under_attack.shadow = true
+    And le domaine "status.gaetandev.fr" atteint la pression "high"
+    When un visiteur sans cookie envoie un "GET /" sur ce domaine
+    Then la requête n'est pas forcée au challenge
+    And le log indique under_attack=true
+
+  Scenario: Sous attaque — alerte d'entrée et de sortie
+    Given alerting.enabled = true
+    When le domaine "status.gaetandev.fr" entre en mode sous attaque
+    Then une alerte est émise avec le trigger "under_attack" et le domaine concerné
+    When le domaine quitte le mode sous attaque
+    Then une alerte de fin est émise

@@ -341,6 +341,10 @@ func titleFor(trigger string) string {
 		return "🔌 Circuit breaker ouvert"
 	case "degraded_mode":
 		return "🌊 Mode dégradé (anti-DDoS)"
+	case "under_attack_start":
+		return "🚨 Mode sous attaque activé"
+	case "under_attack_end":
+		return "✅ Mode sous attaque levé"
 	case "block":
 		return "⛔ Requête bloquée"
 	default:
@@ -357,6 +361,10 @@ func messageFor(ev Event) string {
 		return "Trop de violations consécutives : circuit ouvert pour cette IP."
 	case "degraded_mode":
 		return "Pression de trafic élevée : mitigations renforcées."
+	case "under_attack_start":
+		return "Pression critique : challenge JS forcé pour les requêtes sans clearance (FR-39)."
+	case "under_attack_end":
+		return "Pression retombée : sortie du mode sous attaque, challenge forcé désactivé."
 	case "block":
 		return "Requête bloquée par le pare-feu applicatif."
 	default:
@@ -366,7 +374,7 @@ func messageFor(ev Event) string {
 
 func severityFor(trigger string) string {
 	switch trigger {
-	case "circuit_breaker", "degraded_mode", "honeypot":
+	case "circuit_breaker", "degraded_mode", "honeypot", "under_attack_start":
 		return "critical"
 	case "block":
 		return "warning"

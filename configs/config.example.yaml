@@ -57,6 +57,17 @@ antiddos:
     high_multiplier: 2               # >= 100k req/s -> pression high
     critical_multiplier: 4           # >= 200k req/s -> pression critical
   retry_after_seconds: 5             # Retry-After pour les limites explicites par IP, pas pour un 503 global
+  # Mode "sous attaque" (FR-39) : sous pression avérée, force le challenge JS des
+  # requêtes sans clearance (cookie/bot vérifié/whitelist/sticky trust) pour
+  # délester un flood L7 distribué tout en laissant les humains récupérer via PoW.
+  under_attack:
+    enabled: true
+    scope: "per_domain"              # per_domain (circonscrit au domaine attaqué) | global
+    trigger_pressure: "high"         # elevated | high | critical — entrée en mode
+    exit_pressure: "elevated"        # plancher d'hystérésis pour sortir du mode
+    cooldown: "30s"                  # durée sous exit_pressure avant de quitter le mode
+    shadow: false                    # true = calcule/journalise sans forcer (calibration, FR-38)
+    max_tracked_domains: 1024        # plafond LRU des compteurs par domaine
 
 # Système de confiance et challenge
 trust:
