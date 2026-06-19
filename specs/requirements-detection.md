@@ -1,10 +1,10 @@
 ---
-status: draft
-version: 1.2.0-draft
+status: implemented
+version: 1.2.0
 last-reviewed: 2026-06-19
 reviewed-by: GaetanDev
 extends: requirements-advanced.md (v2.1.0), requirements-ops.md
-change: "Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 [draft, spec only]"
+change: "Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
 ---
 
 # Requirements Detection — Moteur de Risque & Décision (v4)
@@ -202,7 +202,7 @@ explicites (issus de la revue de spec) :
   - `waf_verified_bot_total{bot}` (crawlers vérifiés)
 - Le mode shadow et les profils DOIVENT être commutables à chaud (API admin / SIGHUP).
 
-## FR-39 — Mode « Sous Attaque » (challenge forcé piloté par la pression) `[draft]`
+## FR-39 — Mode « Sous Attaque » (challenge forcé piloté par la pression)
 
 > Étend FR-08 (pression adaptative, ADR-016) et FR-34 (échelle graduée). Comble la
 > faille mise en évidence par l'incident du 2026-06-19 : un flood L7 **distribué**

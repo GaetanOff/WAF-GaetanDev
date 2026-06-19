@@ -258,6 +258,38 @@ func validBaseConfig() Config {
 	return cfg
 }
 
+func TestValidateUnderAttack(t *testing.T) {
+	tests := []struct {
+		name    string
+		mutate  func(*UnderAttack)
+		wantErr bool
+	}{
+		{name: "defaults are valid", mutate: func(*UnderAttack) {}, wantErr: false},
+		{name: "global scope valid", mutate: func(u *UnderAttack) { u.Scope = "global" }, wantErr: false},
+		{name: "invalid scope", mutate: func(u *UnderAttack) { u.Scope = "per_ip" }, wantErr: true},
+		{name: "invalid trigger pressure", mutate: func(u *UnderAttack) { u.TriggerPressure = "extreme" }, wantErr: true},
+		{name: "trigger normal not allowed", mutate: func(u *UnderAttack) { u.TriggerPressure = "normal" }, wantErr: true},
+		{name: "exit above trigger", mutate: func(u *UnderAttack) { u.TriggerPressure = "elevated"; u.ExitPressure = "high" }, wantErr: true},
+		{name: "exit equals trigger valid", mutate: func(u *UnderAttack) { u.TriggerPressure = "high"; u.ExitPressure = "high" }, wantErr: false},
+		{name: "bad cooldown", mutate: func(u *UnderAttack) { u.Cooldown = "soon" }, wantErr: true},
+		{name: "zero max tracked domains", mutate: func(u *UnderAttack) { u.MaxTrackedDomains = 0 }, wantErr: true},
+		{name: "disabled skips validation", mutate: func(u *UnderAttack) { u.Enabled = false; u.Scope = "garbage"; u.Cooldown = "" }, wantErr: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validBaseConfig()
+			tt.mutate(&cfg.AntiDDoS.UnderAttack)
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Fatal("Validate() expected an error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("Validate() unexpected error = %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateServerTLS(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -1,5 +1,5 @@
 ---
-status: proposed
+status: accepted
 date: 2026-06-19
 deciders: GaetanDev
 relates-to: requirements.md (FR-08 v2.0.0), requirements-detection.md (FR-33..FR-39), features/anti-ddos.feature, ADR-016

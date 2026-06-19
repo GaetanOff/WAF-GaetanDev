@@ -121,6 +121,7 @@ func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores 
 		RiskConfidence: riskConfidence(r),
 		ShadowMode:     r.Header.Get("X-WAF-Risk-Shadow-Mode") == "true",
 		GlobalPressure: globalPressure(r),
+		UnderAttack:    r.Header.Get("X-WAF-Under-Attack") == "true",
 		LatencyMS:      elapsedMS,
 		WAFLatencyMS:   wafLatencyMS,
 		UpstreamStatus: upstreamStatus(action, recorder.statusCode),

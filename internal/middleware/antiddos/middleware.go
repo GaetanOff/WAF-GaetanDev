@@ -15,6 +15,7 @@ type Middleware struct {
 	enabled           bool
 	breaker           CircuitBreaker
 	global            *GlobalRateDetector
+	underAttack       *UnderAttackDetector
 	onPressure        func(PressureLevel)
 	retryAfterSeconds int
 }
@@ -36,21 +37,54 @@ func (m Middleware) WithPressureObserver(observer func(PressureLevel)) Middlewar
 	return m
 }
 
+// WithUnderAttackDetector branche le détecteur de mode sous attaque (FR-39). En son
+// absence, seule la pression globale historique est calculée.
+func (m Middleware) WithUnderAttackDetector(detector *UnderAttackDetector) Middleware {
+	m.underAttack = detector
+	return m
+}
+
+// UnderAttackDetector expose le détecteur de mode sous attaque (nil si désactivé),
+// pour brancher un observateur de transition (métrique/alerte) au câblage.
+func (m Middleware) UnderAttackDetector() *UnderAttackDetector {
+	return m.underAttack
+}
+
 func NewFromConfig(store storage.Store, cfg config.Config) (Middleware, error) {
 	window, err := time.ParseDuration(cfg.AntiDDoS.GlobalWindow)
 	if err != nil {
 		return Middleware{}, fmt.Errorf("parse antiddos.global_window: %w", err)
 	}
+	pressure := PressureConfig{
+		ElevatedMultiplier: cfg.AntiDDoS.PressureLevels.ElevatedMultiplier,
+		HighMultiplier:     cfg.AntiDDoS.PressureLevels.HighMultiplier,
+		CriticalMultiplier: cfg.AntiDDoS.PressureLevels.CriticalMultiplier,
+	}
 	middleware := New(
 		NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration),
-		NewGlobalRateDetector(cfg.AntiDDoS.GlobalRequestsPerSecond, window, PressureConfig{
-			ElevatedMultiplier: cfg.AntiDDoS.PressureLevels.ElevatedMultiplier,
-			HighMultiplier:     cfg.AntiDDoS.PressureLevels.HighMultiplier,
-			CriticalMultiplier: cfg.AntiDDoS.PressureLevels.CriticalMultiplier,
-		}),
+		NewGlobalRateDetector(cfg.AntiDDoS.GlobalRequestsPerSecond, window, pressure),
 		cfg.AntiDDoS.RetryAfterSeconds,
 	)
 	middleware.enabled = cfg.AntiDDoS.Enabled
+
+	if ua := cfg.AntiDDoS.UnderAttack; ua.Enabled {
+		cooldown, err := time.ParseDuration(ua.Cooldown)
+		if err != nil {
+			return Middleware{}, fmt.Errorf("parse antiddos.under_attack.cooldown: %w", err)
+		}
+		middleware.underAttack = NewUnderAttackDetector(UnderAttackConfig{
+			Enabled:         true,
+			PerDomain:       ua.Scope != "global",
+			TriggerPressure: PressureLevel(ua.TriggerPressure),
+			ExitPressure:    PressureLevel(ua.ExitPressure),
+			Cooldown:        cooldown,
+			Shadow:          ua.Shadow,
+			MaxDomains:      ua.MaxTrackedDomains,
+			Threshold:       cfg.AntiDDoS.GlobalRequestsPerSecond,
+			Window:          window,
+			Pressure:        pressure,
+		})
+	}
 	return middleware, nil
 }
 
@@ -75,10 +109,19 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
-		pressure := m.recordPressure()
-		r.Header.Set("X-WAF-Global-Pressure", string(pressure))
-		if contribution := pressureContribution(pressure); contribution > 0 {
+		decision := m.recordPressure(r)
+		r.Header.Set("X-WAF-Global-Pressure", string(decision.Pressure))
+		if contribution := pressureContribution(decision.Pressure); contribution > 0 {
 			r.Header.Set("X-WAF-Risk-rate", strconv.Itoa(contribution))
+		}
+		// Mode sous attaque (FR-39) : X-WAF-Under-Attack est journalisé (vrai même en
+		// shadow) ; X-WAF-Under-Attack-Enforce déclenche le challenge forcé côté
+		// middleware challenge (faux en shadow).
+		if decision.UnderAttack {
+			r.Header.Set("X-WAF-Under-Attack", "true")
+		}
+		if decision.Enforce {
+			r.Header.Set("X-WAF-Under-Attack-Enforce", "true")
 		}
 
 		recorder := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
@@ -91,15 +134,22 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 	})
 }
 
-func (m Middleware) recordPressure() PressureLevel {
+func (m Middleware) recordPressure(r *http.Request) Decision {
+	if m.underAttack != nil {
+		decision := m.underAttack.Observe(r.Host)
+		if m.onPressure != nil {
+			m.onPressure(decision.Pressure)
+		}
+		return decision
+	}
 	if m.global == nil {
-		return PressureNormal
+		return Decision{Pressure: PressureNormal}
 	}
 	pressure := m.global.RecordAndPressure()
 	if m.onPressure != nil {
 		m.onPressure(pressure)
 	}
-	return pressure
+	return Decision{Pressure: pressure}
 }
 
 func pressureContribution(pressure PressureLevel) int {

@@ -84,6 +84,10 @@
       "enum": ["normal", "elevated", "high", "critical"],
       "description": "Niveau de pression globale anti-DDoS observe pour cette requete"
     },
+    "under_attack": {
+      "type": "boolean",
+      "description": "true si le scope (domaine ou global) etait en mode sous attaque (FR-39) pour cette requete"
+    },
     "latency_ms": {
       "type": "number",
       "description": "Latence totale de traitement en millisecondes (WAF + upstream)"

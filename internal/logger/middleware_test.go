@@ -203,8 +203,8 @@ func TestSecurityEventJSONStaysWithinSchema(t *testing.T) {
 		"domain": true, "method": true, "path": true, "user_agent": true,
 		"action": true, "reason": true, "trust_score": true, "score_delta": true,
 		"risk_score": true, "risk_decision": true, "risk_confidence": true, "shadow_mode": true,
-		"global_pressure": true,
-		"latency_ms":      true, "waf_latency_ms": true, "upstream_status": true,
+		"global_pressure": true, "under_attack": true,
+		"latency_ms": true, "waf_latency_ms": true, "upstream_status": true,
 		"cf_ray": true, "cf_country": true,
 	}
 

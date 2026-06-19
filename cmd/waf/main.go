@@ -265,6 +265,7 @@ func run() error {
 	securityLogger.AnonymizeIP = cfg.GDPR.AnonymizeIP // RGPD (FR-28)
 	// Alerting webhooks (FR-29) : le logger émet une alerte sur les événements
 	// à forte sévérité (block / circuit / honeypot), avec cooldown.
+	var notifier *alert.Notifier
 	if cfg.Alerting.Enabled {
 		cooldown, err := parseDuration("alerting.cooldown", cfg.Alerting.Cooldown)
 		if err != nil {
@@ -274,9 +275,24 @@ func run() error {
 		for _, wh := range cfg.Alerting.Webhooks {
 			sinks = append(sinks, alert.Sink{Type: wh.Type, URL: wh.URL})
 		}
-		notifier := alert.NewNotifier(sinks, cooldown, cfg.Alerting.MaxRetries, nil)
+		notifier = alert.NewNotifier(sinks, cooldown, cfg.Alerting.MaxRetries, nil)
 		defer notifier.Close()
 		securityLogger.Alerter = notifier
+	}
+	// Mode sous attaque (FR-39) : à chaque entrée/sortie, on publie la métrique
+	// waf_under_attack{domain} et (si l'alerting est actif) on émet une alerte.
+	if detector := antiDDoS.UnderAttackDetector(); detector != nil {
+		detector.WithTransitionObserver(func(scope string, active bool) {
+			metrics.SetUnderAttack(scope, active)
+			if notifier == nil {
+				return
+			}
+			trigger := "under_attack_end"
+			if active {
+				trigger = "under_attack_start"
+			}
+			notifier.Notify(alert.Event{Trigger: trigger, Domain: scope, Action: waflogger.ActionChallenge})
+		})
 	}
 
 	server := &http.Server{
