@@ -99,6 +99,29 @@ func TestCooldownDeduplicates(t *testing.T) {
 	}
 }
 
+// Une transition de mode (Immediate) doit toujours être livrée, même si une
+// transition identique a eu lieu dans le cooldown : sinon une réactivation
+// rapprochée du mode sous attaque (FR-39) passerait silencieuse.
+func TestImmediateBypassesCooldown(t *testing.T) {
+	var count int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		atomic.AddInt32(&count, 1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer server.Close()
+
+	n := NewNotifier([]Sink{{Type: SinkGeneric, URL: server.URL}}, time.Hour, 0, server.Client())
+	defer n.Close()
+	for i := 0; i < 3; i++ {
+		n.Notify(Event{Trigger: "under_attack_start", Domain: "status.gaetandev.fr", Immediate: true})
+	}
+	time.Sleep(100 * time.Millisecond)
+
+	if c := atomic.LoadInt32(&count); c != 3 {
+		t.Fatalf("delivered %d times, want 3 (les transitions Immediate ignorent le cooldown)", c)
+	}
+}
+
 func TestRetryOnFailureThenSuccess(t *testing.T) {
 	var attempts int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

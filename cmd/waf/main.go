@@ -291,7 +291,10 @@ func run() error {
 			if active {
 				trigger = "under_attack_start"
 			}
-			notifier.Notify(alert.Event{Trigger: trigger, Domain: scope, Action: waflogger.ActionChallenge})
+			// Immediate: une transition est un événement discret (déjà débouncé par
+			// l'hystérésis du contrôleur) ; elle ne doit pas être avalée par le
+			// cooldown de dédup (sinon une réactivation rapprochée n'alerte pas).
+			notifier.Notify(alert.Event{Trigger: trigger, Domain: scope, Immediate: true})
 		})
 	}
 
