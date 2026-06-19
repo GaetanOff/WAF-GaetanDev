@@ -24,6 +24,12 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   `waf_under_attack_challenges_total{domain}` ; alerte FR-29 à l'entrée/sortie du
   mode. Activé par défaut (`enabled: true`). Implémenté Slice 12.1. Voir `ADR-018`,
   `requirements-detection.md` FR-39, `features/anti-ddos.feature`.
+  - Les alertes de transition (`under_attack_start`/`_end`) sont envoyées en mode
+    **`Immediate`** : elles contournent la déduplication par cooldown du Notifier.
+    Sans cela, une **réactivation rapprochée** du mode (attaque en plusieurs vagues
+    séparées d'un creux) dans la fenêtre de cooldown (ex. 5 min) n'était pas alertée.
+    La cadence reste bornée par l'hystérésis du contrôleur (sortie sous
+    `exit_pressure` soutenu `cooldown`).
 
 ### Changed
 

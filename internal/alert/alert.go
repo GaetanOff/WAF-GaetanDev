@@ -32,6 +32,10 @@ type Event struct {
 	RequestID  string
 	Country    string
 	TrustScore int
+	// Immediate contourne la déduplication par cooldown. À réserver aux événements
+	// de transition d'état discrets (entrée/sortie de mode), déjà débouncés en
+	// amont — sinon une transition rapprochée d'une précédente serait avalée.
+	Immediate bool
 }
 
 // Alert est le payload d'alerte enrichi (cf. schemas/alert.schema.json).
@@ -110,7 +114,7 @@ func (n *Notifier) worker() {
 
 // Notify construit et dispatche une alerte enrichie à partir d'un événement WAF.
 func (n *Notifier) Notify(ev Event) {
-	n.Dispatch(Alert{
+	alert := Alert{
 		Timestamp:  n.now().UTC().Format(time.RFC3339),
 		Trigger:    ev.Trigger,
 		Severity:   severityFor(ev.Trigger),
@@ -125,7 +129,13 @@ func (n *Notifier) Notify(ev Event) {
 		RequestID:  ev.RequestID,
 		Country:    ev.Country,
 		TrustScore: ev.TrustScore,
-	})
+	}
+	if ev.Immediate {
+		// Transition d'état : toujours livrée, sans passer par le cooldown.
+		n.enqueue(alert)
+		return
+	}
+	n.Dispatch(alert)
 }
 
 // Dispatch enfile une alerte si le cooldown (par trigger+domaine) est écoulé.
@@ -134,6 +144,11 @@ func (n *Notifier) Dispatch(alert Alert) {
 	if !n.allow(alert) {
 		return
 	}
+	n.enqueue(alert)
+}
+
+// enqueue dépose l'alerte dans la file sans bloquer (jetée si la file est pleine).
+func (n *Notifier) enqueue(alert Alert) {
 	select {
 	case n.queue <- alert:
 	default:

@@ -212,6 +212,7 @@ last-reviewed: 2026-06-03
 | 2026-06-19 | Slice 12.1 FR-39 under-attack | `go test -race ./internal/middleware/antiddos/... ./internal/middleware/challenge/...` | pass | No data races (per-domain LRU + hysteresis state are mutex-guarded; transition observer invoked outside the lock) |
 | 2026-06-19 | Slice 12.1 FR-39 under-attack | `go test -cover` (touched pkgs) | pass | antiddos 87.3%, challenge 87.1%, config 79.4%, metrics 85.2%, logger 71.0%, alert 82.9% (≥80% on the new business logic) |
 | 2026-06-19 | Slice 12.1 FR-39 under-attack | JSON schema validity (`jq empty`) | pass | config.schema.json + security-event.schema.json valid ; config.example.yaml conforms to schema (jsonschema) |
+| 2026-06-19 | Slice 12.1 FR-39 alert delivery | `go test ./...` | pass | Fix : alertes de transition envoyées en `Immediate` (bypass cooldown). Diagnostic prod (waf-out-10) : attaque en 2 vagues séparées d'un creux >30s → mode activé/levé/réactivé, mais le 2ᵉ `under_attack_start` était avalé par le cooldown 5m du Notifier (même clé trigger+domaine). Test : 3 events Immediate identiques → 3 livrés ; le cooldown dédup normal reste actif pour les autres triggers |
 
 ### Slice 12.1 — Notes & couverture du périmètre (FR-39)
 
