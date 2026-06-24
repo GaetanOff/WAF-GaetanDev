@@ -6,6 +6,20 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security
+
+- Montée de version des dépendances `golang.org/x` pour corriger 21 alertes de
+  code-scanning (vulnérabilités connues) :
+  - `golang.org/x/crypto` `v0.45.0` → `v0.52.0` (13 CVE, dont HIGH
+    CVE-2026-46597/46595/42508/39835/39830/39829/39828/39827 et MEDIUM
+    CVE-2026-46598/39834/39833/39832/39831).
+  - `golang.org/x/net` `v0.47.0` → `v0.55.0` (7 CVE HIGH :
+    CVE-2026-42506/42502/39821/33814/27136/25681/25680).
+  - `golang.org/x/sys` `v0.38.0` → `v0.45.0` (CVE-2026-39824 ; `0.45.0` requis
+    par crypto/net, couvre le fix `0.44.0`).
+  - `golang.org/x/text` `v0.31.0` → `v0.37.0` (entraîné par MVS).
+  Aucun changement d'API : build + suite de tests verts.
+
 ### Added
 
 - FR-39 — Mode **« sous attaque »** (challenge forcé piloté par la pression).
