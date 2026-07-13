@@ -2,6 +2,10 @@ module github.com/gaetandev/waf
 
 go 1.26.0
 
+// GO-2026-5856 (fuite ECH dans crypto/tls, atteignable : le WAF termine le
+// TLS) est corrigé dans la stdlib de go1.26.5 — forcer ce toolchain minimum.
+toolchain go1.26.5
+
 require (
 	github.com/google/uuid v1.6.0
 	github.com/prometheus/client_golang v1.20.5
