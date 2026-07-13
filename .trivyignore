@@ -1,0 +1,13 @@
+# Faux positifs Trivy documentés.
+#
+# GO-2026-5932 — golang.org/x/crypto/openpgp « unsafe by design, unmaintained ».
+# Advisory au niveau PACKAGE sans version corrigée (le package est abandonné,
+# un bump ne peut jamais fermer l'alerte). Trivy raisonne au niveau MODULE :
+# il voit golang.org/x/crypto dans les métadonnées du binaire et colle toutes
+# les advisories du module. Or le seul package importé de ce module est
+# golang.org/x/crypto/acme/autocert (internal/acme/acme.go) ; openpgp n'est
+# jamais importé, donc jamais compilé dans le binaire (liaison Go par package).
+# Vérifié par govulncheck (analyse au niveau symbole) : « your code doesn't
+# appear to call these vulnerabilities ». À réévaluer si un import openpgp
+# apparaît un jour.
+GO-2026-5932

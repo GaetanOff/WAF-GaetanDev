@@ -8,6 +8,17 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- Toolchain Go forcé à **`go1.26.5`** (directive `toolchain` dans `go.mod`) :
+  corrige GO-2026-5856 (fuite de confidentialité Encrypted Client Hello dans
+  `crypto/tls`, stdlib), **atteignable** dans le WAF (terminaison TLS,
+  handshakes entrants/sortants) d'après l'analyse au niveau symbole de
+  `govulncheck`.
+- Alerte code-scanning n°32 (GO-2026-5932, `golang.org/x/crypto/openpgp`
+  « unsafe by design ») classée **faux positif** : advisory au niveau package
+  sans version corrigée, alors que le seul package importé du module est
+  `acme/autocert` — `openpgp` n'est jamais compilé dans le binaire. Confirmé
+  par `govulncheck`. Ajout d'un `.trivyignore` documenté, câblé dans le
+  workflow Trivy (`trivyignores`).
 - Montée de version des dépendances `golang.org/x` pour corriger 21 alertes de
   code-scanning (vulnérabilités connues) :
   - `golang.org/x/crypto` `v0.45.0` → `v0.52.0` (13 CVE, dont HIGH
