@@ -47,6 +47,24 @@ func TestConformanceRealTemplateBrandingAndTimer(t *testing.T) {
 	}
 }
 
+// Scenario: Adaptation automatique du thème à la préférence système du visiteur.
+// La page bascule en thème sombre via @media (prefers-color-scheme: dark),
+// sans JavaScript ni bouton de sélection de thème.
+func TestConformanceRealTemplateAutoDarkMode(t *testing.T) {
+	middleware := newRealTemplateMiddleware(t)
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
+	request.RemoteAddr = "3.3.3.3:1234"
+	request.Header.Set("Accept", "text/html")
+	response := httptest.NewRecorder()
+
+	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, request)
+
+	body := response.Body.String()
+	if !strings.Contains(body, "prefers-color-scheme: dark") {
+		t.Fatal("challenge page missing @media (prefers-color-scheme: dark) rule")
+	}
+}
+
 // Scenario: Page challenge — la page ne charge aucune ressource externe (pas de CDN).
 func TestConformanceRealTemplateHasNoExternalResources(t *testing.T) {
 	middleware := newRealTemplateMiddleware(t)
