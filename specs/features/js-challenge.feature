@@ -122,3 +122,24 @@ Feature: Challenge JavaScript
     And la page contient un élément chronomètre visible
     And la page contient l'animation CSS "moveBackground"
     And la page ne charge aucune ressource externe (pas de CDN)
+
+  Scenario: Thème clair — visiteur avec préférence système "light"
+    Given un visiteur dont le navigateur signale "prefers-color-scheme: light"
+    When le WAF sert la page de challenge
+    Then la page s'affiche avec un fond clair (thème clair)
+    And le conteneur de challenge a un fond blanc
+    # Le thème clair reste le rendu par défaut (aucune media query appliquée).
+
+  Scenario: Thème sombre — visiteur avec préférence système "dark"
+    Given un visiteur dont le navigateur signale "prefers-color-scheme: dark"
+    When le WAF sert la page de challenge
+    Then la page s'affiche avec un fond sombre (thème sombre)
+    And le conteneur de challenge a un fond sombre avec un texte clair et lisible
+    # Basculement automatique via @media (prefers-color-scheme: dark), sans JS.
+
+  Scenario: Adaptation automatique — aucun bouton ni sélecteur de thème
+    When le WAF sert la page de challenge
+    Then le thème est déterminé uniquement par la préférence système du visiteur
+    And la page ne contient aucun bouton ni interrupteur de changement de thème
+    And le contraste texte/fond respecte WCAG AA dans les deux thèmes
+    # Comportement 100% automatique : le WAF ne stocke ni ne demande de préférence.

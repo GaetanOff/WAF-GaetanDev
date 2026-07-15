@@ -75,6 +75,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   observés et publiés au moteur de risque sans être appliqués, pour ne pas casser
   le trafic API/serveur légitime non-navigateur. Le **honeypot** (déterministe)
   reste bloquant même en shadow. `antibot.New` prend désormais un paramètre `shadow`.
+- Challenge JS (FR-06) — la page de challenge suit désormais **automatiquement le
+  thème système** du visiteur via `@media (prefers-color-scheme: dark)` : fond
+  clair par défaut, bascule en thème sombre (`#121212`/`#1e1e1e`, texte clair)
+  quand le navigateur/OS est en mode sombre. 100 % CSS, sans JavaScript ni bouton
+  de sélection, aucune ressource externe, aucune préférence stockée côté WAF. Le
+  badge « Protected by » (styles inline) est passé en classe `.footer-badge` pour
+  être thémable. Voir `features/js-challenge.feature`.
 - Challenge JS (FR-06) — servi uniquement pour une **navigation de navigateur**
   (`GET`/`HEAD` + `Accept: text/html`). Les appels API/XHR (`fetch`, `axios`,
   mobile) contournent le challenge au lieu de recevoir une page HTML qu'ils ne
