@@ -64,6 +64,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   d'un simple `content` texte ; Slack reçoit un **attachment** coloré équivalent ;
   le sink générique reçoit l'`Alert` JSON enrichie. L'événement source transporte
   maintenant IP, chemin, méthode, action, request_id, pays et score de confiance.
+- Pages d'erreur (FR-32) — **refonte visuelle** de la page brandée par défaut
+  (403/429/503/502…). Elle reprend désormais le design de la page d'accès
+  (carte centrée, badge « Protected by GaetanDev.fr », **dark mode auto** via
+  `prefers-color-scheme`) au lieu de la carte sombre générique, pour être
+  « visuellement cohérente avec la page de challenge » (cf.
+  `features/maintenance-page.feature`). L'icône est une **croix rouge animée**
+  (miroir de la coche verte de la page d'accès autorisé) : apparition « pop » du
+  cercle puis tracé du trait, neutralisée si `prefers-reduced-motion: reduce`.
+  100 % CSS inline, sans ressource externe ni JavaScript. Aucun changement de
+  contrat (statuts, messages `messageFor`, branding, en-têtes inchangés).
 - Pages d'erreur (FR-32) — le remplacement du corps d'erreur 4xx/5xx par la page
   HTML brandée ne s'applique plus qu'aux **navigations de navigateur**
   (`Accept: text/html`). Les appels API/XHR (`application/json`, `*/*`, ou Accept

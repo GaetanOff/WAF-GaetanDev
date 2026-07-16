@@ -135,17 +135,49 @@ func messageFor(status int) (string, string) {
 }
 
 // page rend une page HTML brandée, sans ressource externe (CSS inline).
+//
+// Le design suit la page de challenge / d'accès autorisé (carte centrée, badge
+// « Protected by GaetanDev.fr », dark mode auto — cf. maintenance-page.feature :
+// « visuellement cohérente avec la page de challenge »). L'icône est une croix
+// rouge animée (pop du cercle + tracé du trait), miroir de la coche verte de la
+// page d'accès autorisé, pour signaler un blocage/erreur.
 func page(title string, message string) string {
 	return `<!doctype html><html lang="fr"><head><meta charset="utf-8">` +
 		`<meta name="viewport" content="width=device-width, initial-scale=1">` +
 		`<title>` + title + `</title><style>` +
-		`body{margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;` +
-		`font-family:system-ui,sans-serif;background:#0f172a;color:#e2e8f0}` +
-		`.card{max-width:32rem;padding:2rem;text-align:center}` +
-		`h1{font-size:1.5rem;margin:0 0 1rem}p{color:#94a3b8;line-height:1.6}` +
-		`.brand{margin-top:2rem;font-size:.8rem;color:#64748b}` +
-		`.brand a{color:#38bdf8;text-decoration:none}</style></head><body><div class="card">` +
-		`<h1>` + title + `</h1><p>` + message + `</p>` +
-		`<div class="brand">Protected by <a href="https://firewall.gaetandev.fr">GaetanDev.fr</a></div>` +
-		`</div></body></html>`
+		`:root{--accent:rgb(220,38,38);--accent-soft:rgba(220,38,38,.12);` +
+		`--bg:#f0f0f0;--card:#fff;--text:#333;--muted:#888;--shadow:0 0 20px rgba(0,0,0,.1)}` +
+		`@media (prefers-color-scheme:dark){:root{--bg:#121212;--card:#1e1e1e;` +
+		`--text:#f0f0f0;--muted:#9a9a9a;--shadow:0 0 20px rgba(0,0,0,.6)}}` +
+		`*{box-sizing:border-box}` +
+		`body{font-family:Arial,sans-serif;margin:0;padding:0;background:var(--bg);color:var(--text);` +
+		`display:flex;justify-content:center;align-items:center;min-height:100vh}` +
+		`.card{text-align:center;padding:32px 28px 28px;border-radius:10px;box-shadow:var(--shadow);` +
+		`background:var(--card);max-width:420px;width:calc(100% - 32px)}` +
+		`.cross-wrap{width:72px;height:72px;margin:0 auto 20px;border-radius:50%;background:var(--accent-soft);` +
+		`display:flex;align-items:center;justify-content:center;` +
+		`animation:pop .5s cubic-bezier(.18,.89,.32,1.28) both}` +
+		`@keyframes pop{0%{transform:scale(0);opacity:0}100%{transform:scale(1);opacity:1}}` +
+		`.cross-wrap svg{width:40px;height:40px}` +
+		`.cross-wrap path{stroke:var(--accent);stroke-width:5;stroke-linecap:round;stroke-linejoin:round;` +
+		`fill:none;stroke-dasharray:57;stroke-dashoffset:57;animation:draw .5s .35s ease-out forwards}` +
+		`@keyframes draw{to{stroke-dashoffset:0}}` +
+		`.header{font-size:24px;font-weight:bold;color:var(--text);margin:0 0 8px}` +
+		`.subtitle{font-size:15px;color:var(--muted);margin:0;line-height:1.5}` +
+		`.footer-badge{position:fixed;bottom:10px;left:50%;transform:translateX(-50%);background:var(--card);` +
+		`border-radius:8px;padding:4px 12px;font-size:12px;color:var(--text);box-shadow:0 0 6px rgba(0,0,0,.1)}` +
+		`@media (prefers-color-scheme:dark){.footer-badge{box-shadow:0 0 6px rgba(0,0,0,.6)}}` +
+		`.footer-badge a{color:var(--accent);font-weight:bold;text-decoration:none}` +
+		`@media (prefers-reduced-motion:reduce){.cross-wrap,.cross-wrap path{animation:none}` +
+		`.cross-wrap path{stroke-dashoffset:0}.cross-wrap{opacity:1;transform:none}}` +
+		`</style></head><body>` +
+		`<div class="card">` +
+		`<div class="cross-wrap" role="img" aria-label="` + title + `">` +
+		`<svg viewBox="0 0 60 60"><path d="M20 20 L40 40 M40 20 L20 40"/></svg></div>` +
+		`<h1 class="header">` + title + `</h1>` +
+		`<p class="subtitle">` + message + `</p>` +
+		`</div>` +
+		`<div class="footer-badge">Protected by ` +
+		`<a href="https://firewall.gaetandev.fr" target="_blank" rel="noopener">GaetanDev.fr</a></div>` +
+		`</body></html>`
 }
