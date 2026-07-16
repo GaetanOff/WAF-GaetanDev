@@ -30,6 +30,16 @@ Feature: Page de Maintenance & Erreurs Custom
     And la page contient le branding "Protected by GaetanDev.fr"
     And la page est visuellement cohérente avec la page de challenge
 
+  Scenario: Identité visuelle des pages d'erreur/blocage brandées
+    Given error_pages activé
+    When le WAF sert une page brandée par défaut (403, 429, 503, 502…)
+    Then la page reprend le design de la page d'accès (carte centrée, badge, dark mode auto)
+    And l'icône est une croix rouge — miroir de la coche verte de la page d'accès autorisé
+    And l'animation reprend le même effet (apparition « pop » du cercle + tracé du trait)
+    And le rendu est 100 % CSS inline, sans ressource externe ni JavaScript
+    And l'animation est neutralisée si prefers-reduced-motion: reduce
+    And la carte suit le thème système via prefers-color-scheme (clair/sombre)
+
   Scenario: Mode maintenance forcé — opérateur déclenche manuellement
     Given un admin veut faire une maintenance
     When PATCH /waf/admin/config avec {"maintenance_mode": true}
