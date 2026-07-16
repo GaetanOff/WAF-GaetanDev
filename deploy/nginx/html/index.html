@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accès autorisé — GaetanDev WAF</title>
+  <style>
+    :root {
+      --accent:        rgb(22, 163, 74);
+      --accent-soft:   rgba(22, 163, 74, 0.12);
+      --accent-line:   rgba(22, 163, 74, 0.25);
+      --bg:            #f0f0f0;
+      --card:          #ffffff;
+      --text:          #333333;
+      --muted:         #888888;
+      --value:         #555555;
+      --shadow:        0 0 20px rgba(0, 0, 0, 0.1);
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root {
+        --bg:      #121212;
+        --card:    #1e1e1e;
+        --text:    #f0f0f0;
+        --muted:   #9a9a9a;
+        --value:   #d0d0d0;
+        --shadow:  0 0 20px rgba(0, 0, 0, 0.6);
+      }
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: 'Arial', sans-serif;
+      margin: 0;
+      padding: 0;
+      background-color: var(--bg);
+      color: var(--text);
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+    }
+
+    .card {
+      text-align: center;
+      padding: 32px 28px 28px;
+      border-radius: 10px;
+      box-shadow: var(--shadow);
+      background-color: var(--card);
+      max-width: 420px;
+      width: calc(100% - 32px);
+    }
+
+    /* ── Animated success check ── */
+    .check-wrap {
+      width: 72px;
+      height: 72px;
+      margin: 0 auto 20px;
+      border-radius: 50%;
+      background: var(--accent-soft);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      animation: pop 0.5s cubic-bezier(0.18, 0.89, 0.32, 1.28) both;
+    }
+
+    @keyframes pop {
+      0%   { transform: scale(0); opacity: 0; }
+      100% { transform: scale(1); opacity: 1; }
+    }
+
+    .check-wrap svg { width: 40px; height: 40px; }
+
+    .check-wrap path {
+      stroke: var(--accent);
+      stroke-width: 5;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      fill: none;
+      stroke-dasharray: 48;
+      stroke-dashoffset: 48;
+      animation: draw 0.5s 0.35s ease-out forwards;
+    }
+
+    @keyframes draw { to { stroke-dashoffset: 0; } }
+
+    .header {
+      font-size: 24px;
+      font-weight: bold;
+      color: var(--text);
+      margin: 0 0 8px;
+    }
+
+    .subtitle {
+      font-size: 15px;
+      color: var(--muted);
+      margin: 0;
+      line-height: 1.5;
+    }
+
+    /* ── Challenge recap ── */
+    .footer-badge {
+      position: fixed;
+      bottom: 10px;
+      left: 50%;
+      transform: translateX(-50%);
+      background: var(--card);
+      border-radius: 8px;
+      padding: 4px 12px;
+      font-size: 12px;
+      color: var(--text);
+      box-shadow: 0 0 6px rgba(0, 0, 0, 0.1);
+    }
+    @media (prefers-color-scheme: dark) {
+      .footer-badge { box-shadow: 0 0 6px rgba(0, 0, 0, 0.6); }
+    }
+    .footer-badge a { color: var(--accent); font-weight: bold; text-decoration: none; }
+
+    @media (prefers-reduced-motion: reduce) {
+      .check-wrap, .check-wrap path { animation: none; }
+      .check-wrap path { stroke-dashoffset: 0; }
+      .check-wrap { opacity: 1; transform: none; }
+    }
+  </style>
+</head>
+<body>
+
+<div class="card">
+  <div class="check-wrap" role="img" aria-label="Vérification réussie">
+    <svg viewBox="0 0 60 60"><path d="M16 31 L26 41 L44 20"/></svg>
+  </div>
+
+  <h1 class="header">Accès autorisé</h1>
+  <p class="subtitle">Votre navigateur a passé tous les challenges du pare-feu. Vous êtes maintenant sur la page de test.</p>
+</div>
+
+<div class="footer-badge">
+  Protected by <a href="https://firewall.gaetandev.fr" target="_blank" rel="noopener">GaetanDev.fr</a>
+</div>
+
+</body>
+</html>
