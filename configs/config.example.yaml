@@ -50,12 +50,17 @@ rate_limit:
 # Protection Anti-DDoS globale
 antiddos:
   enabled: true
-  global_requests_per_second: 50000  # Baseline globale pour calculer la pression adaptative
+  # Baseline de la pression adaptative : à CALIBRER sur le trafic réel du site
+  # (pic légitime observé). Les niveaux se déclenchent à baseline × multiplicateur,
+  # PAS à des valeurs absolues — avec une baseline de 150, critical arrive dès
+  # 600 req/s. Sous pression, le refill du rate limit des visiteurs non TRUSTED
+  # est réduit (burst conservé) et le mode under_attack peut s'enclencher.
+  global_requests_per_second: 50000
   global_window: "1s"                # Fenêtre glissante du compteur global
   pressure_levels:
-    elevated_multiplier: 1           # >= 50k req/s -> pression elevated
-    high_multiplier: 2               # >= 100k req/s -> pression high
-    critical_multiplier: 4           # >= 200k req/s -> pression critical
+    elevated_multiplier: 1           # elevated dès baseline × 1 (ici 50 000 req/s)
+    high_multiplier: 2               # high dès baseline × 2 (ici 100 000 req/s)
+    critical_multiplier: 4           # critical dès baseline × 4 (ici 200 000 req/s)
   retry_after_seconds: 5             # Retry-After pour les limites explicites par IP, pas pour un 503 global
   # Mode "sous attaque" (FR-39) : sous pression avérée, force le challenge JS des
   # requêtes sans clearance (cookie/bot vérifié/whitelist/sticky trust) pour

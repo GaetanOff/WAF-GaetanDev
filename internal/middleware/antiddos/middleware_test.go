@@ -180,6 +180,51 @@ func TestMiddlewareAllowsKnownVisitorWhenGlobalRateExceeded(t *testing.T) {
 	}
 }
 
+func TestPressureThrottle429DoesNotFeedBreaker(t *testing.T) {
+	store := memory.New(100)
+	defer store.Close()
+	middleware := New(NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration), nil, DefaultRetryAfterSeconds)
+	// Simule le middleware ratelimit refusant sous throttle de pression (FR-08).
+	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-WAF-Action", "RATE_LIMIT")
+		w.Header().Set("X-WAF-Reason", reasonPressureThrottle)
+		http.Error(w, "too many requests", http.StatusTooManyRequests)
+	}))
+
+	// Bien au-delà du seuil de violations : le circuit ne doit jamais s'ouvrir.
+	for i := 0; i < DefaultViolationThreshold*3; i++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, requestFrom("1.2.3.4:1234"))
+		if response.Code != http.StatusTooManyRequests {
+			t.Fatalf("request %d: status = %d, want 429 (never CIRCUIT_BREAK)", i, response.Code)
+		}
+	}
+}
+
+func TestPressureThrottle429DoesNotResetViolationStreak(t *testing.T) {
+	store := memory.New(100)
+	defer store.Close()
+	breaker := NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration)
+	middleware := New(breaker, nil, DefaultRetryAfterSeconds)
+	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-WAF-Action", "RATE_LIMIT")
+		w.Header().Set("X-WAF-Reason", reasonPressureThrottle)
+		http.Error(w, "too many requests", http.StatusTooManyRequests)
+	}))
+
+	for range DefaultViolationThreshold - 1 {
+		breaker.RecordViolation("1.2.3.4")
+	}
+
+	// Un 429 de pression est neutre : il ne remet pas la série à zéro.
+	handler.ServeHTTP(httptest.NewRecorder(), requestFrom("1.2.3.4:1234"))
+
+	breaker.RecordViolation("1.2.3.4")
+	if !breaker.IsOpen("1.2.3.4") {
+		t.Fatal("expected circuit to open: pressure 429 must not reset the violation streak")
+	}
+}
+
 func requestFrom(remoteAddr string) *http.Request {
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
 	request.RemoteAddr = remoteAddr
