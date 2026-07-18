@@ -33,6 +33,7 @@ Feature: Système de score de confiance
     When il déclenche le rate limit
     Then le score devient 45 (55 - 10)
     And la requête reçoit HTTP 429
+    And les 429 supplémentaires dans la même fenêtre de pénalité (10 s) ne décrémentent pas davantage le score
 
   Scenario: Honeypot touché — score à zéro
     Given un visiteur avec score = 80
@@ -48,7 +49,7 @@ Feature: Système de score de confiance
 
   Scenario: Transitions d'état — TRUSTED → CHALLENGED
     Given un visiteur avec score = 75 (état TRUSTED)
-    When il déclenche le rate limit 3 fois consécutives (3 × -10)
+    When il déclenche le rate limit dans 3 fenêtres de pénalité distinctes (3 × -10)
     Then le score devient 45 (75 - 30)
     And l'état reste "MONITORED"
     When il déclenche encore 1 violation (-10)

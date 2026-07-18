@@ -1,9 +1,9 @@
 ---
-status: implemented
-version: 2.0.0
-last-reviewed: 2026-06-09
+status: approved
+version: 2.1.0
+last-reviewed: 2026-07-18
 reviewed-by: GaetanDev
-change: "FR-08 remplace le blocage global 503 par un mode de pression adaptative"
+change: "FR-08 : le throttle de pression réduit le débit sans rogner le burst, et ses 429 ne nourrissent ni le circuit breaker ni la pénalité de score ; FR-05 : pénalité rate-limit au plus une fois par fenêtre (anti-cascade sous-requêtes)"
 ---
 
 # Requirements — WAF Anti-DDoS / Anti-Bot
@@ -44,6 +44,8 @@ change: "FR-08 remplace le blocage global 503 par un mode de pression adaptative
 - Score initial : 50 pour les nouveaux visiteurs
 - Augmentations : challenge JS réussi (+25), navigation normale (+1/req)
 - Diminutions : challenge JS échoué (-20), rate limit atteint (-10), user-agent suspect (-15), pattern bot (-30)
+- La pénalité « rate limit atteint » DOIT être appliquée **au plus une fois par fenêtre de pénalité** (10 s) : les sous-requêtes refusées d'un même chargement de page (CSS, JS, images, appels API) comptent pour UNE pénalité, pas une par 429 — sinon un seul clic suffit à faire passer un humain de 50 à BLOCKED
+- La pénalité « rate limit atteint » NE DOIT PAS s'appliquer à un 429 imputable au seul resserrement de pression globale (`rate_limit_pressure`, cf. FR-08) : la requête aurait été admise au débit nominal, le visiteur n'a rien fait d'anormal
 - Seuils d'action configurables :
   - `challenge_threshold` (défaut: 40) — en dessous : challenge JS requis
   - `block_threshold` (défaut: 10) — en dessous : blocage HTTP 403
@@ -79,6 +81,9 @@ change: "FR-08 remplace le blocage global 503 par un mode de pression adaptative
 - Le WAF DOIT calculer un niveau de pression global explicite : `normal`, `elevated`, `high`, `critical`
 - Le WAF NE DOIT PAS retourner HTTP 503, HTTP 403 ou ouvrir un blocage complet uniquement parce que le seuil global de trafic est dépassé
 - Le WAF DOIT utiliser la pression globale comme signal adaptatif pour renforcer les mitigations réversibles : contribution `rate`/`global_pressure`, challenge plus fréquent des visiteurs inconnus, difficulté PoW accrue, rate limit plus strict pour visiteurs inconnus ou suspects
+- Le resserrement du rate limit sous pression DOIT réduire uniquement le **débit de refill** (rate × facteur de pression) et conserver la **capacité de burst nominale** : un chargement de page unique (rafale de 25-50 sous-requêtes) DOIT passer même sous pression critique — c'est le débit soutenu qui distingue un bot, pas le burst initial
+- Un 429 imputable au seul resserrement de pression (la requête aurait été admise au débit de refill nominal) DOIT être identifié `reason=rate_limit_pressure` et DOIT rester **neutre** : ni violation de circuit-breaker, ni pénalité de score de confiance (FR-05) — sans quoi le WAF ouvre le circuit et bloque des humains à cause des 429 qu'il a lui-même provoqués (boucle de rétroaction auto-infligée)
+- Un 429 correspondant à un dépassement du débit nominal (`reason=rate_limit_exceeded`) DOIT continuer à compter comme violation de circuit-breaker et à pénaliser le score, y compris sous pression
 - Le WAF DOIT laisser les visiteurs connus, les visiteurs avec cookie valide et les bots vérifiés continuer selon les contrôles par IP, blacklist explicite, circuit-breaker et moteur de risque
 - Le WAF DOIT exposer le niveau de pression courant dans les logs et métriques afin de permettre l'alerte et la calibration
 

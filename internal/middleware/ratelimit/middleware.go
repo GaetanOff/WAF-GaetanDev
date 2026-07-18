@@ -20,6 +20,13 @@ const (
 	pressureElevated = "elevated"
 	pressureHigh     = "high"
 	pressureCritical = "critical"
+
+	reasonRateLimitExceeded = "rate_limit_exceeded"
+	// ReasonPressureThrottle identifie un 429 imputable au seul resserrement de
+	// pression globale (FR-08) : la requête aurait été admise au débit nominal.
+	// Ces refus sont neutres — ni pénalité de score, ni violation de
+	// circuit-breaker (consommé par le middleware anti-DDoS).
+	ReasonPressureThrottle = "rate_limit_pressure"
 )
 
 type Middleware struct {
@@ -51,24 +58,39 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		ip := cloudflare.RealIP(r)
 		ipHash := trust.HashIP(ip)
 
-		// FR-08 v2 : sous pression globale anti-DDoS, le débit autorisé des
-		// visiteurs non dignes de confiance est resserré (mitigation réversible,
-		// THROTTLE). Les visiteurs TRUSTED (challenge réussi, navigation stable)
-		// conservent leur débit nominal. La pression normale n'a aucun effet.
-		effectiveRate, effectiveCapacity := m.rate, m.capacity
+		// FR-08 v2.1 : sous pression globale anti-DDoS, seul le DÉBIT DE REFILL
+		// des visiteurs non dignes de confiance est resserré — la capacité de
+		// burst reste nominale, pour qu'un chargement de page unique (rafale de
+		// sous-requêtes) passe toujours : c'est le débit soutenu qui distingue
+		// un bot, pas le burst initial. Les visiteurs TRUSTED (challenge réussi,
+		// navigation stable) conservent leur débit nominal.
+		effectiveRate := m.rate
+		pressured := false
 		if factor := m.pressureFactor(r, ip); factor < 1 {
 			effectiveRate *= factor
-			effectiveCapacity *= factor
+			pressured = true
 		}
 
-		bucket := m.loadBucket(ipHash, effectiveRate, effectiveCapacity, now)
+		existing, hasExisting := m.store.GetBucket(ipHash)
+		bucket := m.loadBucket(existing, hasExisting, effectiveRate, m.capacity, now)
 		allowed, retryAfter := bucket.TryConsume(now)
 		snapshot := bucket.Snapshot(now, defaultBucketTTL, ipHash)
 		snapshot.ExpiresAt = time.Now().Add(defaultBucketTTL)
 		m.store.SetBucket(ipHash, toStorageBucket(snapshot))
 
 		if !allowed {
-			visitor := m.scores.Apply(ip, r.Host, trust.DeltaRateLimit)
+			if pressured && m.nominalWouldAllow(existing, hasExisting, now) {
+				// 429 imputable au seul throttle de pression : neutre (FR-08).
+				// Pas de pénalité de score ni de violation de circuit-breaker,
+				// sinon le WAF punit des humains pour les 429 qu'il a lui-même
+				// provoqués (boucle de rétroaction auto-infligée).
+				w.Header().Set("Retry-After", strconv.Itoa(maxInt(1, int(retryAfter.Seconds()))))
+				w.Header().Set("X-WAF-Action", "RATE_LIMIT")
+				w.Header().Set("X-WAF-Reason", ReasonPressureThrottle)
+				http.Error(w, "too many requests", http.StatusTooManyRequests)
+				return
+			}
+			visitor := m.scores.PenalizeRateLimit(ip, r.Host)
 			if m.scores.State(visitor.Score) == trust.StateBlocked {
 				w.Header().Set("X-WAF-Action", "BLOCK")
 				w.Header().Set("X-WAF-Reason", "score_below_block_threshold")
@@ -77,7 +99,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 			}
 			w.Header().Set("Retry-After", strconv.Itoa(maxInt(1, int(retryAfter.Seconds()))))
 			w.Header().Set("X-WAF-Action", "RATE_LIMIT")
-			w.Header().Set("X-WAF-Reason", "rate_limit_exceeded")
+			w.Header().Set("X-WAF-Reason", reasonRateLimitExceeded)
 			http.Error(w, "too many requests", http.StatusTooManyRequests)
 			return
 		}
@@ -85,7 +107,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// Requête autorisée : publie une contribution `rate` proportionnelle à la
 		// déplétion du bucket (pression de débit) pour le moteur de risque. Le 429
 		// volumétrique ci-dessus reste indépendant (cf. Articulation FR-35).
-		if contribution := rateContribution(snapshot.Tokens, effectiveCapacity); contribution > 0 {
+		if contribution := rateContribution(snapshot.Tokens, m.capacity); contribution > 0 {
 			r.Header.Set("X-WAF-Risk-rate", strconv.Itoa(maxInt(contribution, existingRateContribution(r))))
 		}
 
@@ -93,17 +115,17 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 	})
 }
 
-// loadBucket reconstruit le token bucket avec le débit/capacité EFFECTIFS du
-// moment (recalculés à chaque requête depuis la config × le facteur de pression),
+// loadBucket reconstruit le token bucket avec le débit de refill EFFECTIF du
+// moment (recalculé à chaque requête depuis la config × le facteur de pression),
 // jamais depuis les valeurs persistées. Seuls les jetons et l'instant de refill
 // sont repris du store : ainsi un resserrement sous pression est réversible dès
 // que la pression retombe, sans figer un débit réduit dans le stockage.
-func (m *Middleware) loadBucket(ipHash string, rate float64, capacity float64, now time.Time) *TokenBucket {
-	if existing, ok := m.store.GetBucket(ipHash); ok {
+func (m *Middleware) loadBucket(existing *storage.RateBucket, hasExisting bool, rate float64, capacity float64, now time.Time) *TokenBucket {
+	if hasExisting {
 		tokens := existing.Tokens
 		if tokens > capacity {
-			// La capacité effective a baissé (pression) : on rogne les jetons
-			// accumulés au plafond courant — c'est la mitigation immédiate.
+			// La capacité configurée a baissé depuis la persistance : rogne les
+			// jetons accumulés au plafond courant.
 			tokens = capacity
 		}
 		return BucketFromSnapshot(BucketSnapshot{
@@ -117,6 +139,32 @@ func (m *Middleware) loadBucket(ipHash string, rate float64, capacity float64, n
 	}
 
 	return NewTokenBucket(rate, capacity, now)
+}
+
+// nominalWouldAllow rejoue la requête refusée sur le bucket persisté avec le
+// débit de refill NOMINAL (sans facteur de pression), sans rien persister. Si
+// elle aurait été admise, le 429 courant est imputable au seul resserrement de
+// pression et doit rester neutre (FR-08). Approximation assumée : seul le
+// dernier intervalle de refill est rejoué au débit nominal ; un abuseur soutenu
+// reste largement au-dessus du nominal et échoue aussi ce rejeu.
+func (m *Middleware) nominalWouldAllow(existing *storage.RateBucket, hasExisting bool, now time.Time) bool {
+	if !hasExisting {
+		return true
+	}
+	tokens := existing.Tokens
+	if tokens > m.capacity {
+		tokens = m.capacity
+	}
+	nominal := BucketFromSnapshot(BucketSnapshot{
+		IPHash:     existing.IPHash,
+		Tokens:     tokens,
+		LastRefill: existing.LastRefill,
+		Rate:       m.rate,
+		Capacity:   m.capacity,
+		ExpiresAt:  existing.ExpiresAt,
+	})
+	allowed, _ := nominal.TryConsume(now)
+	return allowed
 }
 
 // pressureFactor retourne le multiplicateur appliqué au débit/capacité du bucket

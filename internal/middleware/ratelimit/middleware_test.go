@@ -167,27 +167,132 @@ func TestMiddlewareSkipsWhitelistedRequests(t *testing.T) {
 	}
 }
 
-func TestPressureThrottlesUntrustedVisitor(t *testing.T) {
+func TestPressureThrottlesSustainedRateButKeepsBurst(t *testing.T) {
 	store := memory.New(100)
 	t.Cleanup(store.Close)
 
-	// rate=burst=20 ; sous pression critique (×0.25) la capacité effective
-	// tombe à 5 → seules 5 requêtes passent avant le THROTTLE (429).
+	// rate=burst=20 ; sous pression critique (×0.25) seul le débit de refill
+	// tombe à 5/s — le burst nominal est conservé : la rafale initiale passe
+	// entière, puis le débit soutenu est resserré.
 	middleware := newTestMiddleware(t, store, 20, 20)
 	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
 	middleware.now = func() time.Time { return now }
 	handler := middleware.Handler(countingHandler())
 
-	okCount := 0
+	burstOK := 0
+	for i := 0; i < 20; i++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, requestWithPressure("9.9.9.9:1234", pressureCritical))
+		if response.Code == http.StatusNoContent {
+			burstOK++
+		}
+	}
+	if burstOK != 20 {
+		t.Fatalf("burstOK under critical pressure = %d, want 20 (nominal burst kept)", burstOK)
+	}
+
+	// Une seconde plus tard, le refill resserré (5/s) ne rend que 5 jetons.
+	now = now.Add(time.Second)
+	sustainedOK := 0
 	for i := 0; i < 8; i++ {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, requestWithPressure("9.9.9.9:1234", pressureCritical))
 		if response.Code == http.StatusNoContent {
-			okCount++
+			sustainedOK++
 		}
 	}
-	if okCount != 5 {
-		t.Fatalf("okCount under critical pressure = %d, want 5 (20 × 0.25)", okCount)
+	if sustainedOK != 5 {
+		t.Fatalf("sustainedOK under critical pressure = %d, want 5 (20/s × 0.25)", sustainedOK)
+	}
+}
+
+func TestPressureThrottle429IsNeutral(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+
+	// rate=10, burst=1, pression critique (refill effectif 2.5/s). 200 ms après
+	// avoir vidé le bucket, le rejeu nominal rend 2 jetons (admis) mais le
+	// refill resserré n'en rend que 0.5 (refusé) : 429 imputable à la seule
+	// pression → reason dédiée, pas de pénalité de score.
+	middleware := newTestMiddleware(t, store, 10, 1)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+
+	handler.ServeHTTP(httptest.NewRecorder(), requestWithPressure("9.9.9.9:1234", pressureCritical))
+
+	now = now.Add(200 * time.Millisecond)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestWithPressure("9.9.9.9:1234", pressureCritical))
+
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", response.Code)
+	}
+	if got := response.Header().Get("X-WAF-Reason"); got != ReasonPressureThrottle {
+		t.Fatalf("X-WAF-Reason = %q, want %s", got, ReasonPressureThrottle)
+	}
+	visitor, ok := store.GetVisitor(trust.HashIP("9.9.9.9"))
+	if !ok {
+		t.Fatal("expected visitor to exist")
+	}
+	if visitor.Score != 50 {
+		t.Fatalf("score = %d, want 50 (no penalty for pressure-only 429)", visitor.Score)
+	}
+}
+
+func TestNominalExceededUnderPressureIsStillPenalized(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+
+	// Deux requêtes au même instant avec rate=burst=1 : la seconde dépasse le
+	// débit nominal lui-même — la pression n'exonère pas ce refus.
+	middleware := newTestMiddleware(t, store, 1, 1)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+
+	handler.ServeHTTP(httptest.NewRecorder(), requestWithPressure("9.9.9.9:1234", pressureCritical))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestWithPressure("9.9.9.9:1234", pressureCritical))
+
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", response.Code)
+	}
+	if got := response.Header().Get("X-WAF-Reason"); got != reasonRateLimitExceeded {
+		t.Fatalf("X-WAF-Reason = %q, want %s", got, reasonRateLimitExceeded)
+	}
+	visitor, ok := store.GetVisitor(trust.HashIP("9.9.9.9"))
+	if !ok {
+		t.Fatal("expected visitor to exist")
+	}
+	if visitor.Score != 40 {
+		t.Fatalf("score = %d, want 40 (nominal violation penalized)", visitor.Score)
+	}
+}
+
+func TestRateLimitPenaltyAppliedOncePerWindow(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+
+	middleware := newTestMiddleware(t, store, 1, 1)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+
+	// 1 requête admise puis 15 refusées au même instant (cascade de
+	// sous-requêtes d'un même chargement de page) : UNE seule pénalité.
+	handler.ServeHTTP(httptest.NewRecorder(), requestFrom("9.9.9.9:1234"))
+	for i := 0; i < 15; i++ {
+		handler.ServeHTTP(httptest.NewRecorder(), requestFrom("9.9.9.9:1234"))
+	}
+	visitor, ok := store.GetVisitor(trust.HashIP("9.9.9.9"))
+	if !ok {
+		t.Fatal("expected visitor to exist")
+	}
+	// Le passage à la fenêtre suivante (nouvelle pénalité) est couvert par
+	// TestPenalizeRateLimitOncePerWindow (package trust, horloge simulée).
+	if visitor.Score != 40 {
+		t.Fatalf("score after 429 cascade = %d, want 40 (one penalty per window)", visitor.Score)
 	}
 }
 
@@ -252,18 +357,20 @@ func TestPressureThrottleIsReversible(t *testing.T) {
 	middleware.now = func() time.Time { return now }
 	handler := middleware.Handler(countingHandler())
 
-	// Épuise le bucket resserré sous pression critique.
-	for i := 0; i < 8; i++ {
+	// Épuise le burst nominal sous pression critique.
+	for i := 0; i < 20; i++ {
 		handler.ServeHTTP(httptest.NewRecorder(), requestWithPressure("6.6.6.6:1234", pressureCritical))
 	}
 
-	// La pression retombe : capacité nominale restaurée, le bucket refait le plein
-	// au débit nominal (20/s) → une requête passe à nouveau dès la seconde suivante.
+	// La pression retombe : le refill repart au débit nominal (20/s) → toute la
+	// rafale suivante passe dès la seconde suivante (au lieu de 5 sous pression).
 	now = now.Add(time.Second)
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, requestWithPressure("6.6.6.6:1234", pressureNormal))
-	if response.Code != http.StatusNoContent {
-		t.Fatalf("status after pressure release = %d, want 204 (reversible)", response.Code)
+	for i := 0; i < 8; i++ {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, requestWithPressure("6.6.6.6:1234", pressureNormal))
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("request %d after pressure release: status = %d, want 204 (reversible)", i, response.Code)
+		}
 	}
 }
 

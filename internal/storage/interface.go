@@ -3,21 +3,22 @@ package storage
 import "time"
 
 type VisitorState struct {
-	IPHash            string
-	Domain            string
-	Score             int
-	FirstSeen         time.Time
-	LastSeen          time.Time
-	ExpiresAt         time.Time
-	ReqCount          int64
-	ViolationCount    int
-	ChallengePassed   bool
-	ChallengeAttempts int
-	ChallengeFailures int
-	FPHash            *string
-	StickyTrustUntil  *time.Time
-	CircuitOpen       bool
-	CircuitOpenUntil  *time.Time
+	IPHash               string
+	Domain               string
+	Score                int
+	FirstSeen            time.Time
+	LastSeen             time.Time
+	ExpiresAt            time.Time
+	ReqCount             int64
+	ViolationCount       int
+	LastRateLimitPenalty *time.Time
+	ChallengePassed      bool
+	ChallengeAttempts    int
+	ChallengeFailures    int
+	FPHash               *string
+	StickyTrustUntil     *time.Time
+	CircuitOpen          bool
+	CircuitOpenUntil     *time.Time
 }
 
 type RateBucket struct {

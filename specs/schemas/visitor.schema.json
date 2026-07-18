@@ -47,6 +47,11 @@
       "minimum": 0,
       "description": "Nombre de violations (rate limit, honeypot, etc.)"
     },
+    "last_rate_limit_penalty": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Dernière application de la pénalité rate-limit (FR-05) — la pénalité est appliquée au plus une fois par fenêtre de 10 s"
+    },
     "challenge_passed": {
       "type": "boolean",
       "default": false,

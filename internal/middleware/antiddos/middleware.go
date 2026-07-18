@@ -126,6 +126,13 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 
 		recorder := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(recorder, r)
+		if isPressureThrottle(recorder) {
+			// 429 imputable au seul throttle de pression (FR-08) : neutre pour le
+			// breaker — pas une violation (le WAF ouvrirait le circuit à cause des
+			// 429 qu'il a lui-même provoqués), pas un succès non plus (pas de
+			// reset de la série de violations en cours).
+			return
+		}
 		if isViolation(recorder) {
 			m.breaker.RecordViolation(ip)
 			return
@@ -177,6 +184,15 @@ func (r *statusRecorder) WriteHeader(statusCode int) {
 
 func (r *statusRecorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
+}
+
+// reasonPressureThrottle est posé par le middleware ratelimit sur les 429
+// imputables au seul resserrement de pression globale (FR-08).
+const reasonPressureThrottle = "rate_limit_pressure"
+
+func isPressureThrottle(recorder *statusRecorder) bool {
+	return recorder.statusCode == http.StatusTooManyRequests &&
+		recorder.Header().Get("X-WAF-Reason") == reasonPressureThrottle
 }
 
 func isViolation(recorder *statusRecorder) bool {

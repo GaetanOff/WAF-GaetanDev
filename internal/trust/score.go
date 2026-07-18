@@ -23,6 +23,11 @@ const (
 	DeltaRateLimit       = -10
 	DeltaChallengeFailed = -20
 	DeltaHoneypot        = -50
+
+	// RateLimitPenaltyWindow borne DeltaRateLimit à une application par fenêtre
+	// (FR-05) : les sous-requêtes refusées d'un même chargement de page comptent
+	// pour UNE pénalité, pas une par 429.
+	RateLimitPenaltyWindow = 10 * time.Second
 )
 
 type ScoreManager struct {
@@ -100,6 +105,23 @@ func (m *ScoreManager) Apply(ip string, domain string, delta int) storage.Visito
 	visitor.Score = clamp(visitor.Score+delta, 0, 100)
 	visitor.LastSeen = m.now()
 	visitor.ExpiresAt = visitor.LastSeen.Add(m.scoreTTL)
+	m.store.SetVisitor(visitor.IPHash, visitor)
+	return visitor
+}
+
+// PenalizeRateLimit applique DeltaRateLimit au plus une fois par
+// RateLimitPenaltyWindow (FR-05). Les refus supplémentaires dans la fenêtre
+// retournent l'état courant sans nouvelle pénalité.
+func (m *ScoreManager) PenalizeRateLimit(ip string, domain string) storage.VisitorState {
+	visitor := m.Get(ip, domain)
+	now := m.now()
+	if visitor.LastRateLimitPenalty != nil && now.Sub(*visitor.LastRateLimitPenalty) < RateLimitPenaltyWindow {
+		return visitor
+	}
+	visitor.Score = clamp(visitor.Score+DeltaRateLimit, 0, 100)
+	visitor.LastSeen = now
+	visitor.ExpiresAt = now.Add(m.scoreTTL)
+	visitor.LastRateLimitPenalty = &now
 	m.store.SetVisitor(visitor.IPHash, visitor)
 	return visitor
 }

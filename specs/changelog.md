@@ -6,6 +6,23 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed
+
+- **FR-08/FR-05 (v2.1.0) — cascade de faux positifs sous pression** : pendant un
+  DDoS, un visiteur légitime était tué en un clic. Le throttle de pression
+  divisait aussi la **capacité de burst** (÷4 en critical) : un chargement de
+  page (25-50 sous-requêtes) crevait le bucket → chaque 429 appliquait -10 au
+  score jusqu'à BLOCKED (TTL 1 h) → les 429 nourrissaient le circuit-breaker
+  (5 consécutifs → 403 pendant 300 s). Corrections de spec :
+  - le throttle de pression réduit **uniquement le débit de refill**, jamais la
+    capacité de burst (le débit soutenu distingue un bot, pas le burst initial) ;
+  - un 429 imputable au seul throttle de pression est marqué
+    `reason=rate_limit_pressure` et reste **neutre** (ni violation breaker, ni
+    pénalité de score) ; un dépassement du débit nominal reste sanctionné ;
+  - la pénalité de score rate-limit est bornée à **une par fenêtre de 10 s**
+    (champ `last_rate_limit_penalty` dans visitor.schema.json) au lieu d'une
+    par sous-requête refusée.
+
 ### Security
 
 - Toolchain Go forcé à **`go1.26.5`** (directive `toolchain` dans `go.mod`) :
