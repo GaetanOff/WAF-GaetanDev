@@ -66,6 +66,36 @@ Feature: Protection Anti-DDoS
     And le header "Retry-After" est présent dans la réponse 429
     And le log indique action="RATE_LIMIT"
 
+  Scenario: Pression critique — le burst nominal est conservé (chargement de page)
+    Given le WAF observe un trafic global critique
+    And un visiteur inconnu (non TRUSTED) avec un bucket plein
+    When son navigateur envoie 40 sous-requêtes en 1 seconde (un chargement de page)
+    Then toutes les sous-requêtes sont transmises à l'upstream
+    And seul le débit de refill est réduit par la pression, jamais la capacité de burst
+
+  Scenario: 429 de pression — neutre pour le breaker et le score
+    Given le WAF observe un trafic global critique
+    And un visiteur inconnu a épuisé son bucket au débit resserré par la pression
+    And la même requête aurait été admise au débit de refill nominal
+    When il envoie une nouvelle requête
+    Then la requête reçoit une réponse HTTP 429 avec reason="rate_limit_pressure"
+    And le score de confiance du visiteur n'est pas décrémenté
+    And le circuit-breaker n'enregistre pas de violation
+
+  Scenario: Dépassement du débit nominal sous pression — toujours sanctionné
+    Given le WAF observe un trafic global critique
+    And un visiteur inconnu envoie des requêtes au-delà de son débit nominal (hors pression)
+    When il envoie une nouvelle requête refusée
+    Then la requête reçoit une réponse HTTP 429 avec reason="rate_limit_exceeded"
+    And le score de confiance du visiteur est décrémenté
+    And le circuit-breaker enregistre une violation
+
+  Scenario: Pénalité de score bornée par fenêtre — un clic ne tue pas le visiteur
+    Given un visiteur avec l'IP "1.2.3.4" et un score de confiance de 50
+    When son navigateur déclenche 15 réponses 429 en moins de 10 secondes (sous-requêtes d'une même page)
+    Then le score du visiteur est décrémenté une seule fois (50 - 10 = 40)
+    And le visiteur n'atteint pas l'état BLOCKED à cause de cette seule cascade
+
   Scenario: Journalisation d'un événement de rate limiting
     Given un visiteur avec l'IP "5.5.5.5" déclenche le rate limit
     Then un événement de sécurité est journalisé
