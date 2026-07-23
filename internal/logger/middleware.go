@@ -4,6 +4,7 @@ import (
 	"context"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/gaetandev/waf/internal/alert"
@@ -125,8 +126,8 @@ func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores 
 		LatencyMS:      elapsedMS,
 		WAFLatencyMS:   wafLatencyMS,
 		UpstreamStatus: upstreamStatus(action, recorder.statusCode),
-		CFRay:          optionalHeader(r, "CF-Ray"),
-		CFCountry:      optionalHeader(r, "CF-IPCountry"),
+		CFRay:          cfRay(r),
+		CFCountry:      cfCountry(r),
 	}
 }
 
@@ -213,12 +214,81 @@ func upstreamStatus(action string, statusCode int) *int {
 	return &statusCode
 }
 
-func optionalHeader(r *http.Request, name string) *string {
-	value := r.Header.Get(name)
+// maxCFRayLen plafonne la longueur d'un identifiant CF-Ray journalisé. Un ray
+// Cloudflare réel fait ~20 caractères (16 hexadécimaux + "-" + code datacenter) ;
+// la borne empêche un client joignant l'origine hors Cloudflare de forger une
+// valeur démesurée dans le journal d'audit.
+const maxCFRayLen = 32
+
+// cfRay lit et assainit l'en-tête CF-Ray (identifiant de corrélation Cloudflare),
+// contrôlable par un client atteignant directement l'origine (hors Cloudflare).
+// Le nom d'en-tête est un littéral constant : c'est ce qui lève l'alerte
+// clear-text-logging (CWE-312), CodeQL ne reconnaissant pas comme sûre une lecture
+// d'en-tête au nom variable. Le filtrage (alphanumériques ASCII + tiret, longueur
+// bornée) est une défense en profondeur contre l'injection de caractères de
+// contrôle chez les consommateurs de logs non-JSON (CWE-117).
+func cfRay(r *http.Request) *string {
+	return sanitizedToken(r.Header.Get("CF-Ray"), maxCFRayLen)
+}
+
+// cfCountry lit et assainit l'en-tête CF-IPCountry. Seul un code de 2 lettres
+// majuscules (ISO 3166-1 alpha-2 et "XX" — inconnu) ou la valeur spéciale
+// Cloudflare "T1" (Tor) est accepté ; toute autre valeur est ignorée (nil)
+// plutôt que journalisée telle quelle.
+func cfCountry(r *http.Request) *string {
+	country := strings.ToUpper(strings.TrimSpace(r.Header.Get("CF-IPCountry")))
+	if !isCountryCode(country) {
+		return nil
+	}
+	return &country
+}
+
+// sanitizedToken ne conserve que les caractères alphanumériques ASCII et le tiret,
+// dans la limite de maxLen. Retourne nil si la valeur est vide ou ne contient
+// aucun caractère autorisé.
+func sanitizedToken(value string, maxLen int) *string {
 	if value == "" {
 		return nil
 	}
-	return &value
+	var b strings.Builder
+	for _, c := range value {
+		if b.Len() >= maxLen {
+			break
+		}
+		if isTokenRune(c) {
+			b.WriteRune(c)
+		}
+	}
+	if b.Len() == 0 {
+		return nil
+	}
+	out := b.String()
+	return &out
+}
+
+// isTokenRune autorise les caractères d'un identifiant opaque sûr à journaliser.
+func isTokenRune(c rune) bool {
+	return c == '-' ||
+		(c >= '0' && c <= '9') ||
+		(c >= 'A' && c <= 'Z') ||
+		(c >= 'a' && c <= 'z')
+}
+
+// isCountryCode valide un code pays CF-IPCountry : 2 lettres majuscules ASCII
+// (codes ISO 3166-1 alpha-2 et "XX" inconnu) ou la valeur spéciale "T1" (Tor).
+func isCountryCode(s string) bool {
+	if s == "T1" {
+		return true
+	}
+	if len(s) != 2 {
+		return false
+	}
+	for i := 0; i < len(s); i++ {
+		if c := s[i]; c < 'A' || c > 'Z' {
+			return false
+		}
+	}
+	return true
 }
 
 type statusRecorder struct {
