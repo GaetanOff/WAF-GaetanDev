@@ -25,6 +25,29 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- Alertes code-scanning n°35/36 (`go/clear-text-logging`, CWE-312, HIGH)
+  **corrigées** : les en-têtes Cloudflare `CF-Ray` et `CF-IPCountry` étaient lus
+  via le helper générique `optionalHeader(r, name)` au **nom d'en-tête variable**,
+  puis journalisés tels quels dans l'événement de sécurité. CodeQL ne reconnaît
+  pas une lecture d'en-tête au nom non constant comme « en-tête non sensible »
+  (barrière `NonSensitiveHeaderGet`) et classait donc la valeur comme donnée
+  sensible atteignant un sink de log — contrairement à `reason`, `risk_decision`
+  ou `global_pressure`, lus avec un nom littéral et jamais signalés. Ces en-têtes
+  sont par ailleurs **contrôlables par le client** si l'origine est jointe hors
+  Cloudflare (accès direct). Correctifs (`internal/logger/middleware.go` ; contrat
+  `security-event.schema.json` inchangé — `cf_ray`/`cf_country` restent
+  `["string","null"]`) :
+  - lecture via un **nom d'en-tête littéral constant** : c'est ce qui lève
+    l'alerte (la barrière CodeQL s'applique) ;
+  - défense en profondeur : `cf_ray` **filtré** sur un jeu de caractères sûr
+    (alphanumériques ASCII + tiret) et borné à 32 caractères ; `cf_country`
+    **validé** (2 lettres majuscules — ISO 3166-1 alpha-2 et `XX` — ou `T1`
+    Cloudflare/Tor), sinon journalisé `null` plutôt que brut. Durcit aussi la
+    valeur pays transmise au webhook Discord (texte brut).
+  - Le journal d'audit transitant par le handler JSON de slog (échappement des
+    caractères de contrôle), l'injection de fausses lignes (CWE-117) n'y était
+    pas directement exploitable ; le filtrage protège les consommateurs de logs
+    non-JSON en aval.
 - Toolchain Go forcé à **`go1.26.5`** (directive `toolchain` dans `go.mod`) :
   corrige GO-2026-5856 (fuite de confidentialité Encrypted Client Hello dans
   `crypto/tls`, stdlib), **atteignable** dans le WAF (terminaison TLS,

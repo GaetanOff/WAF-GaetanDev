@@ -233,6 +233,109 @@ func TestSecurityEventJSONStaysWithinSchema(t *testing.T) {
 	}
 }
 
+// Un CF-Ray et un CF-IPCountry bien formés (trafic Cloudflare légitime) sont
+// journalisés tels quels, le code pays étant normalisé en majuscules.
+func TestMiddlewareLogsWellFormedCloudflareHeaders(t *testing.T) {
+	var output bytes.Buffer
+	log := NewWithWriter(config.Default().Logging, &output)
+	scores, store := newTestScoreManager(t)
+	defer store.Close()
+	handler := log.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+	request.RemoteAddr = "1.2.3.4:1234"
+	request.Header.Set("CF-Ray", "8f2a1b3c4d5e6f70-CDG")
+	request.Header.Set("CF-IPCountry", "fr")
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	event := decodeEvent(t, output.String())
+	if event["cf_ray"] != "8f2a1b3c4d5e6f70-CDG" {
+		t.Fatalf("cf_ray = %v, want 8f2a1b3c4d5e6f70-CDG", event["cf_ray"])
+	}
+	if event["cf_country"] != "FR" {
+		t.Fatalf("cf_country = %v, want FR (normalisé en majuscules)", event["cf_country"])
+	}
+}
+
+// Un client atteignant l'origine hors Cloudflare peut forger ces en-têtes : la
+// valeur ne doit jamais atteindre le journal telle quelle. Les caractères de
+// contrôle / injection sont retirés du CF-Ray, et un code pays non conforme est
+// abandonné (null) plutôt que journalisé (log forging, CWE-117).
+func TestMiddlewareSanitizesForgedCloudflareHeaders(t *testing.T) {
+	var output bytes.Buffer
+	log := NewWithWriter(config.Default().Logging, &output)
+	scores, store := newTestScoreManager(t)
+	defer store.Close()
+	handler := log.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+	request.RemoteAddr = "1.2.3.4:1234"
+	// Tentative d'injection d'une fausse ligne de log via CF-Ray.
+	request.Header.Set("CF-Ray", "abc\r\n{\"action\":\"forged\"} DROP")
+	// Code pays invalide (trop long + caractères de contrôle).
+	request.Header.Set("CF-IPCountry", "F\nR!")
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	event := decodeEvent(t, output.String())
+	// slog échappe déjà les caractères de contrôle dans le JSON ; l'assertion
+	// forte est que la valeur journalisée est exactement la forme filtrée,
+	// débarrassée des sauts de ligne, guillemets, accolades et espaces injectés.
+	if event["cf_ray"] != "abcactionforgedDROP" {
+		t.Fatalf("cf_ray = %v, want abcactionforgedDROP (valeur filtrée)", event["cf_ray"])
+	}
+	if event["cf_country"] != nil {
+		t.Fatalf("cf_country = %v, want null (code pays forgé rejeté)", event["cf_country"])
+	}
+}
+
+// TestSanitizedTokenAndCountryCode verrouille le comportement des primitives
+// d'assainissement, y compris les cas limites non couverts par le middleware.
+func TestSanitizedTokenAndCountryCode(t *testing.T) {
+	if got := sanitizedToken("", maxCFRayLen); got != nil {
+		t.Fatalf("sanitizedToken(vide) = %q, want nil", *got)
+	}
+	if got := sanitizedToken("!!!@@@ \n", maxCFRayLen); got != nil {
+		t.Fatalf("sanitizedToken(aucun caractère autorisé) = %q, want nil", *got)
+	}
+
+	for _, valid := range []string{"FR", "US", "XX", "T1"} {
+		if !isCountryCode(valid) {
+			t.Fatalf("isCountryCode(%q) = false, want true", valid)
+		}
+	}
+	for _, invalid := range []string{"", "F", "FRA", "fr", "F1", "00", "9Z", "T2", "F R"} {
+		if isCountryCode(invalid) {
+			t.Fatalf("isCountryCode(%q) = true, want false", invalid)
+		}
+	}
+}
+
+// Un CF-Ray démesuré (client hors Cloudflare) est tronqué à maxCFRayLen.
+func TestMiddlewareCapsOversizedCFRay(t *testing.T) {
+	var output bytes.Buffer
+	log := NewWithWriter(config.Default().Logging, &output)
+	scores, store := newTestScoreManager(t)
+	defer store.Close()
+	handler := log.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+	request.RemoteAddr = "1.2.3.4:1234"
+	request.Header.Set("CF-Ray", strings.Repeat("a", 500))
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	event := decodeEvent(t, output.String())
+	rayVal, _ := event["cf_ray"].(string)
+	if len(rayVal) != maxCFRayLen {
+		t.Fatalf("cf_ray length = %d, want %d (tronqué)", len(rayVal), maxCFRayLen)
+	}
+}
+
 func decodeEvent(t *testing.T, raw string) map[string]any {
 	t.Helper()
 
