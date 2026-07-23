@@ -165,7 +165,8 @@ func TestMiddlewareVerifyInvalidPowDecrementsScore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateForRedirect() error = %v", err)
 	}
-	request := verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, "0", 1200))
+	nonce := failPow(t, token, middleware.difficulty)
+	request := verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, nonce, 1200))
 	response := httptest.NewRecorder()
 
 	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, request)
@@ -351,5 +352,22 @@ func solvePow(t *testing.T, token string, difficultyBits int) string {
 		}
 	}
 	t.Fatal("could not solve PoW")
+	return ""
+}
+
+// failPow retourne un nonce dont le hash NE satisfait PAS la difficulté : un PoW
+// invalide déterministe (miroir de solvePow). Un nonce codé en dur comme "0"
+// satisfait ~1/256 des tokens à difficulté 8 ; comme le token est horodaté (donc
+// non déterministe), cela rendait le test "invalid PoW" flaky en CI (~0,4 %).
+func failPow(t *testing.T, token string, difficultyBits int) string {
+	t.Helper()
+	for nonce := uint64(0); nonce < 10_000_000; nonce++ {
+		nonceText := strconv.FormatUint(nonce, 10)
+		sum := sha256.Sum256([]byte(token + nonceText))
+		if !hasLeadingZeroBits(sum[:], difficultyBits) {
+			return nonceText
+		}
+	}
+	t.Fatal("could not find invalid PoW")
 	return ""
 }
