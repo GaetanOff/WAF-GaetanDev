@@ -25,7 +25,23 @@ type Store struct {
 	done chan struct{}
 }
 
-func New(maxVisitors int) *Store {
+// Option configure un Store à la construction.
+type Option func(*Store)
+
+// WithClock injecte l'horloge du Store. Sert à partager UNE horloge entre le
+// Store et le ScoreManager (tests déterministes) : l'éviction (ExpiresAt) et le
+// scoring lisent alors le même temps. Sans ça, un Store sur time.Now peut évincer
+// un visiteur que le manager, tournant sur une horloge injectée, croit encore
+// vivant. Un now nil est ignoré (l'horloge par défaut time.Now est conservée).
+func WithClock(now func() time.Time) Option {
+	return func(s *Store) {
+		if now != nil {
+			s.now = now
+		}
+	}
+}
+
+func New(maxVisitors int, opts ...Option) *Store {
 	if maxVisitors < 1 {
 		maxVisitors = 1
 	}
@@ -36,6 +52,9 @@ func New(maxVisitors int) *Store {
 		lru:         list.New(),
 		lruIndex:    make(map[string]*list.Element),
 		done:        make(chan struct{}),
+	}
+	for _, opt := range opts {
+		opt(store)
 	}
 	go store.cleanupLoop()
 

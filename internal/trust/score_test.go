@@ -11,7 +11,7 @@ import (
 )
 
 func TestScoreManagerInitializesNewVisitor(t *testing.T) {
-	manager, store := newTestManager(t)
+	manager, store, _ := newTestManager(t)
 	defer store.Close()
 
 	visitor := manager.Get("4.4.4.4", "example.test")
@@ -25,7 +25,7 @@ func TestScoreManagerInitializesNewVisitor(t *testing.T) {
 }
 
 func TestScoreManagerApplyDeltaAndClamp(t *testing.T) {
-	manager, store := newTestManager(t)
+	manager, store, _ := newTestManager(t)
 	defer store.Close()
 
 	manager.Set("1.2.3.4", "example.test", 35)
@@ -41,7 +41,7 @@ func TestScoreManagerApplyDeltaAndClamp(t *testing.T) {
 }
 
 func TestScoreManagerStateTransitions(t *testing.T) {
-	manager, store := newTestManager(t)
+	manager, store, _ := newTestManager(t)
 	defer store.Close()
 
 	tests := []struct {
@@ -63,14 +63,13 @@ func TestScoreManagerStateTransitions(t *testing.T) {
 }
 
 func TestScoreManagerResetsExpiredVisitor(t *testing.T) {
-	manager, store := newTestManager(t)
+	manager, store, clock := newTestManager(t)
 	defer store.Close()
 
-	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
-	manager.now = func() time.Time { return now }
+	clock.set(time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC))
 	manager.Set("8.8.8.8", "example.test", 90)
 
-	now = now.Add(65 * time.Minute)
+	clock.advance(65 * time.Minute) // au-delà du score_ttl (1h) : l'entrée expire
 	visitor := manager.Get("8.8.8.8", "example.test")
 
 	if visitor.Score != 50 {
@@ -79,11 +78,10 @@ func TestScoreManagerResetsExpiredVisitor(t *testing.T) {
 }
 
 func TestPenalizeRateLimitOncePerWindow(t *testing.T) {
-	manager, store := newTestManager(t)
+	manager, store, clock := newTestManager(t)
 	defer store.Close()
 
-	now := time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC)
-	manager.now = func() time.Time { return now }
+	clock.set(time.Date(2026, 7, 18, 12, 0, 0, 0, time.UTC))
 	manager.Set("1.2.3.4", "example.test", 50)
 
 	if visitor := manager.PenalizeRateLimit("1.2.3.4", "example.test"); visitor.Score != 40 {
@@ -96,14 +94,14 @@ func TestPenalizeRateLimitOncePerWindow(t *testing.T) {
 		}
 	}
 
-	now = now.Add(RateLimitPenaltyWindow)
+	clock.advance(RateLimitPenaltyWindow)
 	if visitor := manager.PenalizeRateLimit("1.2.3.4", "example.test"); visitor.Score != 30 {
 		t.Fatalf("Score in next window = %d, want 30", visitor.Score)
 	}
 }
 
 func TestTrustMiddlewareBlocksBelowThreshold(t *testing.T) {
-	manager, store := newTestManager(t)
+	manager, store, _ := newTestManager(t)
 	defer store.Close()
 	manager.Set("9.9.9.9", "example.test", 2)
 
@@ -121,7 +119,7 @@ func TestTrustMiddlewareBlocksBelowThreshold(t *testing.T) {
 }
 
 func TestTrustMiddlewareMarksChallengeState(t *testing.T) {
-	manager, store := newTestManager(t)
+	manager, store, _ := newTestManager(t)
 	defer store.Close()
 	manager.Set("9.9.9.9", "example.test", 25)
 
@@ -143,10 +141,23 @@ func TestTrustMiddlewareMarksChallengeState(t *testing.T) {
 	}
 }
 
-func newTestManager(t *testing.T) (*ScoreManager, *memory.Store) {
+// fakeClock est une horloge mutable partagée par le ScoreManager et le Store en
+// test. Le stamping du TTL (ExpiresAt) et l'éviction du Store lisent ainsi le
+// MÊME temps : câbler le Store sur time.Now pendant que le manager tourne sur une
+// horloge injectée laissait le Store évincer des visiteurs que le manager croyait
+// encore vivants — un date-bomb où un test figé dans le passé cassait au fil du
+// temps réel.
+type fakeClock struct{ current time.Time }
+
+func (c *fakeClock) now() time.Time          { return c.current }
+func (c *fakeClock) set(t time.Time)         { c.current = t }
+func (c *fakeClock) advance(d time.Duration) { c.current = c.current.Add(d) }
+
+func newTestManager(t *testing.T) (*ScoreManager, *memory.Store, *fakeClock) {
 	t.Helper()
 
-	store := memory.New(100)
+	clock := &fakeClock{current: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)}
+	store := memory.New(100, memory.WithClock(clock.now))
 	cfg := config.Default()
 	cfg.Version = "1.0"
 	cfg.Server.Listen = ":0"
@@ -158,5 +169,6 @@ func newTestManager(t *testing.T) (*ScoreManager, *memory.Store) {
 	if err != nil {
 		t.Fatalf("NewScoreManager() error = %v", err)
 	}
-	return manager, store
+	manager.now = clock.now // horloge partagée : éviction et scoring d'accord
+	return manager, store, clock
 }
