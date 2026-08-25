@@ -139,7 +139,7 @@ change: "FR-08 : le throttle de pression réduit le débit sans rogner le burst,
 - Signal SIGTERM géré pour graceful shutdown (drain des connexions actives)
 
 ### NFR-06 — Compatibilité
-- Go 1.26+
+- Go 1.27+
 - Linux AMD64 et ARM64
 - IPv4 et IPv6 supportés partout
 - TLS 1.2+ supporté côté upstream (vérification cert configurable)

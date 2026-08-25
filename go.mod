@@ -1,10 +1,9 @@
 module github.com/gaetandev/waf
 
-go 1.26.0
-
-// GO-2026-5856 (fuite ECH dans crypto/tls, atteignable : le WAF termine le
-// TLS) est corrigé dans la stdlib de go1.26.5 — forcer ce toolchain minimum.
-toolchain go1.26.5
+// Plancher de version à go1.27.0 : la directive `go` fait elle-même office de
+// toolchain minimum, et go1.27.0 embarque le correctif GO-2026-5856 (fuite ECH
+// dans crypto/tls, atteignable : le WAF termine le TLS) livré en go1.26.5.
+go 1.27.0
 
 require (
 	github.com/google/uuid v1.6.0

@@ -58,7 +58,7 @@ Les raisons déterminantes :
 
 ## Consequences
 
-- Le projet est développé en Go 1.26+
+- Le projet est développé en Go 1.27+ (plancher initial 1.26+, relevé depuis — voir [changelog.md](../changelog.md))
 - Les dépendances clés : `log/slog` (logging structuré, stdlib — voir ADR-014), `prometheus/client_golang` (métriques), `go-redis/redis` (optionnel), `golang.org/x/crypto` (HMAC/hash)
 - Pas de dépendances à des frameworks web lourds (Gin, Echo) — `net/http` stdlib suffit
 - La spec `specific-go.mdc` du projet s'applique intégralement

@@ -6,6 +6,19 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- **Montée du projet vers Go 1.27** : `go.mod` passe de `go 1.26.0` +
+  `toolchain go1.26.5` à `go 1.27.0`. La directive `go` fait elle-même office de
+  plancher de toolchain : `toolchain go1.26.5` devenait redondant (et donc
+  susceptible de dériver), il est supprimé — go1.27.0 embarque le correctif
+  GO-2026-5856 (fuite ECH dans `crypto/tls`) qui motivait ce pin.
+  Propagation : image de build `golang:1.26-alpine` → `golang:1.27-alpine`
+  (Dockerfile), commentaire golangci-lint du workflow CI. Le CI résout déjà la
+  version via `go-version-file: go.mod` — aucun changement de workflow requis.
+  Docs alignées : `mission.md`, `requirements.md`, conséquences d'ADR-001
+  (le corps historique de l'ADR, `accepted`, reste inchangé).
+
 ### Fixed
 
 - **FR-08/FR-05 (v2.1.0) — cascade de faux positifs sous pression** : pendant un
