@@ -6,13 +6,13 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"uuid"
 
 	"github.com/gaetandev/waf/internal/alert"
 	"github.com/gaetandev/waf/internal/gdpr"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/upstreamtime"
-	"github.com/google/uuid"
 )
 
 const requestIDHeader = "X-Request-ID"
@@ -21,7 +21,7 @@ type requestIDContextKey struct{}
 
 func (l Logger) Middleware(scores *trust.ScoreManager, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		requestID := uuid.NewString()
+		requestID := uuid.NewV4().String()
 		startedAt := l.now()
 		recorder := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 		w.Header().Set(requestIDHeader, requestID)
