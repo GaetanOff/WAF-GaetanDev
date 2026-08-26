@@ -56,6 +56,14 @@ change: "Ajout FR-33 — terminaison TLS par domaine (sélection par SNI), voir 
   - Au-delà → TCP RST ou HTTP 429 selon config
 - Le WAF DOIT détecter les connexions qui consomment le pool sans envoyer de données :
   - Connexions ouvertes > `idle_read_timeout` sans byte reçu → fermer
+- Le WAF DOIT borner le **nombre de valeurs d'en-tête** acceptées par requête :
+  - `max_header_value_count`: configurable (défaut: 100 ; `0` = défaut Go, 500)
+  - Au-delà → la requête est rejetée par le serveur HTTP avant d'atteindre les middlewares
+  - Complète `max_connections_per_ip` : borne le coût d'**une seule** requête portant des
+    milliers de lignes d'en-tête (amplification mémoire/CPU au parsing), là où la limite de
+    connexions borne le nombre de requêtes concurrentes
+  - Les valeurs séparées par des virgules sur une même ligne comptent pour 1 ; les lignes
+    d'en-tête répétées comptent chacune
 - Ces protections DOIVENT fonctionner avant la lecture complète de la requête (niveau net.Conn / http.Server)
 
 ## FR-24 — Bypass des Assets Statiques

@@ -305,6 +305,9 @@ func run() error {
 		ReadTimeout:       readTimeout,
 		WriteTimeout:      writeTimeout,
 		IdleTimeout:       idleTimeout,
+		// FR-23 : borne le coût de parsing d'une requête portant des milliers de
+		// lignes d'en-tête, en amont de tout middleware.
+		MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
 	}
 	// ACME / Let's Encrypt (FR-31) : TLS direct avec renouvellement automatique
 	// (~30j avant expiration) et rotation à chaud via autocert.
@@ -356,9 +359,10 @@ func run() error {
 	// Serveur HTTP-01 (challenge ACME + redirection HTTPS) sur le port 80.
 	if acmeManager != nil {
 		challengeServer := &http.Server{
-			Addr:              cfg.ACME.HTTPChallengeListen,
-			Handler:           acmeManager.HTTPHandler(nil),
-			ReadHeaderTimeout: headerTimeout,
+			Addr:                cfg.ACME.HTTPChallengeListen,
+			Handler:             acmeManager.HTTPHandler(nil),
+			ReadHeaderTimeout:   headerTimeout,
+			MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
 		}
 		go func() {
 			if err := challengeServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -371,9 +375,10 @@ func run() error {
 	// domaine et que redirect_http est actif.
 	if tlsManager != nil && cfg.Server.TLS.RedirectHTTP {
 		redirectServer := &http.Server{
-			Addr:              cfg.Server.Listen,
-			Handler:           redirectToHTTPS(cfg.Domains),
-			ReadHeaderTimeout: headerTimeout,
+			Addr:                cfg.Server.Listen,
+			Handler:             redirectToHTTPS(cfg.Domains),
+			ReadHeaderTimeout:   headerTimeout,
+			MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
 		}
 		go func() {
 			if err := redirectServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {

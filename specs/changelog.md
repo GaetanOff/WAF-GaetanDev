@@ -18,6 +18,20 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   version via `go-version-file: go.mod` — aucun changement de workflow requis.
   Docs alignées : `mission.md`, `requirements.md`, conséquences d'ADR-001
   (le corps historique de l'ADR, `accepted`, reste inchangé).
+- **FR-23 — nouvelle borne `server.max_header_value_count`** (défaut **100**,
+  `0` = défaut Go 500) : câblée sur `http.Server.MaxHeaderValueCount`
+  (Go 1.27) pour le listener public, le serveur de challenge ACME, le
+  redirecteur HTTP→HTTPS et l'API admin. Complète `max_connections_per_ip` :
+  cette dernière borne le nombre de requêtes concurrentes, la nouvelle borne le
+  coût de parsing d'**une seule** requête portant des milliers de lignes
+  d'en-tête. Le rejet a lieu dans `net/http`, avant tout middleware.
+- **Dépendance `github.com/google/uuid` supprimée** au profit du paquet `uuid`
+  de la stdlib (nouveau en Go 1.27). Le contrat « UUID v4 » d'`architecture.md`
+  est désormais explicite dans le code (`uuid.NewV4()`) et vérifié par le test
+  (version + variante RFC 9562).
+- **Modernisations `go fix`** débloquées par la directive `go 1.27` :
+  `min()`, `slices.Contains`, `slices.Backward`, `strings.Cut`, `for range N`.
+  Changements mécaniques et sans effet sémantique, isolés dans leur propre commit.
 
 ### Fixed
 

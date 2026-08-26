@@ -61,13 +61,17 @@ type Config struct {
 }
 
 type ServerConfig struct {
-	Listen                  string    `yaml:"listen"`
-	AdminListen             string    `yaml:"admin_listen"`
-	ReadTimeout             string    `yaml:"read_timeout"`
-	WriteTimeout            string    `yaml:"write_timeout"`
-	IdleTimeout             string    `yaml:"idle_timeout"`
-	GracefulShutdownTimeout string    `yaml:"graceful_shutdown_timeout"`
-	TLS                     ServerTLS `yaml:"tls"`
+	Listen                  string `yaml:"listen"`
+	AdminListen             string `yaml:"admin_listen"`
+	ReadTimeout             string `yaml:"read_timeout"`
+	WriteTimeout            string `yaml:"write_timeout"`
+	IdleTimeout             string `yaml:"idle_timeout"`
+	GracefulShutdownTimeout string `yaml:"graceful_shutdown_timeout"`
+	// MaxHeaderValueCount borne le nombre de valeurs d'en-tête acceptées par
+	// requête (FR-23, http.Server.MaxHeaderValueCount — Go 1.27+). 0 laisse le
+	// défaut Go (http.DefaultMaxHeaderValueCount, 500).
+	MaxHeaderValueCount int       `yaml:"max_header_value_count"`
+	TLS                 ServerTLS `yaml:"tls"`
 }
 
 // ServerTLS configure la terminaison TLS sur le WAF (FR-33, ADR-017). Les
@@ -433,6 +437,7 @@ func Default() Config {
 			WriteTimeout:            "30s",
 			IdleTimeout:             "60s",
 			GracefulShutdownTimeout: "15s",
+			MaxHeaderValueCount:     100,
 			TLS: ServerTLS{
 				Enabled:      false, // opt-in : terminaison TLS par domaine (FR-33)
 				Listen:       ":443",
@@ -677,6 +682,11 @@ func (c *Config) Validate() error {
 	validateDuration(&fields, "challenge.token_ttl", c.Challenge.TokenTTL)
 	validateDuration(&fields, "challenge.cookie_ttl", c.Challenge.CookieTTL)
 
+	// 0 = défaut Go (500). Une borne haute évite qu'une valeur absurde annule de
+	// fait la protection FR-23 ; alignée sur config.schema.json.
+	if c.Server.MaxHeaderValueCount < 0 || c.Server.MaxHeaderValueCount > 10000 {
+		fields = append(fields, "server.max_header_value_count must be between 0 and 10000")
+	}
 	if c.Upstream.MaxIdleConns < 1 {
 		fields = append(fields, "upstream.max_idle_conns must be >= 1")
 	}
