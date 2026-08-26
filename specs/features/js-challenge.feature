@@ -92,6 +92,22 @@ Feature: Challenge JavaScript
     And la réponse contient {"error": "challenge_too_fast"}
     And le score du visiteur est décrémenté de 20
 
+  Scenario: Corps JSON avec un nom de membre dupliqué — rejeté
+    # Différentiel de parseur : encoding/json v1 appliquait « le dernier gagne »
+    # et lisait "t2", quand une origine appliquant « le premier gagne » aurait lu
+    # "t1". Le WAF refuse désormais d'arbitrer un corps ambigu.
+    Given un visiteur soumet POST /waf/verify avec le corps {"token":"t1","token":"t2","nonce":"1","elapsed_ms":1200}
+    Then le WAF retourne HTTP 400
+    And la réponse contient {"error": "invalid_submission"}
+    And aucun token n'est validé
+
+  Scenario: Corps JSON contenant de l'UTF-8 invalide — rejeté
+    # v1 remplaçait silencieusement les octets invalides par U+FFFD : la valeur
+    # inspectée par le WAF n'était alors plus celle reçue sur le fil.
+    Given un visiteur soumet POST /waf/verify dont le champ "token" contient une séquence UTF-8 invalide
+    Then le WAF retourne HTTP 400
+    And la réponse contient {"error": "invalid_submission"}
+
   Scenario: Challenge trop lent (timeout côté client)
     Given un visiteur soumet POST /waf/verify avec elapsed_ms = 65000
     Then le WAF retourne HTTP 400

@@ -172,6 +172,22 @@ change: "Ajout FR-33 — terminaison TLS par domaine (sélection par SNI), voir 
 - `/waf/metrics` DOIT être protégeable par token (optionnel, désactivé par défaut pour faciliter Prometheus scraping)
 - Sinon, accessible seulement depuis les IPs whitelistées ou le réseau interne
 
+### Parsing JSON des entrées non fiables
+- Tout corps JSON provenant d'un client (`POST /waf/verify`, API admin) DOIT être
+  rejeté (HTTP 400) s'il contient un **nom de membre dupliqué**
+  - Motif : un parseur « le dernier gagne » côté WAF et « le premier gagne » côté
+    origine créent un **différentiel de parseur** — le WAF inspecte une valeur que
+    l'origine ne traitera pas. Le WAF NE DOIT PAS arbitrer un corps ambigu
+- Tout corps JSON client DOIT être rejeté s'il contient de l'**UTF-8 invalide**
+  - Motif : le remplacement silencieux par U+FFFD fait diverger la valeur inspectée
+    de la valeur reçue sur le fil
+- Le WAF DOIT continuer d'appairer les noms de membre **sans tenir compte de la
+  casse** : ce durcissement ne doit pas casser les clients existants
+- Les charges utiles dont l'authenticité est déjà établie par HMAC (cookie de
+  session, nonce) et les réponses d'API tierces sont **hors périmètre** : les
+  premières sont produites par le WAF lui-même, les secondes doivent tolérer
+  l'ajout de champs par le fournisseur
+
 ### Protection globale du WAF
 - Le WAF DOIT détecter les **amplification attacks** sur le challenge : un visiteur qui génère plus de N tokens de challenge sans jamais les soumettre (stocke des nonces en mémoire) → ses nonces sont supprimés et il est challengé plus sévèrement
 - Limite du store de nonces : `challenge.max_pending_nonces` par IP (défaut: 5)

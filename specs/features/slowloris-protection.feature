@@ -61,6 +61,26 @@ Feature: Protection Slowloris & Slow HTTP
     Then le WAF rejette la connexion (TCP RST ou HTTP 429 selon config)
     And un event est journalisé avec reason="too_many_connections_per_ip"
 
+  Scenario: Requête unique portant des milliers de lignes d'en-tête
+    # max_conns_per_ip borne le nombre de requêtes concurrentes ; il ne borne pas
+    # le coût de parsing d'UNE requête. C'est le rôle de max_header_value_count.
+    Given max_header_value_count = 100
+    When une IP envoie une seule requête portant 5 000 lignes d'en-tête distinctes
+    Then le serveur HTTP rejette la requête avant d'exécuter le moindre middleware
+    And la mémoire consommée par le parsing des en-têtes reste bornée
+
+  Scenario: Requête légitime sous la limite d'en-têtes
+    Given max_header_value_count = 100
+    When un navigateur envoie une requête portant ~25 lignes d'en-tête
+    Then la requête est traitée normalement
+
+  Scenario: En-tête unique à valeurs multiples séparées par des virgules
+    # Une ligne "Accept: a, b, c" compte pour 1, pas 3 : la limite vise la
+    # répétition de lignes, pas la richesse d'une valeur.
+    Given max_header_value_count = 100
+    When un client envoie une requête dont un en-tête porte 300 valeurs séparées par des virgules sur une seule ligne
+    Then la requête n'est pas rejetée pour dépassement de max_header_value_count
+
   Scenario: IPs whitelistées exemptées de la limite
     Given l'IP "10.0.0.1" est dans la whitelist
     When elle ouvre 200 connexions simultanées

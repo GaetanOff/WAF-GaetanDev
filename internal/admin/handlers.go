@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gaetandev/waf/internal/jsonstrict"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -91,9 +92,7 @@ func (s *Server) gdprErase(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		IP string `json:"ip"`
 	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil || payload.IP == "" {
+	if err := jsonstrict.Decode(r.Body, &payload); err != nil || payload.IP == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_request", Message: "ip is required"})
 		return
 	}
@@ -184,9 +183,7 @@ func (s *Server) getConfig(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request) {
 	var payload map[string]any
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
+	if err := jsonstrict.Decode(r.Body, &payload); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_config_update", Message: "Invalid JSON body"})
 		return
 	}
@@ -243,9 +240,7 @@ func (s *Server) deleteBlacklist(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) addIPEntry(w http.ResponseWriter, r *http.Request, whitelist bool) {
 	var entry IPEntry
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&entry); err != nil {
+	if err := jsonstrict.Decode(r.Body, &entry); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_ip_entry", Message: "Invalid JSON body"})
 		return
 	}

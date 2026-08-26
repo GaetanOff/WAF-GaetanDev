@@ -12,6 +12,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/config"
 	browserfp "github.com/gaetandev/waf/internal/fingerprint"
+	"github.com/gaetandev/waf/internal/jsonstrict"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -155,9 +156,7 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	var submission Submission
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&submission); err != nil {
+	if err := jsonstrict.Decode(r.Body, &submission); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid_submission")
 		return
 	}

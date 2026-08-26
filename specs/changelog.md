@@ -29,6 +29,23 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   de la stdlib (nouveau en Go 1.27). Le contrat « UUID v4 » d'`architecture.md`
   est désormais explicite dans le code (`uuid.NewV4()`) et vérifié par le test
   (version + variante RFC 9562).
+- **FR-30 — parsing JSON durci sur les entrées non fiables** via
+  `encoding/json/v2` (nouveau en Go 1.27), encapsulé dans `internal/jsonstrict` :
+  - un **nom de membre dupliqué** est désormais rejeté (400). v1 appliquait
+    « le dernier gagne » : le WAF lisait `"b"` dans `{"k":"a","k":"b"}` là où une
+    origine appliquant « le premier gagne » lisait `"a"` — différentiel de
+    parseur, vecteur classique de contournement ;
+  - l'**UTF-8 invalide** est rejeté au lieu d'être remplacé par U+FFFD, qui
+    faisait diverger la valeur inspectée de la valeur reçue sur le fil.
+  - Appliqué à `POST /waf/verify` (public, non authentifié) et aux trois
+    endpoints à corps de l'API admin. `MatchCaseInsensitiveNames(true)` conserve
+    l'appariement v1 insensible à la casse et `RejectUnknownMembers(true)`
+    reproduit `DisallowUnknownFields` : le **seul** changement observable est le
+    rejet de JSON ambigu ou mal formé.
+  - **Hors périmètre, délibérément** : les payloads déjà authentifiés par HMAC
+    (cookie, nonce) — produits par le WAF lui-même ; le bus Redis inter-nœuds ;
+    et la réponse AbuseIPDB, qui n'utilise pas `DisallowUnknownFields` et doit
+    tolérer l'ajout de champs par le fournisseur.
 - **Modernisations `go fix`** débloquées par la directive `go 1.27` :
   `min()`, `slices.Contains`, `slices.Backward`, `strings.Cut`, `for range N`.
   Changements mécaniques et sans effet sémantique, isolés dans leur propre commit.
