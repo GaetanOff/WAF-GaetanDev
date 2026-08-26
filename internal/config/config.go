@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/url"
 	"os"
+	"slices"
 	"strings"
 	"time"
 
@@ -1005,10 +1006,8 @@ func validateFloatRange(fields *[]string, name string, value, min, max float64) 
 }
 
 func validateEnum(fields *[]string, name, value string, allowed ...string) {
-	for _, candidate := range allowed {
-		if value == candidate {
-			return
-		}
+	if slices.Contains(allowed, value) {
+		return
 	}
 	*fields = append(*fields, fmt.Sprintf("%s must be one of %s", name, strings.Join(allowed, ", ")))
 }

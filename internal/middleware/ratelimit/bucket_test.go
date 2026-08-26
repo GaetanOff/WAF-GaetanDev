@@ -9,7 +9,7 @@ func TestTokenBucketAllowsBurst(t *testing.T) {
 	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
 	bucket := NewTokenBucket(50, 100, now)
 
-	for i := 0; i < 100; i++ {
+	for i := range 100 {
 		allowed, _ := bucket.TryConsume(now)
 		if !allowed {
 			t.Fatalf("request %d denied, want allowed", i+1)

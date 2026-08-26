@@ -10,6 +10,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -440,8 +441,8 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	}
 	// Détecteurs avancés exécutés juste avant le moteur de risque (wrap en ordre
 	// inverse pour préserver l'ordre d'exécution detectors[0], detectors[1], ...).
-	for i := len(detectors) - 1; i >= 0; i-- {
-		proxyHandler = detectors[i](proxyHandler)
+	for _, detector := range slices.Backward(detectors) {
+		proxyHandler = detector(proxyHandler)
 	}
 	proxyHandler = antiBot.Handler(proxyHandler)
 	if cfg.RateLimit.Enabled {
@@ -529,8 +530,8 @@ func hostAllowed(host string, patterns []string) bool {
 }
 
 func stripPort(hostport string) string {
-	if colon := strings.IndexByte(hostport, ':'); colon >= 0 {
-		return hostport[:colon]
+	if before, _, ok := strings.Cut(hostport, ":"); ok {
+		return before
 	}
 	return hostport
 }

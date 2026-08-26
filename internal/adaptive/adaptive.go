@@ -96,10 +96,7 @@ func (c *Controller) Difficulty() int {
 	c.currentBits = decay(c.currentBits, target, now.Sub(c.lastDecay), c.tau)
 	c.lastDecay = now
 
-	difficulty := c.baseDifficulty + int(math.Round(c.currentBits))
-	if difficulty > c.maxDifficulty {
-		difficulty = c.maxDifficulty
-	}
+	difficulty := min(c.baseDifficulty+int(math.Round(c.currentBits)), c.maxDifficulty)
 	if difficulty < c.baseDifficulty {
 		difficulty = c.baseDifficulty
 	}
@@ -111,10 +108,7 @@ func (c *Controller) Difficulty() int {
 func (c *Controller) Snapshot() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-	difficulty := c.baseDifficulty + int(math.Round(c.currentBits))
-	if difficulty > c.maxDifficulty {
-		difficulty = c.maxDifficulty
-	}
+	difficulty := min(c.baseDifficulty+int(math.Round(c.currentBits)), c.maxDifficulty)
 	if difficulty < c.baseDifficulty {
 		difficulty = c.baseDifficulty
 	}

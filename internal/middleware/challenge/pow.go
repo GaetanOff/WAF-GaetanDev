@@ -21,7 +21,7 @@ func hasLeadingZeroBits(hash []byte, difficultyBits int) bool {
 	fullBytes := difficultyBits / 8
 	remainingBits := difficultyBits % 8
 
-	for i := 0; i < fullBytes; i++ {
+	for i := range fullBytes {
 		if hash[i] != 0 {
 			return false
 		}

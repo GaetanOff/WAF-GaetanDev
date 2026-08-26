@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"testing"
 )
 
@@ -229,10 +230,8 @@ func assertNumberInRange(t *testing.T, value any, schema any) {
 func assertEnumContains(t *testing.T, value any, schema any) {
 	t.Helper()
 
-	for _, allowed := range objectMap(t, schema)["enum"].([]any) {
-		if value == allowed {
-			return
-		}
+	if slices.Contains(objectMap(t, schema)["enum"].([]any), value) {
+		return
 	}
 	t.Fatalf("value %v not allowed by enum %v", value, objectMap(t, schema)["enum"])
 }

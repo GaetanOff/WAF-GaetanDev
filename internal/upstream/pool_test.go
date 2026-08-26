@@ -7,7 +7,7 @@ func TestRoundRobinCyclesHealthyUpstreams(t *testing.T) {
 		{Address: "a"}, {Address: "b"}, {Address: "c"},
 	})
 	seen := map[string]int{}
-	for i := 0; i < 6; i++ {
+	for range 6 {
 		u, ok := pool.Pick("")
 		if !ok {
 			t.Fatal("expected a healthy upstream")
@@ -24,7 +24,7 @@ func TestRoundRobinCyclesHealthyUpstreams(t *testing.T) {
 func TestUnhealthyUpstreamExcluded(t *testing.T) {
 	pool := NewPool(StrategyRoundRobin, []*Upstream{{Address: "a"}, {Address: "b"}})
 	pool.Upstreams()[0].SetHealthy(false)
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		u, ok := pool.Pick("")
 		if !ok || u.Address != "b" {
 			t.Fatalf("pick = %v ok=%v, want only b", u, ok)
@@ -59,7 +59,7 @@ func TestAllDownReturnsFalse(t *testing.T) {
 func TestIPHashIsStable(t *testing.T) {
 	pool := NewPool(StrategyIPHash, []*Upstream{{Address: "a"}, {Address: "b"}, {Address: "c"}})
 	first, _ := pool.Pick("1.2.3.4")
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		u, _ := pool.Pick("1.2.3.4")
 		if u.Address != first.Address {
 			t.Fatalf("ip_hash not stable: %s vs %s", u.Address, first.Address)
@@ -82,7 +82,7 @@ func TestWeightedFavorsHigherWeight(t *testing.T) {
 		{Address: "b", Weight: 1},
 	})
 	seen := map[string]int{}
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		u, _ := pool.Pick("")
 		seen[u.Address]++
 	}

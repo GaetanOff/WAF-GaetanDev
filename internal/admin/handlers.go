@@ -368,18 +368,12 @@ func sortVisitors(visitors []VisitorInfo, sortBy string) {
 func paged[T any](items []T, r *http.Request) listResponse[T] {
 	total := len(items)
 	page := queryInt(r, "page", 1)
-	limit := queryInt(r, "limit", 50)
-	if limit > 1000 {
-		limit = 1000
-	}
+	limit := min(queryInt(r, "limit", 50), 1000)
 	start := (page - 1) * limit
 	if start >= total {
 		return listResponse[T]{Items: []T{}, Total: total}
 	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
+	end := min(start+limit, total)
 	return listResponse[T]{Items: items[start:end], Total: total}
 }
 

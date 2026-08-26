@@ -35,7 +35,7 @@ func TestComputeAnomalyDetectsTimeUniformity(t *testing.T) {
 
 func TestComputeAnomalyDetectsPathRepetition(t *testing.T) {
 	paths := make([]string, 0, 15)
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		paths = append(paths, "/same")
 	}
 	// Intervalles irréguliers pour isoler le signal de répétition.
@@ -50,7 +50,7 @@ func TestComputeAnomalyDetectsPathRepetition(t *testing.T) {
 
 func TestComputeAnomalyDetectsHighVelocity(t *testing.T) {
 	paths := make([]string, 0, 25)
-	for i := 0; i < 25; i++ {
+	for i := range 25 {
 		paths = append(paths, fmt.Sprintf("/p%02d", i))
 	}
 	records := recordsFrom(paths, 100*time.Millisecond) // 25 paths en 2.4s
@@ -88,7 +88,7 @@ func TestHandlerPublishesBehavioralScoreFromPreviousRequests(t *testing.T) {
 	ipHash := trust.HashIP("1.2.3.4")
 	// Pré-remplit le buffer avec un motif uniforme via ingestion synchrone.
 	base := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		tracker.ingest(event{ipHash: ipHash, path: fmt.Sprintf("/p%d", i), at: base.Add(time.Duration(i) * time.Second)})
 	}
 	if tracker.Score(ipHash) == 0 {
