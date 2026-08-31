@@ -144,25 +144,28 @@ func TestAdminServerEnforcesMaxHeaderValueCount(t *testing.T) {
 	url := fmt.Sprintf("http://%s/waf/admin/blacklist", listener.Addr().String())
 
 	// Sous la limite : la requête atteint le routeur admin.
-	response, err := doWithHeaderLines(t, url, limit/2)
+	status, err := statusWithHeaderLines(t, url, limit/2)
 	if err != nil {
 		t.Fatalf("request under the limit failed: %v", err)
 	}
-	if response.StatusCode != http.StatusUnauthorized {
-		t.Fatalf("status under the limit = %d, want 401", response.StatusCode)
+	if status != http.StatusUnauthorized {
+		t.Fatalf("status under the limit = %d, want 401", status)
 	}
 
 	// Au-dessus : le serveur coupe au parsing, aucune réponse applicative.
-	response, err = doWithHeaderLines(t, url, limit*4)
-	if err == nil && response.StatusCode == http.StatusUnauthorized {
+	status, err = statusWithHeaderLines(t, url, limit*4)
+	if err == nil && status == http.StatusUnauthorized {
 		t.Fatal("request above max_header_value_count reached the handler")
 	}
 }
 
-// doWithHeaderLines envoie une requête portant `count` lignes d'en-tête
+// statusWithHeaderLines envoie une requête portant `count` lignes d'en-tête
 // distinctes (chacune compte pour une valeur, contrairement aux valeurs
-// séparées par des virgules sur une seule ligne).
-func doWithHeaderLines(t *testing.T, url string, count int) (*http.Response, error) {
+// séparées par des virgules sur une seule ligne) et renvoie le code de statut.
+//
+// Le corps est fermé ici : le test ne s'intéresse qu'au statut, et renvoyer la
+// *http.Response obligerait chaque appelant à le fermer.
+func statusWithHeaderLines(t *testing.T, url string, count int) (int, error) {
 	t.Helper()
 	request, err := http.NewRequest(http.MethodGet, url, nil)
 	if err != nil {
@@ -173,10 +176,11 @@ func doWithHeaderLines(t *testing.T, url string, count int) (*http.Response, err
 	}
 	client := &http.Client{Timeout: 5 * time.Second}
 	response, err := client.Do(request)
-	if response != nil {
-		t.Cleanup(func() { _ = response.Body.Close() })
+	if err != nil {
+		return 0, err
 	}
-	return response, err
+	defer func() { _ = response.Body.Close() }()
+	return response.StatusCode, nil
 }
 
 func newTestServer(t *testing.T) *Server {
