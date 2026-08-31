@@ -290,6 +290,35 @@ func TestValidateUnderAttack(t *testing.T) {
 	}
 }
 
+// FR-23 — borne du nombre de valeurs d'en-tête (http.Server.MaxHeaderValueCount,
+// Go 1.27+). 0 est légal et signifie « défaut Go » (500).
+func TestValidateServerMaxHeaderValueCount(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   int
+		wantErr bool
+	}{
+		{name: "default is valid", value: Default().Server.MaxHeaderValueCount, wantErr: false},
+		{name: "zero means go default", value: 0, wantErr: false},
+		{name: "upper bound accepted", value: 10000, wantErr: false},
+		{name: "negative rejected", value: -1, wantErr: true},
+		{name: "above upper bound rejected", value: 10001, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validBaseConfig()
+			cfg.Server.MaxHeaderValueCount = tt.value
+			err := cfg.Validate()
+			if tt.wantErr && err == nil {
+				t.Fatal("Validate() expected an error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("Validate() unexpected error = %v", err)
+			}
+		})
+	}
+}
+
 func TestValidateServerTLS(t *testing.T) {
 	tests := []struct {
 		name    string

@@ -91,7 +91,7 @@ func TestControllerRaisesDifficultyUnderAttackThenDecays(t *testing.T) {
 	}
 
 	// Pic d'attaque : beaucoup de requêtes sur la même seconde.
-	for i := 0; i < 2000; i++ {
+	for range 2000 {
 		controller.Observe()
 	}
 	if d := controller.Difficulty(); d <= 16 {

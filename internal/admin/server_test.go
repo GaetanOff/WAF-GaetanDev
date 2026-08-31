@@ -3,6 +3,8 @@ package admin
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -121,7 +123,75 @@ func TestAdminConfigMasksSecrets(t *testing.T) {
 	}
 }
 
+// FR-23 — vérifie que server.max_header_value_count est bien transmis au
+// http.Server (Go 1.27+) et que la requête est rejetée AVANT d'atteindre le
+// handler : une requête sous la limite passe (401, faute de token), une requête
+// au-dessus n'obtient pas de réponse applicative.
+func TestAdminServerEnforcesMaxHeaderValueCount(t *testing.T) {
+	const limit = 20
+
+	server := newTestServerWith(t, func(cfg *config.Config) {
+		cfg.Server.MaxHeaderValueCount = limit
+	})
+
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() { _ = server.httpServer.Serve(listener) }()
+
+	url := fmt.Sprintf("http://%s/waf/admin/blacklist", listener.Addr().String())
+
+	// Sous la limite : la requête atteint le routeur admin.
+	status, err := statusWithHeaderLines(t, url, limit/2)
+	if err != nil {
+		t.Fatalf("request under the limit failed: %v", err)
+	}
+	if status != http.StatusUnauthorized {
+		t.Fatalf("status under the limit = %d, want 401", status)
+	}
+
+	// Au-dessus : le serveur coupe au parsing, aucune réponse applicative.
+	status, err = statusWithHeaderLines(t, url, limit*4)
+	if err == nil && status == http.StatusUnauthorized {
+		t.Fatal("request above max_header_value_count reached the handler")
+	}
+}
+
+// statusWithHeaderLines envoie une requête portant `count` lignes d'en-tête
+// distinctes (chacune compte pour une valeur, contrairement aux valeurs
+// séparées par des virgules sur une seule ligne) et renvoie le code de statut.
+//
+// Le corps est fermé ici : le test ne s'intéresse qu'au statut, et renvoyer la
+// *http.Response obligerait chaque appelant à le fermer.
+func statusWithHeaderLines(t *testing.T, url string, count int) (int, error) {
+	t.Helper()
+	request, err := http.NewRequest(http.MethodGet, url, nil)
+	if err != nil {
+		t.Fatalf("http.NewRequest() error = %v", err)
+	}
+	for i := range count {
+		request.Header.Add(fmt.Sprintf("X-Filler-%d", i), "x")
+	}
+	client := &http.Client{Timeout: 5 * time.Second}
+	response, err := client.Do(request)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = response.Body.Close() }()
+	return response.StatusCode, nil
+}
+
 func newTestServer(t *testing.T) *Server {
+	t.Helper()
+	return newTestServerWith(t, nil)
+}
+
+// newTestServerWith construit un serveur admin de test ; customize (optionnel)
+// permet d'ajuster la config AVANT NewServer, donc de tester le câblage
+// config -> http.Server.
+func newTestServerWith(t *testing.T, customize func(*config.Config)) *Server {
 	t.Helper()
 	cfg := config.Default()
 	cfg.Version = "1.0"
@@ -131,6 +201,9 @@ func newTestServer(t *testing.T) *Server {
 	cfg.Challenge.Enabled = false
 	cfg.Admin.Enabled = true
 	cfg.Admin.Token = testAdminToken
+	if customize != nil {
+		customize(&cfg)
+	}
 	store := memory.New(100)
 	t.Cleanup(store.Close)
 	rules, err := access.NewRuleSet(cfg.Whitelist, cfg.Blacklist, cfg.WhitelistUserAgents)

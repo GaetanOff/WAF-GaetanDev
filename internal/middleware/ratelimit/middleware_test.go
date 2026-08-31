@@ -23,7 +23,7 @@ func TestMiddlewareAllowsConfiguredBurstAndThenRateLimits(t *testing.T) {
 
 	handler := middleware.Handler(countingHandler())
 	statuses := make([]int, 0, 150)
-	for i := 0; i < 150; i++ {
+	for range 150 {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, requestFrom("1.2.3.4:1234"))
 		statuses = append(statuses, response.Code)
@@ -156,7 +156,7 @@ func TestMiddlewareSkipsWhitelistedRequests(t *testing.T) {
 	middleware.now = func() time.Time { return now }
 	handler := middleware.Handler(countingHandler())
 
-	for i := 0; i < 10; i++ {
+	for range 10 {
 		request := requestFrom("10.0.0.1:1234")
 		request.Header.Set("X-WAF-Action", "PASS")
 		response := httptest.NewRecorder()
@@ -180,7 +180,7 @@ func TestPressureThrottlesSustainedRateButKeepsBurst(t *testing.T) {
 	handler := middleware.Handler(countingHandler())
 
 	burstOK := 0
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, requestWithPressure("9.9.9.9:1234", pressureCritical))
 		if response.Code == http.StatusNoContent {
@@ -194,7 +194,7 @@ func TestPressureThrottlesSustainedRateButKeepsBurst(t *testing.T) {
 	// Une seconde plus tard, le refill resserré (5/s) ne rend que 5 jetons.
 	now = now.Add(time.Second)
 	sustainedOK := 0
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, requestWithPressure("9.9.9.9:1234", pressureCritical))
 		if response.Code == http.StatusNoContent {
@@ -282,7 +282,7 @@ func TestRateLimitPenaltyAppliedOncePerWindow(t *testing.T) {
 	// 1 requête admise puis 15 refusées au même instant (cascade de
 	// sous-requêtes d'un même chargement de page) : UNE seule pénalité.
 	handler.ServeHTTP(httptest.NewRecorder(), requestFrom("9.9.9.9:1234"))
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		handler.ServeHTTP(httptest.NewRecorder(), requestFrom("9.9.9.9:1234"))
 	}
 	visitor, ok := store.GetVisitor(trust.HashIP("9.9.9.9"))
@@ -314,7 +314,7 @@ func TestPressureSparesTrustedVisitor(t *testing.T) {
 	handler := middleware.Handler(countingHandler())
 
 	okCount := 0
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, requestWithPressure("8.8.8.8:1234", pressureCritical))
 		if response.Code == http.StatusNoContent {
@@ -336,7 +336,7 @@ func TestNormalPressureDoesNotThrottle(t *testing.T) {
 	handler := middleware.Handler(countingHandler())
 
 	okCount := 0
-	for i := 0; i < 8; i++ {
+	for range 8 {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, requestWithPressure("7.7.7.7:1234", pressureNormal))
 		if response.Code == http.StatusNoContent {
@@ -358,14 +358,14 @@ func TestPressureThrottleIsReversible(t *testing.T) {
 	handler := middleware.Handler(countingHandler())
 
 	// Épuise le burst nominal sous pression critique.
-	for i := 0; i < 20; i++ {
+	for range 20 {
 		handler.ServeHTTP(httptest.NewRecorder(), requestWithPressure("6.6.6.6:1234", pressureCritical))
 	}
 
 	// La pression retombe : le refill repart au débit nominal (20/s) → toute la
 	// rafale suivante passe dès la seconde suivante (au lieu de 5 sous pression).
 	now = now.Add(time.Second)
-	for i := 0; i < 8; i++ {
+	for i := range 8 {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, requestWithPressure("6.6.6.6:1234", pressureNormal))
 		if response.Code != http.StatusNoContent {

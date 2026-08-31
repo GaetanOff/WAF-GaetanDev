@@ -88,7 +88,7 @@ func TestPenalizeRateLimitOncePerWindow(t *testing.T) {
 		t.Fatalf("Score after first penalty = %d, want 40", visitor.Score)
 	}
 	// Refus supplémentaires dans la même fenêtre : aucune pénalité de plus.
-	for i := 0; i < 15; i++ {
+	for range 15 {
 		if visitor := manager.PenalizeRateLimit("1.2.3.4", "example.test"); visitor.Score != 40 {
 			t.Fatalf("Score within window = %d, want 40 (single penalty per window)", visitor.Score)
 		}

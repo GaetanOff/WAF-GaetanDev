@@ -20,7 +20,7 @@ func TestLimiterReleasesAfterRequest(t *testing.T) {
 	}))
 
 	// Requêtes séquentielles : chacune libère le slot → toutes passent.
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, requestFrom("1.2.3.4"))
 		if response.Code != http.StatusNoContent {
@@ -40,11 +40,9 @@ func TestLimiterRejectsConcurrentOverLimit(t *testing.T) {
 	}))
 
 	var wg sync.WaitGroup
-	wg.Add(1)
-	go func() {
-		defer wg.Done()
+	wg.Go(func() {
 		handler.ServeHTTP(httptest.NewRecorder(), requestFrom("1.2.3.4"))
-	}()
+	})
 	<-entered // la 1re requête occupe le slot
 
 	// 2e requête concurrente même IP → rejetée (429).

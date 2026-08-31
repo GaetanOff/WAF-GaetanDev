@@ -192,7 +192,7 @@ func TestPressureThrottle429DoesNotFeedBreaker(t *testing.T) {
 	}))
 
 	// Bien au-delà du seuil de violations : le circuit ne doit jamais s'ouvrir.
-	for i := 0; i < DefaultViolationThreshold*3; i++ {
+	for i := range DefaultViolationThreshold * 3 {
 		response := httptest.NewRecorder()
 		handler.ServeHTTP(response, requestFrom("1.2.3.4:1234"))
 		if response.Code != http.StatusTooManyRequests {

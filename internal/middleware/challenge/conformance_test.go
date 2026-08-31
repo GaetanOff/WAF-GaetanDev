@@ -250,6 +250,11 @@ func TestConformanceVerifyRejectsMalformedBody(t *testing.T) {
 	}{
 		{name: "invalid json", body: "{not-json"},
 		{name: "unknown field", body: `{"token":"t","nonce":"1","elapsed_ms":1200,"surprise":true}`},
+		// encoding/json v1 acceptait ces deux corps : le membre dupliqué selon la
+		// règle « le dernier gagne » (différentiel de parseur avec l'origine), et
+		// l'UTF-8 invalide en le remplaçant par U+FFFD (valeur inspectée altérée).
+		{name: "duplicate member name", body: `{"token":"a","token":"t","nonce":"1","elapsed_ms":1200}`},
+		{name: "invalid utf-8", body: `{"token":"t` + string([]byte{0xed, 0xa0, 0x80}) + `","nonce":"1","elapsed_ms":1200}`},
 	}
 
 	for _, tt := range tests {

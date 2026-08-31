@@ -213,6 +213,12 @@ last-reviewed: 2026-06-03
 | 2026-06-19 | Slice 12.1 FR-39 under-attack | `go test -cover` (touched pkgs) | pass | antiddos 87.3%, challenge 87.1%, config 79.4%, metrics 85.2%, logger 71.0%, alert 82.9% (≥80% on the new business logic) |
 | 2026-06-19 | Slice 12.1 FR-39 under-attack | JSON schema validity (`jq empty`) | pass | config.schema.json + security-event.schema.json valid ; config.example.yaml conforms to schema (jsonschema) |
 | 2026-06-19 | Slice 12.1 FR-39 alert delivery | `go test ./...` | pass | Fix : alertes de transition envoyées en `Immediate` (bypass cooldown). Diagnostic prod (waf-out-10) : attaque en 2 vagues séparées d'un creux >30s → mode activé/levé/réactivé, mais le 2ᵉ `under_attack_start` était avalé par le cooldown 5m du Notifier (même clé trigger+domaine). Test : 3 events Immediate identiques → 3 livrés ; le cooldown dédup normal reste actif pour les autres triggers |
+| 2026-08-26 | Go 1.27 toolchain | `go build ./... && go vet ./... && go test ./...` | pass | `go.mod` → `go 1.27.0` (directive `toolchain` supprimée : redondante, go1.27.0 couvre GO-2026-5856). Dockerfile `golang:1.27-alpine`. CI inchangé (`go-version-file: go.mod`). `go mod tidy` ne bouge ni go.mod ni go.sum |
+| 2026-08-26 | stdlib `uuid` | `go test ./internal/logger/` | pass | Dépendance `github.com/google/uuid` supprimée (paquet `uuid` stdlib, Go 1.27). `uuid.NewV4()` explicite le contrat « UUID v4 » ; le test vérifie désormais version + variante RFC 9562 |
+| 2026-08-26 | FR-23 `max_header_value_count` | `go test ./internal/config/ ./internal/admin/` | pass | `http.Server.MaxHeaderValueCount` (Go 1.27), défaut 100, câblé sur les 4 serveurs HTTP. Test e2e piloté par la config, **vérifié en échec** après retrait du câblage (mutation) |
+| 2026-08-26 | FR-30 JSON strict | `go test ./internal/jsonstrict/ ./internal/middleware/challenge/` | pass | `encoding/json/v2` via `internal/jsonstrict` : noms de membre dupliqués et UTF-8 invalide rejetés sur `/waf/verify` + API admin. Casse insensible et `DisallowUnknownFields` préservés. Conformance étendue (2 cas) |
+| 2026-08-26 | `go fix` modernizers | `go vet ./... && go test ./...` | pass | `min()`, `slices.Contains`, `slices.Backward`, `strings.Cut`, `for range N` — 21 fichiers, mécanique, commit isolé |
+| 2026-08-26 | Race detector | `go test ./... -race` | **non exécuté localement** | `-race` exige CGO ; aucun compilateur C sur le poste Windows. Couvert par le job `test` du CI (ubuntu-latest) |
 
 ### Slice 12.1 — Notes & couverture du périmètre (FR-39)
 

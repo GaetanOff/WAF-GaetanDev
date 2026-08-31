@@ -2,6 +2,7 @@ package risk
 
 import (
 	"net"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -167,10 +168,8 @@ func (v *BotVerifier) verifyForwardConfirmed(ip string, bot string) bool {
 		if err != nil {
 			continue
 		}
-		for _, address := range addresses {
-			if address == ip {
-				return true
-			}
+		if slices.Contains(addresses, ip) {
+			return true
 		}
 	}
 	return false

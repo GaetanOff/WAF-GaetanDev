@@ -67,6 +67,9 @@ func NewServer(cfg config.Config, store storage.Store, scores *trust.ScoreManage
 		ReadTimeout:       30 * time.Second,
 		WriteTimeout:      30 * time.Second,
 		IdleTimeout:       60 * time.Second,
+		// Même borne FR-23 que le listener public : l'API admin est censée être
+		// sur loopback, mais la défense en profondeur ne coûte rien ici.
+		MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
 	}
 	return server, nil
 }

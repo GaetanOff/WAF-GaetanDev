@@ -47,6 +47,13 @@
           "type": "string",
           "default": "15s"
         },
+        "max_header_value_count": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000,
+          "default": 100,
+          "description": "FR-23 — nombre maximum de valeurs d'en-tête acceptées par requête (Server.MaxHeaderValueCount, Go 1.27+). Les valeurs séparées par des virgules sur une même ligne comptent pour 1 ; les lignes répétées comptent chacune. 0 = défaut Go (500)."
+        },
         "tls": {
           "type": "object",
           "additionalProperties": false,

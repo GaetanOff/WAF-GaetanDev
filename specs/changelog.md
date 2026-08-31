@@ -6,6 +6,50 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Changed
+
+- **Montée du projet vers Go 1.27** : `go.mod` passe de `go 1.26.0` +
+  `toolchain go1.26.5` à `go 1.27.0`. La directive `go` fait elle-même office de
+  plancher de toolchain : `toolchain go1.26.5` devenait redondant (et donc
+  susceptible de dériver), il est supprimé — go1.27.0 embarque le correctif
+  GO-2026-5856 (fuite ECH dans `crypto/tls`) qui motivait ce pin.
+  Propagation : image de build `golang:1.26-alpine` → `golang:1.27-alpine`
+  (Dockerfile), commentaire golangci-lint du workflow CI. Le CI résout déjà la
+  version via `go-version-file: go.mod` — aucun changement de workflow requis.
+  Docs alignées : `mission.md`, `requirements.md`, conséquences d'ADR-001
+  (le corps historique de l'ADR, `accepted`, reste inchangé).
+- **FR-23 — nouvelle borne `server.max_header_value_count`** (défaut **100**,
+  `0` = défaut Go 500) : câblée sur `http.Server.MaxHeaderValueCount`
+  (Go 1.27) pour le listener public, le serveur de challenge ACME, le
+  redirecteur HTTP→HTTPS et l'API admin. Complète `max_connections_per_ip` :
+  cette dernière borne le nombre de requêtes concurrentes, la nouvelle borne le
+  coût de parsing d'**une seule** requête portant des milliers de lignes
+  d'en-tête. Le rejet a lieu dans `net/http`, avant tout middleware.
+- **Dépendance `github.com/google/uuid` supprimée** au profit du paquet `uuid`
+  de la stdlib (nouveau en Go 1.27). Le contrat « UUID v4 » d'`architecture.md`
+  est désormais explicite dans le code (`uuid.NewV4()`) et vérifié par le test
+  (version + variante RFC 9562).
+- **FR-30 — parsing JSON durci sur les entrées non fiables** via
+  `encoding/json/v2` (nouveau en Go 1.27), encapsulé dans `internal/jsonstrict` :
+  - un **nom de membre dupliqué** est désormais rejeté (400). v1 appliquait
+    « le dernier gagne » : le WAF lisait `"b"` dans `{"k":"a","k":"b"}` là où une
+    origine appliquant « le premier gagne » lisait `"a"` — différentiel de
+    parseur, vecteur classique de contournement ;
+  - l'**UTF-8 invalide** est rejeté au lieu d'être remplacé par U+FFFD, qui
+    faisait diverger la valeur inspectée de la valeur reçue sur le fil.
+  - Appliqué à `POST /waf/verify` (public, non authentifié) et aux trois
+    endpoints à corps de l'API admin. `MatchCaseInsensitiveNames(true)` conserve
+    l'appariement v1 insensible à la casse et `RejectUnknownMembers(true)`
+    reproduit `DisallowUnknownFields` : le **seul** changement observable est le
+    rejet de JSON ambigu ou mal formé.
+  - **Hors périmètre, délibérément** : les payloads déjà authentifiés par HMAC
+    (cookie, nonce) — produits par le WAF lui-même ; le bus Redis inter-nœuds ;
+    et la réponse AbuseIPDB, qui n'utilise pas `DisallowUnknownFields` et doit
+    tolérer l'ajout de champs par le fournisseur.
+- **Modernisations `go fix`** débloquées par la directive `go 1.27` :
+  `min()`, `slices.Contains`, `slices.Backward`, `strings.Cut`, `for range N`.
+  Changements mécaniques et sans effet sémantique, isolés dans leur propre commit.
+
 ### Fixed
 
 - **FR-08/FR-05 (v2.1.0) — cascade de faux positifs sous pression** : pendant un

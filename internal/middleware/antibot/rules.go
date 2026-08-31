@@ -2,6 +2,7 @@ package antibot
 
 import (
 	"net/http"
+	"slices"
 	"strings"
 
 	"github.com/gaetandev/waf/internal/config"
@@ -32,10 +33,8 @@ func NewRules(cfg config.Config) Rules {
 
 func (r Rules) Evaluate(req *http.Request) Decision {
 	path := req.URL.Path
-	for _, honeypotPath := range r.honeypotPaths {
-		if path == honeypotPath {
-			return Decision{Delta: -100, Block: true, Reason: ReasonHoneypot}
-		}
+	if slices.Contains(r.honeypotPaths, path) {
+		return Decision{Delta: -100, Block: true, Reason: ReasonHoneypot}
 	}
 
 	userAgent := req.UserAgent()

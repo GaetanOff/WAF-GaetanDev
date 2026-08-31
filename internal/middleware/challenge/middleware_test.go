@@ -344,7 +344,7 @@ func submissionJSONWithRenderer(token string, nonce string, elapsedMS int, rende
 
 func solvePow(t *testing.T, token string, difficultyBits int) string {
 	t.Helper()
-	for nonce := uint64(0); nonce < 10_000_000; nonce++ {
+	for nonce := range uint64(10_000_000) {
 		nonceText := strconv.FormatUint(nonce, 10)
 		sum := sha256.Sum256([]byte(token + nonceText))
 		if hasLeadingZeroBits(sum[:], difficultyBits) {
@@ -361,7 +361,7 @@ func solvePow(t *testing.T, token string, difficultyBits int) string {
 // non déterministe), cela rendait le test "invalid PoW" flaky en CI (~0,4 %).
 func failPow(t *testing.T, token string, difficultyBits int) string {
 	t.Helper()
-	for nonce := uint64(0); nonce < 10_000_000; nonce++ {
+	for nonce := range uint64(10_000_000) {
 		nonceText := strconv.FormatUint(nonce, 10)
 		sum := sha256.Sum256([]byte(token + nonceText))
 		if !hasLeadingZeroBits(sum[:], difficultyBits) {

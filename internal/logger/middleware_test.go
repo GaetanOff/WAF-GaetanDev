@@ -8,13 +8,13 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"uuid"
 
 	"github.com/gaetandev/waf/internal/alert"
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/upstreamtime"
-	"github.com/google/uuid"
 )
 
 type recordingAlerter struct{ calls int }
@@ -50,8 +50,17 @@ func TestMiddlewareWritesSecurityEventJSONWithoutQueryString(t *testing.T) {
 	event := decodeEvent(t, output.String())
 	assertRequiredString(t, event, "timestamp")
 	assertRequiredString(t, event, "request_id")
-	if _, err := uuid.Parse(event["request_id"].(string)); err != nil {
+	parsed, err := uuid.Parse(event["request_id"].(string))
+	if err != nil {
 		t.Fatalf("request_id is not a UUID: %v", err)
+	}
+	// architecture.md documente request_id comme un UUID v4 : on verrouille la
+	// version (nibble haut de l'octet 6) et la variante RFC 9562 (octet 8).
+	if version := parsed[6] >> 4; version != 4 {
+		t.Fatalf("request_id UUID version = %d, want 4", version)
+	}
+	if variant := parsed[8] >> 6; variant != 0b10 {
+		t.Fatalf("request_id UUID variant = %#b, want 0b10 (RFC 9562)", variant)
 	}
 	if event["path"] != "/search" {
 		t.Fatalf("path = %q, want /search", event["path"])

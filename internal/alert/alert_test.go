@@ -80,21 +80,21 @@ func TestDiscordEmbedIsRich(t *testing.T) {
 }
 
 func TestCooldownDeduplicates(t *testing.T) {
-	var count int32
+	var count atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		atomic.AddInt32(&count, 1)
+		count.Add(1)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
 	n := NewNotifier([]Sink{{Type: SinkGeneric, URL: server.URL}}, time.Hour, 0, server.Client())
 	defer n.Close()
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		n.Notify(Event{Trigger: "block", Domain: "example.com", Reason: "blocked"})
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	if c := atomic.LoadInt32(&count); c != 1 {
+	if c := count.Load(); c != 1 {
 		t.Fatalf("delivered %d times, want 1 (cooldown dedup)", c)
 	}
 }
@@ -103,29 +103,29 @@ func TestCooldownDeduplicates(t *testing.T) {
 // transition identique a eu lieu dans le cooldown : sinon une réactivation
 // rapprochée du mode sous attaque (FR-39) passerait silencieuse.
 func TestImmediateBypassesCooldown(t *testing.T) {
-	var count int32
+	var count atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		atomic.AddInt32(&count, 1)
+		count.Add(1)
 		w.WriteHeader(http.StatusOK)
 	}))
 	defer server.Close()
 
 	n := NewNotifier([]Sink{{Type: SinkGeneric, URL: server.URL}}, time.Hour, 0, server.Client())
 	defer n.Close()
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		n.Notify(Event{Trigger: "under_attack_start", Domain: "status.gaetandev.fr", Immediate: true})
 	}
 	time.Sleep(100 * time.Millisecond)
 
-	if c := atomic.LoadInt32(&count); c != 3 {
+	if c := count.Load(); c != 3 {
 		t.Fatalf("delivered %d times, want 3 (les transitions Immediate ignorent le cooldown)", c)
 	}
 }
 
 func TestRetryOnFailureThenSuccess(t *testing.T) {
-	var attempts int32
+	var attempts atomic.Int32
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		if atomic.AddInt32(&attempts, 1) < 2 {
+		if attempts.Add(1) < 2 {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
@@ -138,7 +138,7 @@ func TestRetryOnFailureThenSuccess(t *testing.T) {
 	n.Notify(Event{Trigger: "block", Domain: "example.com", Reason: "blocked"})
 	time.Sleep(500 * time.Millisecond)
 
-	if a := atomic.LoadInt32(&attempts); a < 2 {
+	if a := attempts.Load(); a < 2 {
 		t.Fatalf("attempts = %d, want >= 2 (retry)", a)
 	}
 }

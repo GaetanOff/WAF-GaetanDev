@@ -24,7 +24,7 @@ func TestRecordAndList(t *testing.T) {
 
 func TestFIFORotation(t *testing.T) {
 	trail, _ := NewTrail(3, "")
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		trail.Record("action", "target", "ok")
 	}
 	if got := len(trail.List()); got != 3 {

@@ -44,7 +44,7 @@ func TestHasLeadingZeroBitsSupportsPartialBytes(t *testing.T) {
 func solvePowForTest(t *testing.T, token string, difficultyBits int) (string, string) {
 	t.Helper()
 
-	for nonce := uint64(0); nonce < 10_000_000; nonce++ {
+	for nonce := range uint64(10_000_000) {
 		nonceText := strconv.FormatUint(nonce, 10)
 		hash := sha256.Sum256([]byte(token + nonceText))
 		if hasLeadingZeroBits(hash[:], difficultyBits) {

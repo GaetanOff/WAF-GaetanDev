@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gaetandev/waf/internal/jsonstrict"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -91,9 +92,7 @@ func (s *Server) gdprErase(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		IP string `json:"ip"`
 	}
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil || payload.IP == "" {
+	if err := jsonstrict.Decode(r.Body, &payload); err != nil || payload.IP == "" {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_request", Message: "ip is required"})
 		return
 	}
@@ -184,9 +183,7 @@ func (s *Server) getConfig(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request) {
 	var payload map[string]any
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&payload); err != nil {
+	if err := jsonstrict.Decode(r.Body, &payload); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_config_update", Message: "Invalid JSON body"})
 		return
 	}
@@ -243,9 +240,7 @@ func (s *Server) deleteBlacklist(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) addIPEntry(w http.ResponseWriter, r *http.Request, whitelist bool) {
 	var entry IPEntry
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&entry); err != nil {
+	if err := jsonstrict.Decode(r.Body, &entry); err != nil {
 		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_ip_entry", Message: "Invalid JSON body"})
 		return
 	}
@@ -368,18 +363,12 @@ func sortVisitors(visitors []VisitorInfo, sortBy string) {
 func paged[T any](items []T, r *http.Request) listResponse[T] {
 	total := len(items)
 	page := queryInt(r, "page", 1)
-	limit := queryInt(r, "limit", 50)
-	if limit > 1000 {
-		limit = 1000
-	}
+	limit := min(queryInt(r, "limit", 50), 1000)
 	start := (page - 1) * limit
 	if start >= total {
 		return listResponse[T]{Items: []T{}, Total: total}
 	}
-	end := start + limit
-	if end > total {
-		end = total
-	}
+	end := min(start+limit, total)
 	return listResponse[T]{Items: items[start:end], Total: total}
 }
 

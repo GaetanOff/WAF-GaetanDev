@@ -43,7 +43,7 @@ func TestPathGuardLimitsTargetPath(t *testing.T) {
 	}))
 
 	statuses := make([]int, 0, 3)
-	for i := 0; i < 3; i++ {
+	for range 3 {
 		req := httptest.NewRequest(http.MethodPost, "http://x/waf/verify", nil)
 		req.RemoteAddr = "1.2.3.4:1234"
 		rr := httptest.NewRecorder()
@@ -64,7 +64,7 @@ func TestPathGuardIgnoresOtherPaths(t *testing.T) {
 	handler := guard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
-	for i := 0; i < 5; i++ {
+	for range 5 {
 		req := httptest.NewRequest(http.MethodGet, "http://x/other", nil)
 		req.RemoteAddr = "1.2.3.4:1234"
 		rr := httptest.NewRecorder()
