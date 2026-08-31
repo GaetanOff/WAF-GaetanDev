@@ -219,6 +219,10 @@ last-reviewed: 2026-06-03
 | 2026-08-26 | FR-30 JSON strict | `go test ./internal/jsonstrict/ ./internal/middleware/challenge/` | pass | `encoding/json/v2` via `internal/jsonstrict` : noms de membre dupliqués et UTF-8 invalide rejetés sur `/waf/verify` + API admin. Casse insensible et `DisallowUnknownFields` préservés. Conformance étendue (2 cas) |
 | 2026-08-26 | `go fix` modernizers | `go vet ./... && go test ./...` | pass | `min()`, `slices.Contains`, `slices.Backward`, `strings.Cut`, `for range N` — 21 fichiers, mécanique, commit isolé |
 | 2026-08-26 | Race detector | `go test ./... -race` | **non exécuté localement** | `-race` exige CGO ; aucun compilateur C sur le poste Windows. Couvert par le job `test` du CI (ubuntu-latest) |
+| 2026-08-31 | FR-06 `domains[].challenge_enabled` | `go build ./... && go vet ./... && go test ./...` | pass | 413 tests, 41 paquets. Champ passé en `*bool` (trois états) ; gate par hôte dans `internal/middleware/challenge/domain.go` ; montage de la chaîne via `challenge.Enabled(cfg)` |
+| 2026-08-31 | FR-06 mutation check | `go test ./cmd/waf/ -run TestRoutesAppliesPerDomainChallengeOverride` | pass | **Vérifié en échec** : condition de montage remise à `cfg.Challenge.Enabled` → `boxaria.fr` ne reçoit plus le challenge (204 au lieu de la page) |
+| 2026-08-31 | FR-06 mutation check | `go test ./internal/middleware/challenge/` | pass | **Vérifié en échec** : gate `enabledFor` neutralisé → `TestMiddlewareSkipsChallengeOnDisabledDomain` et `TestMiddlewareDisabledDomainWinsOverUnderAttack` échouent |
+| 2026-08-31 | FR-06 lint | `golangci-lint run ./...` | **non exécuté localement** | Binaire absent du poste ; couvert par le job `lint` du CI |
 
 ### Slice 12.1 — Notes & couverture du périmètre (FR-39)
 
@@ -227,6 +231,12 @@ last-reviewed: 2026-06-03
 - **Réglage requis** : le déclenchement dépend de `global_requests_per_second`. Sur petite infra, l'abaisser à la capacité réelle de l'upstream (ex. ~150) pour qu'un flood de quelques centaines de req/s atteigne `high`.
 - **Hors première tranche** (suivi) : traitement actif des clients non-navigateurs sans clearance sous attaque (cap `THROTTLE`/`TARPIT` au lieu d'un simple laissez-passer) ; sous-mode « siège » strict ; alerte de sortie sur éviction LRU d'un scope encore actif (cas rare, métrique réinitialisée à la requête suivante).
 - **Conformité ADR-016** : le mode ne produit aucun blocage dur à lui seul — la seule action forcée est un `CHALLENGE` réversible.
+
+### FR-06 — `domains[].challenge_enabled` : périmètre du correctif
+
+- **Corrigé** : la clé était documentée et désérialisée mais **jamais lue** — le challenge JS suivait uniquement `challenge.enabled`. Elle devient une surcharge à trois états (`nil` hérite du global, `false` désactive y compris sous FR-39, `true` force malgré un global éteint), résolue par hôte avec les règles de routage `domains[]` (casse, port, wildcard couvrant l'apex, première correspondance).
+- **Pourquoi `*bool`** : avec un `bool` nu, le zéro-valeur aurait désactivé le challenge sur toute entrée `domains[]` déclarée pour son seul `upstream` ou son certificat TLS — un fail-open silencieux sur une protection de sécurité.
+- **Hors périmètre, délibérément** : `protected_paths`, `public_paths`, `rate_limit_override` et `trust_override` restent **non câblés** (documenté comme tel dans CONFIG.md). Ils sont acceptés par le schéma et sans effet ; leur implémentation demande ses propres specs et gates.
 
 ## Security Scan Triage (Semgrep OSS)
 

@@ -793,6 +793,7 @@
         },
         "challenge_enabled": {
           "type": "boolean",
+          "description": "Surcharge de challenge.enabled pour ce domaine. Clé absente = hérite du global. false = jamais de challenge JS sur ce domaine, y compris en mode sous attaque (FR-39). true = challenge servi même si challenge.enabled est false.",
           "default": true
         },
         "rate_limit_override": {

@@ -1,9 +1,9 @@
 ---
 status: approved
-version: 2.1.0
-last-reviewed: 2026-07-18
+version: 2.2.0
+last-reviewed: 2026-08-31
 reviewed-by: GaetanDev
-change: "FR-08 : le throttle de pression réduit le débit sans rogner le burst, et ses 429 ne nourrissent ni le circuit breaker ni la pénalité de score ; FR-05 : pénalité rate-limit au plus une fois par fenêtre (anti-cascade sous-requêtes)"
+change: "FR-06 : `domains[].challenge_enabled` devient une surcharge à trois états (absent = hérite du global, false = jamais de challenge même sous attaque, true = force le challenge)"
 ---
 
 # Requirements — WAF Anti-DDoS / Anti-Bot
@@ -65,6 +65,12 @@ change: "FR-08 : le throttle de pression réduit le débit sans rogner le burst,
 - Le WAF DOIT rejeter les challenges soumis après expiration (TTL: 30 s)
 - Le WAF NE DOIT servir le challenge JS que pour une **navigation de navigateur** (méthode `GET`/`HEAD` avec `Accept` contenant `text/html`). Les appels API/XHR (`fetch`, `axios`, clients mobiles…) ne peuvent pas exécuter le JS : ils contournent le challenge (et restent couverts par le rate-limit, le moteur de risque, etc.) au lieu d'être cassés par une page HTML
 - La page de challenge et les réponses de `/waf/verify` (succès comme erreur) DOIVENT être non-cacheables (`Cache-Control: no-store`, `Pragma: no-cache`, `Expires: 0`) : le token est court et lié à l'IP, un cache CDN figerait un token expiré pour tous les visiteurs → boucle de challenge infinie
+- Le challenge JS DOIT être activable/désactivable **par domaine** via `domains[].challenge_enabled`, qui surcharge le `challenge.enabled` global :
+  - clé **absente** → le domaine hérite de `challenge.enabled` (défaut : activé). Un domaine listé uniquement pour son `upstream` ou son certificat NE DOIT PAS perdre le challenge par effet de bord
+  - `false` → aucune page de challenge n'est servie sur ce domaine, **y compris en mode « sous attaque » (FR-39)** : c'est une déclaration explicite de l'opérateur (typiquement une API dont les clients ne peuvent pas exécuter de JS). Le domaine reste couvert par le reste de la chaîne (blacklist, rate-limit, anti-bot, moteur de risque)
+  - `true` → le challenge est servi sur ce domaine même si `challenge.enabled` est `false` globalement
+  - La correspondance d'hôte DOIT suivre les mêmes règles que le routage `domains[]` : insensible à la casse, port ignoré, correspondance exacte ou wildcard `*.example.com` (qui couvre aussi l'apex `example.com`), **première entrée correspondante gagne**
+  - `POST /waf/verify` reste servi par le WAF sur tous les domaines (chemin réservé `/waf/`), quel que soit `challenge_enabled` : un token est lié à l'hôte qui l'a émis
 
 ### FR-07 — Anti-Bot
 - Le WAF DOIT analyser les headers HTTP pour détecter les bots (User-Agent vide, bot connus, headless browsers)

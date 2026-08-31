@@ -948,11 +948,17 @@ domains:
 
 Surcharge les paramètres globaux pour un domaine spécifique. Les entrées sont évaluées dans l'ordre ; la première correspondance gagne. Supporte les wildcards (`*.example.com`).
 
+La correspondance d'hôte est insensible à la casse et ignore le port : `Host: API.Example.com:8443` correspond à `api.example.com`. Un wildcard `*.example.com` couvre aussi l'apex `example.com`.
+
+> **Implémenté à ce jour** : `host`, `upstream`, `challenge_enabled`, `tls`.
+> `protected_paths`, `public_paths`, `rate_limit_override` et `trust_override`
+> sont acceptés par le schéma mais **pas encore câblés** — ils n'ont aucun effet.
+
 | Clé | Type | Description |
 |---|---|---|
 | `host` | string | Nom de domaine à matcher (exact ou wildcard `*.`). |
 | `upstream` | string | URL de l'upstream pour ce domaine (surcharge `upstream.address`). |
-| `challenge_enabled` | bool | Active ou désactive le challenge JS pour ce domaine. |
+| `challenge_enabled` | bool | Surcharge `challenge.enabled` pour ce domaine. **Clé absente = hérite du global** (un domaine déclaré pour son seul `upstream` ou son certificat ne perd pas le challenge). `false` = jamais de challenge JS sur ce domaine, **y compris en mode sous attaque** ([FR-39](#antiddosunder_attack--mode--sous-attaque--fr-39-adr-018)). `true` = challenge servi même si `challenge.enabled` est `false` globalement. |
 | `protected_paths` | liste | Préfixes de chemins qui déclenchent **toujours** le challenge, quelle que soit la valeur du score (utile pour `/api/`, `/admin/`). |
 | `public_paths` | liste | Préfixes de chemins qui ne déclenchent **jamais** le challenge (assets, robots.txt, etc.). |
 | `rate_limit_override.requests_per_second` | float | Limite de débit spécifique à ce domaine (remplace la valeur globale). |

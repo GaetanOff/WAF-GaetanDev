@@ -44,6 +44,54 @@ Feature: Challenge JavaScript
     And la requête est transmise (couverte par rate-limit + moteur de risque)
     # fetch/axios/mobile ne peuvent pas exécuter le JS : les challenger les casse.
 
+  Scenario: Domaine avec challenge_enabled = false — aucun challenge servi
+    Given le WAF est configuré avec challenge.enabled = true
+    And le domaine "api.example.com" est configuré avec challenge_enabled = false
+    And un visiteur sans cookie sous le seuil de confiance
+    When il envoie une requête GET "https://api.example.com/page" avec Accept "text/html"
+    Then le WAF ne sert PAS la page de challenge
+    And la requête est transmise à l'upstream
+    # Le domaine reste couvert par blacklist, rate-limit, anti-bot et moteur de risque.
+
+  Scenario: Domaine sans clé challenge_enabled — hérite du global
+    Given le WAF est configuré avec challenge.enabled = true
+    And le domaine "shop.example.com" est configuré sans clé challenge_enabled
+    And un visiteur sans cookie sous le seuil de confiance
+    When il envoie une requête GET "https://shop.example.com/page" avec Accept "text/html"
+    Then le WAF sert la page de challenge
+    # Une entrée domains[] déclarée pour son seul upstream (ou son certificat TLS)
+    # ne doit pas désactiver le challenge par effet de bord du zéro-valeur booléen.
+
+  Scenario: Domaine avec challenge_enabled = true et challenge global désactivé
+    Given le WAF est configuré avec challenge.enabled = false
+    And le domaine "boutique.example.com" est configuré avec challenge_enabled = true
+    And un visiteur sans cookie sous le seuil de confiance
+    When il envoie une requête GET "https://boutique.example.com/page" avec Accept "text/html"
+    Then le WAF sert la page de challenge
+
+  Scenario: Correspondance d'hôte — casse, port et wildcard
+    Given le domaine "*.example.com" est configuré avec challenge_enabled = false
+    And un visiteur sans cookie sous le seuil de confiance
+    When il envoie une requête GET avec l'en-tête Host "API.Example.com:8443" et Accept "text/html"
+    Then le WAF ne sert PAS la page de challenge
+    # Correspondance insensible à la casse, port ignoré ; "*.example.com" couvre
+    # aussi l'apex "example.com". Première entrée domains[] correspondante gagne.
+
+  Scenario: Mode sous attaque — challenge_enabled = false reste respecté
+    Given le mode « sous attaque » (FR-39) est actif sur le domaine "api.example.com"
+    And le domaine "api.example.com" est configuré avec challenge_enabled = false
+    When un visiteur sans cookie envoie une requête GET "/page" avec Accept "text/html"
+    Then le WAF ne sert PAS la page de challenge
+    # challenge_enabled = false est une décision explicite de l'opérateur : elle
+    # prime sur l'escalade automatique, qui casserait des clients incapables de JS.
+
+  Scenario: POST /waf/verify reste servi sur un domaine sans challenge
+    Given le domaine "api.example.com" est configuré avec challenge_enabled = false
+    When un client envoie POST "https://api.example.com/waf/verify" avec un corps invalide
+    Then le WAF retourne HTTP 400 avec {"error": "invalid_submission"}
+    And la requête n'est PAS transmise à l'upstream
+    # "/waf/" est un préfixe réservé au WAF sur tous les domaines.
+
   Scenario: Challenge JS réussi — cookie émis et redirect
     Given un visiteur a reçu la page de challenge avec un token valide
     When le JavaScript exécute le proof-of-work (elapsed_ms = 1200)

@@ -448,7 +448,10 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	if cfg.RateLimit.Enabled {
 		proxyHandler = rateLimiter.Handler(proxyHandler)
 	}
-	if cfg.Challenge.Enabled {
+	// FR-06 : monté dès qu'au moins un hôte peut être challengé — soit
+	// challenge.enabled, soit un domains[].challenge_enabled à true. La décision
+	// par requête est prise dans le middleware, qui connaît l'hôte.
+	if challenge.Enabled(cfg) {
 		proxyHandler = challengeMiddleware.Handler(proxyHandler)
 	}
 	proxyHandler = antiDDoS.Handler(proxyHandler)

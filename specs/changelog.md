@@ -52,6 +52,26 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Fixed
 
+- **FR-06 — `domains[].challenge_enabled` n'avait aucun effet** : la clé était
+  documentée (CONFIG.md, `config.schema.json`) et désérialisée dans
+  `config.DomainConfig`, mais **jamais lue**. Le challenge JS était monté et servi
+  uniquement selon le `challenge.enabled` global : un domaine déclarant
+  `challenge_enabled: false` recevait quand même la page de challenge, et un
+  domaine déclarant `challenge_enabled: true` restait sans challenge si le global
+  était à `false`.
+  Le champ devient un **`*bool` à trois états** — absent = hérite du global,
+  `false` = jamais de challenge sur ce domaine (y compris sous le mode « sous
+  attaque » FR-39, décision explicite de l'opérateur qui prime sur l'escalade
+  automatique), `true` = force le challenge même si le global est à `false`.
+  Le `*bool` est indispensable : avec un `bool`, le zéro-valeur aurait désactivé
+  le challenge sur toute entrée `domains[]` déclarée pour son seul `upstream` ou
+  son certificat TLS — un fail-open silencieux.
+  La résolution d'hôte réutilise les règles de routage `domains[]` (casse ignorée,
+  port retiré, wildcard `*.example.com` couvrant l'apex, première correspondance
+  gagnante). Le middleware est désormais monté dès qu'**au moins un** domaine
+  active le challenge, même quand `challenge.enabled` est `false`.
+  `POST /waf/verify` reste servi par le WAF sur tous les domaines : `/waf/` est un
+  préfixe réservé, et un token est de toute façon lié à l'hôte émetteur.
 - **FR-08/FR-05 (v2.1.0) — cascade de faux positifs sous pression** : pendant un
   DDoS, un visiteur légitime était tué en un clic. Le throttle de pression
   divisait aussi la **capacité de burst** (÷4 en critical) : un chargement de

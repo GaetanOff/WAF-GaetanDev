@@ -332,6 +332,10 @@ honeypot_paths:
   - "/c99.php"
 
 # Configuration par domaine (surcharge les valeurs globales)
+# La clé challenge_enabled est une surcharge à trois états de challenge.enabled :
+#   absente -> le domaine hérite du réglage global (aucune régression par défaut)
+#   false   -> jamais de challenge JS sur ce domaine, même en mode sous attaque
+#   true    -> challenge servi même si challenge.enabled vaut false globalement
 domains:
   - host: "example.com"
     upstream: "http://10.0.0.1:80"
@@ -360,9 +364,9 @@ domains:
     trust_override:
       block_threshold: 20      # Plus agressif sur l'API
 
+  # Pas de clé challenge_enabled : ce domaine hérite de challenge.enabled.
   - host: "*.example.com"
     upstream: "http://10.0.0.3:80"
-    challenge_enabled: true
 
 # Logging
 logging:
