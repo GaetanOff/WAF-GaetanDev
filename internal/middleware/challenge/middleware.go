@@ -24,6 +24,7 @@ type Middleware struct {
 	cookieIssuer CookieIssuer
 	scores       *trust.ScoreManager
 	template     *template.Template
+	domains      domainGate
 	cookieTTL    time.Duration
 	difficulty   int
 	difficultyFn func() int
@@ -94,6 +95,7 @@ func NewMiddleware(cfg config.Config, scores *trust.ScoreManager, templatePath s
 		cookieIssuer: NewCookieIssuer(cfg.Challenge.CookieName, cfg.Challenge.SecretKey),
 		scores:       scores,
 		template:     pageTemplate,
+		domains:      newDomainGate(cfg),
 		cookieTTL:    cookieTTL,
 		difficulty:   cfg.Challenge.PowDifficulty,
 		minElapsedMS: cfg.Challenge.MinElapsedMS,
@@ -115,6 +117,7 @@ func NewMiddlewareFromTemplate(cfg config.Config, scores *trust.ScoreManager, pa
 		cookieIssuer: NewCookieIssuer(cfg.Challenge.CookieName, cfg.Challenge.SecretKey),
 		scores:       scores,
 		template:     pageTemplate,
+		domains:      newDomainGate(cfg),
 		cookieTTL:    cookieTTL,
 		difficulty:   cfg.Challenge.PowDifficulty,
 		minElapsedMS: cfg.Challenge.MinElapsedMS,
@@ -126,6 +129,13 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == verifyPath {
 			m.verify(w, r)
+			return
+		}
+		// Surcharge par domaine (FR-06) : évaluée avant toute autre décision, y
+		// compris le mode « sous attaque ». /waf/verify reste servi au-dessus :
+		// "/waf/" est un préfixe réservé au WAF sur tous les domaines.
+		if !m.domains.enabledFor(r.Host) {
+			next.ServeHTTP(w, r)
 			return
 		}
 		if r.Header.Get("X-WAF-Action") == "PASS" {

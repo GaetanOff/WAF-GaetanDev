@@ -615,3 +615,19 @@ last-updated: 2026-06-09
 - **Validation 2026-06-19** : `go test ./...`, `go vet ./...`, `go build ./...`, `gofmt -l`, `go test -race` (antiddos/challenge) passent ; couverture antiddos 87.3% / challenge 87.1% ; schemas JSON valides ; config.example.yaml conforme. Detail dans validation.md.
 - **Statut** : implemente.
 - **Spec** : requirements-detection.md FR-39 ; features/anti-ddos.feature ; ADR-018 ; schemas/config.schema.json ; schemas/security-event.schema.json
+
+## Sprint 13 - Correctifs de conformite config (Phase 13)
+
+### T13.1 - `domains[].challenge_enabled` sans effet (FR-06)
+- [x] Constat : la cle etait documentee (CONFIG.md, `config.schema.json`) et deserialisee dans `config.DomainConfig`, mais **jamais lue** — le challenge JS ne suivait que le `challenge.enabled` global
+- [x] Passer `DomainConfig.ChallengeEnabled` de `bool` a `*bool` : distinguer « cle absente » (herite du global) de « false explicite ». Avec un `bool` nu, le zero-valeur desactivait le challenge sur toute entree `domains[]` declaree pour son seul upstream ou son certificat TLS (fail-open silencieux)
+- [x] `internal/middleware/challenge/domain.go` : `domainGate` resout la decision par hote avec les regles de routage `domains[]` (casse ignoree, port retire, wildcard `*.example.com` couvrant l'apex, premiere correspondance gagnante)
+- [x] Cabler le gate dans `Middleware.Handler`, **avant** la lecture de `X-WAF-Under-Attack-Enforce` : un `false` explicite prime sur l'escalade automatique FR-39, qui casserait des clients incapables d'executer du JS
+- [x] `POST /waf/verify` reste servi sur tous les domaines (prefixe `/waf/` reserve, token lie a l'hote emetteur)
+- [x] `challenge.Enabled(cfg)` remplace `cfg.Challenge.Enabled` comme condition de montage dans `cmd/waf/main.go` : la chaine monte le middleware des qu'au moins un domaine active le challenge
+- [x] Tests : table du gate (11 cas : heritage, false/true explicites, hote non liste, casse+port, wildcard sous-domaine et apex, premiere correspondance, IPv6), montage (`Enabled`), 4 cas middleware (domaine desactive, domaine sans cle, sous-attaque, `/waf/verify`), tri-etat YAML, e2e `routes()`. Gate et condition de montage **verifies en echec** par mutation
+- [ ] `protected_paths`, `public_paths`, `rate_limit_override`, `trust_override` — **toujours non cables**, hors perimetre ; documente comme tel dans CONFIG.md
+- **Acceptance** : `challenge_enabled: false` sur un domaine supprime toute page de challenge sur cet hote (y compris sous attaque) ; `true` la sert meme avec `challenge.enabled: false` global ; une entree `domains[]` sans la cle conserve le comportement global.
+- **Validation 2026-08-31** : `go build ./...`, `go vet ./...`, `go test ./...` (413 tests, 41 paquets), `gofmt -l` passent ; schema JSON valide ; `config.example.yaml` conforme. Detail dans validation.md.
+- **Statut** : implemente.
+- **Spec** : requirements.md FR-06 (v2.2.0) ; features/js-challenge.feature ; schemas/config.schema.json

@@ -358,9 +358,13 @@ type Challenge struct {
 }
 
 type DomainConfig struct {
-	Host              string             `yaml:"host"`
-	Upstream          string             `yaml:"upstream"`
-	ChallengeEnabled  bool               `yaml:"challenge_enabled"`
+	Host     string `yaml:"host"`
+	Upstream string `yaml:"upstream"`
+	// ChallengeEnabled surcharge Challenge.Enabled pour ce domaine (FR-06). Le
+	// pointeur distingue « clé absente » (nil → hérite du global) de la valeur
+	// explicite false : avec un bool nu, toute entrée domains[] déclarée pour son
+	// seul upstream ou son certificat TLS aurait désactivé le challenge en silence.
+	ChallengeEnabled  *bool              `yaml:"challenge_enabled"`
 	RateLimitOverride *RateLimitOverride `yaml:"rate_limit_override"`
 	TrustOverride     *TrustOverride     `yaml:"trust_override"`
 	ProtectedPaths    []string           `yaml:"protected_paths"`

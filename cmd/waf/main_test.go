@@ -142,6 +142,51 @@ func TestRoutesAppliesGlobalPressureBeforeChallengeWithout503(t *testing.T) {
 	}
 }
 
+// FR-06 : la chaîne monte le challenge dès qu'un domaine l'active, et la
+// décision par requête suit l'hôte — pas le seul réglage global.
+func TestRoutesAppliesPerDomainChallengeOverride(t *testing.T) {
+	challengeOff, challengeOn := false, true
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.Challenge.Enabled = false // global éteint : seul le domaine l'active
+	cfg.Domains = []config.DomainConfig{
+		{Host: "boxaria.fr", Upstream: "http://10.0.0.1:80", ChallengeEnabled: &challengeOn},
+		{Host: "api.boxaria.fr", Upstream: "http://10.0.0.2:80", ChallengeEnabled: &challengeOff},
+	}
+
+	tests := []struct {
+		host          string
+		wantChallenge bool
+	}{
+		{host: "boxaria.fr", wantChallenge: true},
+		{host: "api.boxaria.fr", wantChallenge: false},
+		{host: "autre.test", wantChallenge: false}, // hôte non listé : global éteint
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.host, func(t *testing.T) {
+			proxied := false
+			handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				proxied = true
+				w.WriteHeader(http.StatusNoContent)
+			}))
+
+			request := requestFrom("198.51.100.10:443")
+			request.Host = tt.host
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+
+			served := response.Header().Get("Content-Type") == "text/html; charset=utf-8"
+			if served != tt.wantChallenge {
+				t.Fatalf("challenge served = %v, want %v (status %d)", served, tt.wantChallenge, response.Code)
+			}
+			if proxied == tt.wantChallenge {
+				t.Fatalf("proxied = %v, want %v", proxied, !tt.wantChallenge)
+			}
+		})
+	}
+}
+
 func TestRoutesExposesPrometheusMetricsEndpoint(t *testing.T) {
 	cfg := config.Default()
 	cfg.Cloudflare.Trusted = false

@@ -406,3 +406,44 @@ func TestValidateServerTLS(t *testing.T) {
 		})
 	}
 }
+
+// FR-06 : domains[].challenge_enabled est une surcharge à trois états. Le YAML
+// doit distinguer « clé absente » (nil) de « false explicite ».
+func TestLoadDomainChallengeEnabledTriState(t *testing.T) {
+	t.Setenv(envChallengeSecretKey, testSecret)
+	t.Setenv(envAdminToken, testSecret)
+
+	path := writeConfig(t, `
+version: "1.0"
+server:
+  listen: ":8080"
+upstream:
+  address: "http://example.test"
+domains:
+  - host: "shop.example.com"
+    upstream: "http://10.0.0.1:80"
+  - host: "api.example.com"
+    upstream: "http://10.0.0.2:8000"
+    challenge_enabled: false
+  - host: "boutique.example.com"
+    upstream: "http://10.0.0.3:80"
+    challenge_enabled: true
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if len(cfg.Domains) != 3 {
+		t.Fatalf("len(domains) = %d, want 3", len(cfg.Domains))
+	}
+	if cfg.Domains[0].ChallengeEnabled != nil {
+		t.Fatalf("missing challenge_enabled must stay nil, got %v", *cfg.Domains[0].ChallengeEnabled)
+	}
+	if cfg.Domains[1].ChallengeEnabled == nil || *cfg.Domains[1].ChallengeEnabled {
+		t.Fatalf("challenge_enabled: false must decode to an explicit false")
+	}
+	if cfg.Domains[2].ChallengeEnabled == nil || !*cfg.Domains[2].ChallengeEnabled {
+		t.Fatalf("challenge_enabled: true must decode to an explicit true")
+	}
+}
