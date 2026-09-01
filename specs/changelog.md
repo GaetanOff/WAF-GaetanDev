@@ -8,6 +8,32 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- **`architecture.md` (1.1.0 → 1.2.0) — remise à niveau sur le code réel.** Le
+  `Request Processing Pipeline` décrivait 10 étapes de la v1 (`CF-IP → Whitelist →
+  Blacklist → RateLimit → BotDetect → TrustScore → Challenge → Proxy → Logger`).
+  Y manquaient `ingress`, `secheaders`, `maintenance`, `slowloris`,
+  `staticassets`, `selfprotect`, `metrics`, `access`, les sept détecteurs de
+  signal, le moteur de risque, `origin` et le tarpit — soit la moitié de la
+  chaîne, dont l'intégralité de ce qui a été livré depuis la phase 8.
+  - Les 21 étapes sont désormais listées **dans leur ordre d'exécution**, chacune
+    avec **la clé de configuration qui la monte** : une étape non montée est
+    absente de la chaîne, elle ne se contente pas de ne rien faire. C'est
+    précisément ce que l'ancien diagramme ne permettait pas de voir.
+  - Le document dit maintenant que `/waf/health`, `/waf/metrics` et
+    `/waf/origin/verify` sont servis par le `mux` **sans traverser** les étapes
+    [6] à [20] — un fait structurant qui n'apparaissait nulle part.
+  - Sorties anticipées documentées (403, 429, 503, 400, page de challenge) et
+    chemin de remontée de la réponse.
+  - Renvois vers ADR-019 (les `CF-*` autres que `CF-Connecting-IP` ne sont pas
+    validés) et ADR-020 (repli du routage par `Host`) posés aux deux étapes
+    concernées, pour que le lecteur du diagramme voie les limites.
+  - `C4 niveau 2` réécrit (bordures alignées, trois chemins `/waf/*` visibles),
+    `C4 niveau 3` passé de 15 à **42 paquets** groupés par rôle, `Go Project
+    Structure` corrigé — il annonçait un `middleware/chain.go` qui n'existe pas et
+    un `configs/config.schema.json` qui vit en réalité dans `specs/schemas/`.
+  - Index des ADR complété : il s'arrêtait à ADR-004, il couvre les 20, avec le
+    statut affiché pour ceux qui ne sont pas `accepted`.
+
 - **Montée du projet vers Go 1.27** : `go.mod` passe de `go 1.26.0` +
   `toolchain go1.26.5` à `go 1.27.0`. La directive `go` fait elle-même office de
   plancher de toolchain : `toolchain go1.26.5` devenait redondant (et donc

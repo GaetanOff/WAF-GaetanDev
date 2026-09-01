@@ -241,6 +241,10 @@ last-reviewed: 2026-06-03
 | 2026-09-01 | FR-17 mutation check | `go test ./internal/rules/ -run TestRuleIPCondition` | pass | **Vérifié en échec** : précédence `X-Real-IP` rétablie → les cas `evasion_par_x-real-ip` et `usurpation_par_x-real-ip` échouent tous les deux |
 | 2026-09-01 | FR-17 couverture | `go test ./internal/rules/ -cover` | pass | 51,3% sur le paquet `rules` — **sous la cible de 80%**, mais pré-existant et non aggravé : le correctif **retire** 4 lignes et ajoute 6 cas de test. Remonter la couverture du moteur de règles demande sa propre passe |
 | 2026-09-01 | ADR-019 / ADR-020 | — | **non implémentés, par décision** | Leurs options rejettent du trafic aujourd'hui accepté (health checks externes, accès par IP, réutilisation HTTP/2 inter-domaines). Trancher à la place de l'opérateur violerait l'invariant « ne décide pas pour moi » ; les deux ADR sont en statut `proposed` avec options et recommandation |
+| 2026-09-01 | T14.4 `architecture.md` | Relecture ligne à ligne contre `routes()` | pass | 21 étapes dans l'ordre de composition, conditions de montage, position du tarpit entre `origin.Injector` et le proxy. Le document annonçait 10 étapes de la v1 |
+| 2026-09-01 | T14.4 alignement ASCII | Contrôle programmatique de la largeur des bordures | pass | Toutes les lignes du bloc C4 niveau 2 à 71 colonnes (une ligne était décalée d'un caractère) |
+| 2026-09-01 | T14.4 non-régression | `go build ./... && go vet ./... && go test ./...` | pass | 447 tests, 42 paquets — document uniquement, aucun code touché |
+| 2026-09-01 | Spectral | `spectral lint specs/api/admin.openapi.yaml` | **non exécuté localement** | `.spectral.yaml` existe bien à la racine (ruleset `spectral:oas`, `operation-operationId` en `error`) ; le binaire est absent du poste. Aucune PR de cette passe ne touche l'OpenAPI. Une mention antérieure indiquant que le dépôt n'avait pas de config Spectral était fausse |
 
 ### Slice 12.1 — Notes & couverture du périmètre (FR-39)
 
