@@ -649,3 +649,17 @@ last-updated: 2026-06-09
 - **Validation 2026-09-01** : `go build ./...`, `go vet ./...`, `go test ./...` (433 tests, 42 paquets), `gofmt -l` (copies normalisees LF), `golangci-lint run` passent. Detail dans validation.md.
 - **Statut** : implemente.
 - **Spec** : requirements-ops.md FR-30 (v3.2.0) ; features/waf-self-protection.feature ; architecture.md (v1.1.0)
+
+### T14.2 - Regression FR-19 : /waf/origin/verify casse par l'assainissement (FR-19 x FR-30)
+- [x] Constat : l'assainissement d'ingress livre en T14.1 supprime tout `X-WAF-*` fourni par le client. `GET /waf/origin/verify` est appele **par l'upstream**, qui lui retransmet le `X-WAF-Origin-Token` recu : le token etait supprime avant le handler, donc l'oracle repondait **401 a tout token, valide compris** — la verification FR-19 devenait inoperante
+- [x] Reproduit sur `routes()` : token valide + `origin_protection.enabled` -> 401 au lieu de 200
+- [x] `internal/origin` : `CaptureInboundToken` memorise la valeur entrante dans le contexte de requete ; `VerifyHandler` la lit via `inboundToken(r)` avec repli sur l'en-tete (le handler reste utilisable sans assainisseur en amont, et le repli ne masque pas l'absence de capture puisque l'en-tete est alors deja vide)
+- [x] Cable dans `routes()` **a l'exterieur** de `ingress.Middleware`, et seulement si `origin_protection.enabled` — l'endpoint n'est pas monte autrement
+- [x] Exemption par **chemin** dans l'assainisseur ecartee : sa correction dependrait d'une normalisation de chemin identique a celle du routeur, vecteur de contournement classique. La capture ne connait aucun chemin
+- [x] La valeur n'est **jamais reinjectee** dans `r.Header` (test dedie) et reste verifiee par HMAC : l'exception ne porte que sur la lisibilite, pas sur la validite
+- [x] Commentaires de `T14.1` corriges : `ingress.Middleware` n'est plus « le middleware le plus externe » mais « doit preceder tout middleware qui lit ces en-tetes »
+- [x] Tests : 3 cas unitaires (`origin`) — token capture lisible apres suppression de l'en-tete et non reinjecte, token forge toujours 401, absence d'en-tete 401 ; 3 cas e2e sur `routes()` (valide / forge / absent). Cablage **verifie en echec** par mutation. Couverture `origin` : 97,0%
+- **Acceptance** : l'upstream verifie un token valide via `GET /waf/origin/verify` et recoit 200 malgre l'assainissement ; un token forge recoit 401 ; aucun autre `X-WAF-*` d'origine cliente ne survit.
+- **Validation 2026-09-01** : `go build ./...`, `go vet ./...`, `go test ./...` (440 tests, 42 paquets), `gofmt -l` passent. Detail dans validation.md.
+- **Statut** : implemente.
+- **Spec** : requirements-advanced.md FR-19 (v2.2.0) ; requirements-ops.md FR-30 (v3.2.1) ; features/origin-protection.feature ; features/waf-self-protection.feature

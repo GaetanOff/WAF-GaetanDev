@@ -22,9 +22,10 @@ import (
 // de la casse.
 const headerPrefix = "X-WAF-"
 
-// Middleware supprime tout en-tête `X-WAF-*` fourni par le client. Il doit être
-// le middleware le plus externe du pipeline, avant que quoi que ce soit ne lise
-// ces en-têtes.
+// Middleware supprime tout en-tête `X-WAF-*` fourni par le client. Il doit
+// précéder tout middleware qui lit ces en-têtes. Une seule capture est autorisée
+// en amont : le token FR-19 retransmis à /waf/origin/verify (voir
+// origin.CaptureInboundToken), qui n'est pas interprété mais seulement mémorisé.
 func Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		for name := range r.Header {
