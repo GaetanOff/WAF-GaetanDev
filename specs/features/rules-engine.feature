@@ -85,6 +85,31 @@ Feature: Moteur de Règles Personnalisées
     When il accède à "/checkout/payment"
     Then la règle matche et le challenge est déclenché
 
+  # ── Résolution de l'IP de règle ──────────────────────────────────────────────
+
+  Scenario: Règle de blocage par CIDR — X-Real-IP forgé n'y échappe pas
+    Given une règle bloque la condition ip in_cidr ["10.0.0.0/8"]
+    And un client se connecte réellement depuis "10.1.2.3"
+    When il envoie une requête avec l'en-tête "X-Real-IP: 8.8.8.8"
+    Then la règle matche quand même et la requête reçoit HTTP 403
+    # X-Real-IP traverse Cloudflare sans être réécrit : s'il pilotait la
+    # résolution, toute règle de blocage par IP serait contournable.
+
+  Scenario: Usurpation d'une IP de confiance via X-Real-IP
+    Given une règle accorde un score_delta positif à ip equals "203.0.113.7"
+    And un client se connecte réellement depuis "8.8.8.8"
+    When il envoie une requête avec l'en-tête "X-Real-IP: 203.0.113.7"
+    Then la règle ne matche pas et aucun bonus de score n'est accordé
+
+  Scenario: Derrière Cloudflare — l'IP de règle est celle de CF-Connecting-IP validée
+    Given cloudflare.trusted = true
+    And la connexion provient d'une plage Cloudflare avec "CF-Connecting-IP: 10.1.2.3"
+    And une règle bloque la condition ip in_cidr ["10.0.0.0/8"]
+    When la requête est évaluée
+    Then la règle matche sur "10.1.2.3", l'IP réelle établie par le WAF
+    # Même résolution que la whitelist, la blacklist, le rate limit et le trust
+    # score : un seul chemin d'IP pour toutes les décisions.
+
   Scenario: Hot-reload des règles sans redémarrage
     Given le WAF est en cours d'exécution
     When l'administrateur modifie configs/rules.yaml et envoie SIGHUP

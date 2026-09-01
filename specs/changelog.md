@@ -89,6 +89,37 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **FR-17 — la condition `ip` du moteur de règles lisait `X-Real-IP`**, un en-tête
+  **client**. `internal/rules/rules.go` était le **seul** endroit du dépôt à ne pas
+  résoudre l'IP via `cloudflare.RealIP` : les 20 autres consommateurs (whitelist,
+  blacklist, rate limit, trust score, anti-bot, anti-DDoS, threat intel, challenge,
+  risque…) passent tous par le chemin de confiance. Conséquence : `X-Real-IP:
+  8.8.8.8` faisait échapper un client réellement en `10.1.2.3` à une règle
+  `ip in_cidr ["10.0.0.0/8"]` de blocage, et `X-Real-IP: <ip de confiance>`
+  permettait d'usurper une règle d'attribution de score.
+  - **Exploitable à travers Cloudflare** : contrairement à `CF-Connecting-IP`,
+    `X-Real-IP` n'est ni posé ni réécrit par Cloudflare — la valeur du client
+    traverse telle quelle. Aucun accès direct à l'origine n'est nécessaire.
+  - `X-Real-IP` est un en-tête **sortant** que le proxy pose vers l'upstream
+    (`internal/proxy/handler.go`) depuis l'IP réelle. Sa présence en **entrée**
+    n'avait aucune signification : la lecture confondait les deux sens.
+  - Corrigé en alignant `clientIP` sur `cloudflare.RealIP`, soit un seul chemin
+    d'IP pour toutes les décisions du WAF.
+- **Audit des surfaces de confiance implicite** (tâche ouverte de T14.1) — deux
+  constats sortent du périmètre d'un correctif et attendent une décision
+  d'opérateur, chacun son ADR en statut `proposed` :
+  - **ADR-019** — les en-têtes d'infrastructure (`CF-IPCountry` pour FR-16 et le
+    champ `country` de FR-17, `ja3_header` pour FR-11) sont honorés sans preuve
+    que la requête vient bien de l'intermédiaire qui les pose. La forge n'est
+    qu'un cas particulier : ces contrôles **dégradent gracieusement** quand
+    l'en-tête est absent, donc l'omission suffit déjà. Quatre options, de
+    l'assainissement sans rejet à une liste `trusted_proxies`.
+  - **ADR-020** — l'en-tête `Host` pilote à la fois le routage et la politique par
+    domaine. Un `Host` non listé retombe sur `upstream.address` **et** sur la
+    politique globale : si le défaut pointe la même origine qu'un domaine durci,
+    le durcissement est contournable par un en-tête. Aucune liaison non plus
+    entre le SNI et le `Host` en TLS par domaine (FR-33).
+
 - **FR-30 — contournement complet du pipeline par en-tête `X-WAF-*` forgé**
   (nouveau paquet `internal/middleware/ingress`). Les middlewares se coordonnent
   en posant des en-têtes `X-WAF-*` **sur la requête**, relus en aval ; rien ne les

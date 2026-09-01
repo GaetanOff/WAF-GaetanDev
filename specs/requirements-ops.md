@@ -1,9 +1,9 @@
 ---
 status: approved
-version: 3.2.1
+version: 3.3.0
 last-reviewed: 2026-09-01
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-30 : le WAF DOIT supprimer tout en-tête `X-WAF-*` fourni par le client avant tout autre middleware — ces en-têtes sont de l'état interne (X-WAF-Action: PASS valait contournement complet du pipeline). Exception unique et documentée : le token retransmis à `GET /waf/origin/verify` (FR-19), capturé avant l'assainissement et vérifié par HMAC"
+change: "FR-30 : principe général — aucune décision de sécurité ne DOIT reposer sur un en-tête dont le WAF ne peut pas prouver l'origine. Les en-têtes d'infrastructure (`CF-*`, `ja3_header`) et `Host` sont renvoyés à ADR-019 et ADR-020, tous deux proposed"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -202,6 +202,17 @@ change: "FR-30 : le WAF DOIT supprimer tout en-tête `X-WAF-*` fourni par le cli
   qui pose lui-même cet en-tête obtient un **contournement complet du WAF en un
   seul en-tête**. La menace est atteignable depuis Internet : les proxies amont,
   Cloudflare compris, ne filtrent pas les en-têtes `X-*` arbitraires
+
+- **Principe général** : aucune décision de sécurité NE DOIT reposer sur un
+  en-tête de requête dont le WAF ne peut pas prouver l'origine. Les en-têtes
+  internes (`X-WAF-*`) sont couverts par la règle ci-dessus ; les en-têtes
+  **d'infrastructure** posés par un intermédiaire (`CF-*`, `ja3_header`,
+  `X-Forwarded-*`) et l'en-tête `Host` relèvent d'ADR-019 et ADR-020, tous deux
+  `proposed` — leurs options rejetteraient du trafic aujourd'hui accepté et
+  attendent une décision d'opérateur. Tant qu'elles ne sont pas tranchées, les
+  contrôles qui en dépendent (FR-16 géo, FR-11 blacklist JA3, durcissement par
+  domaine de FR-06) DOIVENT être documentés comme des contrôles de réduction de
+  bruit, pas comme des frontières de sécurité
 
 ### Protection de l'endpoint /waf/verify
 - Le WAF DOIT appliquer un rate limit strict sur `POST /waf/verify` : configurable (défaut: 10 req/s par IP)
