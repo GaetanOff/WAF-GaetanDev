@@ -31,6 +31,28 @@ Feature: Protection de l'Origine
     Then le WAF retourne HTTP 200 {"valid": true} si le token est correct
     And HTTP 401 {"valid": false} si invalide
 
+  Scenario: L'assainissement d'ingress ne casse pas l'endpoint de validation
+    Given l'assainissement d'ingress supprime tout en-tête X-WAF-* fourni par le client (FR-30)
+    When l'upstream envoie GET /waf/origin/verify avec un X-WAF-Origin-Token valide
+    Then le WAF retourne HTTP 200 {"valid": true}
+    # Le token est capturé avant l'assainissement et lu hors de r.Header : sans
+    # cette exception, l'endpoint répondrait 401 à tout token, y compris valide.
+
+  Scenario: Token forgé sur l'endpoint de validation — refusé
+    Given un attaquant appelle lui-même l'endpoint de validation
+    When il envoie GET /waf/origin/verify avec X-WAF-Origin-Token "forge"
+    Then le WAF retourne HTTP 401 {"valid": false}
+    # L'exception ne porte que sur la lisibilité de la valeur : elle reste
+    # vérifiée par HMAC, donc infalsifiable sans le secret.
+
+  Scenario: Token forgé sur une requête proxifiée — jamais transmis à l'upstream
+    Given origin_protection.enabled = false (aucune injection côté WAF)
+    When un client envoie une requête avec X-WAF-Origin-Token "forge"
+    Then l'upstream ne reçoit pas cet en-tête
+    # Un upstream qui ne vérifierait que la présence du header serait sinon
+    # trompé par un en-tête forgé par le client — exactement l'attaque que FR-19
+    # est censée fermer.
+
   Scenario: Upstream rejette les requêtes sans token (bypass direct)
     Given l'upstream est configuré avec le middleware de vérification WAF
     When un attaquant envoie une requête directement à l'upstream (sans passer par le WAF)

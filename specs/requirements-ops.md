@@ -1,9 +1,9 @@
 ---
 status: approved
-version: 3.2.0
+version: 3.2.1
 last-reviewed: 2026-09-01
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-30 : le WAF DOIT supprimer tout en-tête `X-WAF-*` fourni par le client avant tout autre middleware — ces en-têtes sont de l'état interne (X-WAF-Action: PASS valait contournement complet du pipeline)"
+change: "FR-30 : le WAF DOIT supprimer tout en-tête `X-WAF-*` fourni par le client avant tout autre middleware — ces en-têtes sont de l'état interne (X-WAF-Action: PASS valait contournement complet du pipeline). Exception unique et documentée : le token retransmis à `GET /waf/origin/verify` (FR-19), capturé avant l'assainissement et vérifié par HMAC"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -167,7 +167,9 @@ change: "FR-30 : le WAF DOIT supprimer tout en-tête `X-WAF-*` fourni par le cli
   Ces en-têtes sont de l'**état interne de confiance** : ils DOIVENT provenir du
   pipeline, jamais du client
 - Le WAF DOIT supprimer de la requête entrante **tout en-tête dont le nom commence
-  par `X-WAF-`**, avant l'exécution de tout autre middleware
+  par `X-WAF-`**, avant l'exécution de tout middleware qui lit ces en-têtes. Seule
+  la capture décrite plus bas peut s'exécuter en amont, et elle ne fait que
+  mémoriser une valeur sans l'interpréter
   - La suppression est faite **par préfixe**, et non par liste nominative : tout
     en-tête interne ajouté ultérieurement est couvert d'office. Une liste
     nominative se désynchronise en silence, et son oubli est un fail-open
@@ -181,6 +183,19 @@ change: "FR-30 : le WAF DOIT supprimer tout en-tête `X-WAF-*` fourni par le cli
   statiques (FR-24), les `X-WAF-Risk-*` des détecteurs de familles de risque
   (FR-11, FR-12, FR-16, FR-18), `X-WAF-Origin-Token` (FR-19). L'assainissement
   s'applique une seule fois, à l'entrée
+- **Exception unique et documentée** : `GET /waf/origin/verify` (FR-19) est un
+  oracle de vérification appelé **par l'upstream**, qui lui retransmet le
+  `X-WAF-Origin-Token` qu'il a reçu. Cette valeur DOIT rester accessible à cet
+  endpoint malgré l'assainissement — sans quoi l'endpoint répond `401` à tout
+  token, y compris valide. L'exception n'ouvre aucun contournement : la valeur
+  est vérifiée par HMAC, la forger exige le secret
+  - La valeur DOIT être capturée **avant** l'assainissement et transmise à
+    l'endpoint hors de `r.Header` (contexte de requête). Une exemption par
+    **chemin** à l'intérieur de l'assainisseur est interdite : sa correction
+    dépendrait d'une normalisation de chemin identique à celle du routeur, un
+    vecteur de contournement classique
+  - Aucun autre en-tête `X-WAF-*` NE DOIT être capturé de cette façon, et aucun
+    en-tête capturé NE DOIT être réinjecté dans `r.Header`
 - Motif : `X-WAF-Action: PASS` est testé en court-circuit par le challenge
   (FR-06), le rate limiting (FR-03), l'analyse d'intégrité (FR-18), le threat
   intel (FR-13) et le moteur de règles (FR-17). Sans assainissement, un client

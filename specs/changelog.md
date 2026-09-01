@@ -122,6 +122,15 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
     mauvaise raison (il vérifie que le proxy *est* appelé, ce qui devenait vrai
     trivialement). Les deux passent désormais par un détecteur du paramètre
     `detectors`, **comme en production**, et redeviennent significatifs.
+  - **Régression FR-19 rattrapée dans la même PR** : l'assainissement cassait
+    `GET /waf/origin/verify`, l'oracle que l'upstream appelle en lui retransmettant
+    le `X-WAF-Origin-Token` reçu. Le token était supprimé avant le handler, donc
+    l'endpoint répondait **401 à tout token, y compris valide** — la vérification
+    de FR-19 devenait inopérante. Corrigé par une capture explicite avant
+    l'assainissement (`origin.CaptureInboundToken`), lue hors de `r.Header` :
+    l'exception ne porte que sur la lisibilité de la valeur, qui reste vérifiée
+    par HMAC. Une exemption par **chemin** a été écartée : sa correction
+    dépendrait d'une normalisation identique à celle du routeur.
 
 - Alertes code-scanning n°35/36 (`go/clear-text-logging`, CWE-312, HIGH)
   **corrigées** : les en-têtes Cloudflare `CF-Ray` et `CF-IPCountry` étaient lus

@@ -79,6 +79,18 @@ Feature: Auto-protection du WAF
     # L'assainissement s'applique une seule fois, à l'entrée : il ne rejoue pas
     # sur les en-têtes produits par le pipeline lui-même.
 
+  Scenario: Exception documentée — le token retransmis à /waf/origin/verify reste lisible
+    Given l'upstream vérifie un token via GET /waf/origin/verify (FR-19)
+    And il retransmet le "X-WAF-Origin-Token" qu'il a reçu
+    When la requête entre dans le pipeline
+    Then la valeur est capturée avant l'assainissement et reste lisible par cet endpoint
+    And elle n'est jamais réinjectée dans les en-têtes de la requête
+    And aucun autre en-tête X-WAF-* ne bénéficie de cette capture
+    # C'est la seule exception. Elle n'ouvre aucun contournement : le token est
+    # vérifié par HMAC, donc infalsifiable sans le secret. La capture se fait
+    # hors de r.Header et non par exemption de chemin, dont la correction
+    # dépendrait d'une normalisation identique à celle du routeur.
+
   # ── Protection API Admin ─────────────────────────────────────────────────────
 
   Scenario: Rate limit sur les tentatives d'authentification admin
