@@ -4,6 +4,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 )
 
 func request(method string, target string, ip string) *http.Request {
@@ -115,5 +117,78 @@ func TestMiddlewareBlocksOnRule(t *testing.T) {
 	}
 	if response.Header().Get("X-WAF-Reason") != "rule_evilbot" {
 		t.Fatalf("reason = %q", response.Header().Get("X-WAF-Reason"))
+	}
+}
+
+// FR-17 : la condition `ip` doit être résolue sur l'IP réelle établie par le WAF.
+// clientIP lisait X-Real-IP en priorité — un en-tête *sortant* que Cloudflare ne
+// réécrit pas en entrée, donc pilotable par le client.
+func TestRuleIPConditionIgnoresClientSuppliedXRealIP(t *testing.T) {
+	rs := NewRuleSet()
+	if err := rs.Load([]Rule{{
+		Name: "block-internal-range", Priority: 10, Enabled: true,
+		Conditions: []Condition{{Field: "ip", Operator: "in_cidr", Values: []string{"10.0.0.0/8"}}},
+		Actions:    []Action{{Type: "block"}},
+	}}); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	tests := []struct {
+		name      string
+		remoteIP  string
+		xRealIP   string
+		wantMatch bool
+	}{
+		// Témoin : sans témoin, le test passerait même si la règle ne matchait jamais.
+		{name: "temoin dans le cidr", remoteIP: "10.1.2.3", wantMatch: true},
+		{name: "temoin hors cidr", remoteIP: "8.8.8.8", wantMatch: false},
+		// Évasion : l'IP réelle est bloquée, le client prétend être ailleurs.
+		{name: "evasion par x-real-ip", remoteIP: "10.1.2.3", xRealIP: "8.8.8.8", wantMatch: true},
+		// Usurpation : l'IP réelle est hors périmètre, le client prétend être dedans.
+		{name: "usurpation par x-real-ip", remoteIP: "8.8.8.8", xRealIP: "10.1.2.3", wantMatch: false},
+		// X-Forwarded-For ne doit pas davantage peser sur la résolution.
+		{name: "evasion par x-forwarded-for", remoteIP: "10.1.2.3", xRealIP: "", wantMatch: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			r := request(http.MethodGet, "http://x/", tt.remoteIP)
+			if tt.xRealIP != "" {
+				r.Header.Set("X-Real-IP", tt.xRealIP)
+			}
+			r.Header.Set("X-Forwarded-For", "203.0.113.9")
+
+			matched := len(rs.Match(r)) == 1
+			if matched != tt.wantMatch {
+				t.Fatalf("match = %v, want %v (remote %s, X-Real-IP %q)", matched, tt.wantMatch, tt.remoteIP, tt.xRealIP)
+			}
+		})
+	}
+}
+
+// La résolution doit suivre le chemin Cloudflare quand il est établi : c'est
+// l'IP posée dans le contexte par cloudflare.Middleware qui compte, pas RemoteAddr.
+func TestRuleIPConditionUsesTheCloudflareEstablishedIP(t *testing.T) {
+	rs := NewRuleSet()
+	if err := rs.Load([]Rule{{
+		Name: "block-internal-range", Priority: 10, Enabled: true,
+		Conditions: []Condition{{Field: "ip", Operator: "in_cidr", Values: []string{"10.0.0.0/8"}}},
+		Actions:    []Action{{Type: "block"}},
+	}}); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	// 103.21.244.1 appartient aux plages Cloudflare : le middleware honore alors
+	// CF-Connecting-IP et pose l'IP réelle dans le contexte.
+	r := request(http.MethodGet, "http://x/", "103.21.244.1")
+	r.Header.Set("CF-Connecting-IP", "10.1.2.3")
+
+	var matched bool
+	cloudflare.Middleware(http.HandlerFunc(func(_ http.ResponseWriter, inner *http.Request) {
+		matched = len(rs.Match(inner)) == 1
+	})).ServeHTTP(httptest.NewRecorder(), r)
+
+	if !matched {
+		t.Fatal("la règle doit matcher sur l'IP de CF-Connecting-IP validée, pas sur l'IP de l'edge Cloudflare")
 	}
 }

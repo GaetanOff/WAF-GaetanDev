@@ -663,3 +663,34 @@ last-updated: 2026-06-09
 - **Validation 2026-09-01** : `go build ./...`, `go vet ./...`, `go test ./...` (440 tests, 42 paquets), `gofmt -l` passent. Detail dans validation.md.
 - **Statut** : implemente.
 - **Spec** : requirements-advanced.md FR-19 (v2.2.0) ; requirements-ops.md FR-30 (v3.2.1) ; features/origin-protection.feature ; features/waf-self-protection.feature
+
+### T14.3 - Audit des surfaces de confiance implicite (FR-17, ADR-019, ADR-020)
+- [x] Inventaire : toutes les lectures d'en-tete entrant utilisees pour une decision de securite, hors namespace `X-WAF-*` deja couvert par T14.1
+- [x] Constat FR-17 : `internal/rules/rules.go` resolvait la condition `ip` via `r.Header.Get("X-Real-IP")` — **seul** endroit du depot a ne pas passer par `cloudflare.RealIP` (20 autres consommateurs le font). `X-Real-IP` est un en-tete **sortant** pose par `internal/proxy` vers l'upstream ; en entree il vient du client, et Cloudflare ne le reecrit pas
+- [x] Impact verifie : `X-Real-IP: 8.8.8.8` faisait echapper un client reellement en `10.1.2.3` a une regle `ip in_cidr ["10.0.0.0/8"]` de blocage ; `X-Real-IP: <ip de confiance>` usurpait une regle d'attribution de score. **Exploitable a travers Cloudflare**, sans acces direct a l'origine
+- [x] Corrige : `clientIP` delegue a `cloudflare.RealIP` — un seul chemin d'IP pour toutes les decisions du WAF
+- [x] Tests : table de 5 cas (2 temoins, evasion, usurpation, X-Forwarded-For) + resolution derriere Cloudflare avec `CF-Connecting-IP` validee. **Verifies en echec** par mutation (retour de la precedence `X-Real-IP`)
+- [x] ADR-019 `proposed` : en-tetes d'infrastructure (`CF-IPCountry` pour FR-16 et le champ `country`, `ja3_header` pour FR-11) honores sans preuve d'origine. La forge n'est qu'un cas particulier — ces controles **degradent gracieusement** sur en-tete absent, donc l'omission suffit deja. 4 options exposees, **non tranchees**
+- [x] ADR-020 `proposed` : `Host` pilote a la fois le routage et la politique par domaine. Un `Host` non liste retombe sur `upstream.address` **et** sur la politique globale — si le defaut pointe la meme origine qu'un domaine durci, le durcissement est contournable par un en-tete. Pas de liaison SNI/`Host` en TLS par domaine (FR-33). Options exposees, **non tranchees**
+- [ ] Implementation d'ADR-019 et ADR-020 — **bloquee sur decision d'operateur** : leurs options rejettent du trafic aujourd'hui accepte (health checks, acces par IP, reutilisation HTTP/2 inter-domaines). Ne pas trancher a la place de l'operateur (invariant CLAUDE.md)
+- [ ] `CONFIG.md` : documenter que `blocked_countries`/`allowed_countries`/`ja3_blacklist` et le durcissement par domaine sont des controles de reduction de bruit tant qu'ADR-019/020 ne sont pas tranches — **a faire au moment de la decision**, pour ne pas documenter deux fois
+- **Acceptance** : une regle `ip` matche sur l'IP reelle etablie par le WAF quelle que soit la valeur de `X-Real-IP` ou `X-Forwarded-For` fournie par le client ; derriere Cloudflare elle matche sur `CF-Connecting-IP` validee.
+- **Validation 2026-09-01** : `go build ./...`, `go vet ./...`, `go test ./...` (447 tests, 42 paquets), `gofmt -l` passent. Detail dans validation.md.
+- **Statut** : correctif FR-17 implemente ; ADR-019 et ADR-020 en attente de decision.
+- **Spec** : requirements-advanced.md FR-17 (v2.3.0) ; requirements-ops.md FR-30 (v3.3.0) ; features/rules-engine.feature ; ADR-019 ; ADR-020
+
+### T14.4 - Remise a niveau d'architecture.md sur le code reel
+- [x] Constat : le `Request Processing Pipeline` decrivait 10 etapes de la v1. Manquaient `ingress`, `secheaders`, `maintenance`, `slowloris`, `staticassets`, `selfprotect`, `metrics`, `access`, les 7 detecteurs de signal, le moteur de risque, `origin` et le tarpit — la moitie de la chaine, dont tout ce qui a ete livre depuis la phase 8
+- [x] 21 etapes listees dans leur **ordre d'execution**, chacune avec **la cle de configuration qui la monte** : une etape non montee est absente de la chaine, elle ne se contente pas de ne rien faire
+- [x] Documente que `/waf/health`, `/waf/metrics` et `/waf/origin/verify` sont servis par le `mux` **sans traverser** les etapes [6] a [20] — fait structurant absent du document
+- [x] Sorties anticipees (403, 429, 503, 400, page de challenge) et chemin de remontee de la reponse
+- [x] Renvois vers ADR-019 et ADR-020 poses aux deux etapes concernees, pour que le lecteur du diagramme voie les limites
+- [x] `C4 niveau 2` reecrit (bordures alignees a 71 colonnes, trois chemins `/waf/*` visibles) ; `C4 niveau 3` de 15 a 42 paquets groupes par role ; `Go Project Structure` corrige (`middleware/chain.go` n'existe pas, `config.schema.json` vit dans `specs/schemas/`)
+- [x] Index des ADR complete : il s'arretait a ADR-004, il couvre les 20, statut affiche pour les non-`accepted`
+- [x] Verifie ligne par ligne contre `routes()` : ordre de composition, conditions de montage, position du tarpit entre `origin.Injector` et le proxy
+- [ ] `architecture-advanced.md` et `architecture-ops.md` — **non verifies**, hors perimetre de cette passe
+- [ ] Sections `Data Model`, `Cookie de Session`, `Score de Confiance` d'`architecture.md` — **non verifiees** contre le code, hors perimetre
+- **Acceptance** : un lecteur du seul `architecture.md` peut reconstituer l'ordre reel de la chaine, savoir quelle cle de config monte chaque etape, et savoir quels chemins ne la traversent pas.
+- **Validation 2026-09-01** : document uniquement, aucun code touche. `go build ./...`, `go vet ./...`, `go test ./...` (447 tests, 42 paquets) passent — inchanges.
+- **Statut** : implemente.
+- **Spec** : architecture.md (v1.2.0) ; ADR-019 ; ADR-020

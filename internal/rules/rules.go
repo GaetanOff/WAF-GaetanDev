@@ -16,6 +16,8 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/gaetandev/waf/internal/middleware/cloudflare"
+
 	"gopkg.in/yaml.v3"
 )
 
@@ -245,15 +247,18 @@ func compileString(c Condition, extract func(*http.Request) string) (matcher, er
 	}
 }
 
+// clientIP retourne l'IP réelle établie par le WAF : CF-Connecting-IP validée
+// contre les plages Cloudflare quand cloudflare.trusted, sinon l'adresse de la
+// connexion. C'est le même chemin que la whitelist, la blacklist, le rate limit
+// et le trust score — une seule résolution d'IP pour toutes les décisions.
+//
+// Cette fonction lisait auparavant X-Real-IP en priorité (FR-17 v2.3.0). C'est un
+// en-tête *sortant*, posé par internal/proxy vers l'upstream ; en entrée il vient
+// du client et Cloudflare ne le réécrit pas. Une règle `ip in_cidr` de blocage
+// était donc contournable par un simple X-Real-IP, et une règle d'attribution de
+// score usurpable.
 func clientIP(r *http.Request) string {
-	if real := r.Header.Get("X-Real-IP"); real != "" {
-		return real
-	}
-	host, _, err := net.SplitHostPort(r.RemoteAddr)
-	if err != nil {
-		return r.RemoteAddr
-	}
-	return host
+	return cloudflare.RealIP(r)
 }
 
 func toSet(values []string) map[string]struct{} {

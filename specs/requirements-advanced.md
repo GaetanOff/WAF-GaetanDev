@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 2.2.0
+version: 2.3.0
 last-reviewed: 2026-09-01
 reviewed-by: GaetanDev
 extends: requirements.md (v2.0.0)
-change: "FR-19 : la lecture du token retransmis par l'upstream sur `GET /waf/origin/verify` est explicitée comme l'exception documentée à l'assainissement d'ingress (FR-30)"
+change: "FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)
@@ -117,6 +117,16 @@ change: "FR-19 : la lecture du token retransmis par l'upstream sur `GET /waf/ori
   - `add_header` : ajouter un header à la réponse
   - `log` : forcer un log event avec niveau et message
   - `tarpit` : activer le tarpit
+- La condition `ip` DOIT être évaluée sur l'**IP réelle établie par le WAF**
+  (`CF-Connecting-IP` validée contre les plages Cloudflare quand
+  `cloudflare.trusted`, sinon l'adresse de la connexion), et jamais sur un
+  en-tête fourni par le client tel que `X-Real-IP` ou `X-Forwarded-For`
+  - Motif : ces en-têtes traversent Cloudflare sans être réécrits. Une règle
+    `ip in_cidr` de blocage serait contournée par un simple `X-Real-IP:
+    8.8.8.8`, et une règle d'allocation de confiance par IP serait usurpable
+  - Le WAF NE DOIT PAS non plus dériver l'IP de règle d'un en-tête qu'il pose
+    lui-même vers l'upstream : `X-Real-IP` est un en-tête **sortant** (FR-01),
+    sa présence en entrée n'a aucune signification
 - Les règles DOIVENT être évaluées par ordre de priorité (plus petit = évalué en premier)
 - Le premier match DOIT exécuter les actions (short-circuit configurable avec `continue: true`)
 - Hot-reload sans redémarrage (SIGHUP ou API admin)

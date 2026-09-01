@@ -8,6 +8,32 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Changed
 
+- **`architecture.md` (1.1.0 → 1.2.0) — remise à niveau sur le code réel.** Le
+  `Request Processing Pipeline` décrivait 10 étapes de la v1 (`CF-IP → Whitelist →
+  Blacklist → RateLimit → BotDetect → TrustScore → Challenge → Proxy → Logger`).
+  Y manquaient `ingress`, `secheaders`, `maintenance`, `slowloris`,
+  `staticassets`, `selfprotect`, `metrics`, `access`, les sept détecteurs de
+  signal, le moteur de risque, `origin` et le tarpit — soit la moitié de la
+  chaîne, dont l'intégralité de ce qui a été livré depuis la phase 8.
+  - Les 21 étapes sont désormais listées **dans leur ordre d'exécution**, chacune
+    avec **la clé de configuration qui la monte** : une étape non montée est
+    absente de la chaîne, elle ne se contente pas de ne rien faire. C'est
+    précisément ce que l'ancien diagramme ne permettait pas de voir.
+  - Le document dit maintenant que `/waf/health`, `/waf/metrics` et
+    `/waf/origin/verify` sont servis par le `mux` **sans traverser** les étapes
+    [6] à [20] — un fait structurant qui n'apparaissait nulle part.
+  - Sorties anticipées documentées (403, 429, 503, 400, page de challenge) et
+    chemin de remontée de la réponse.
+  - Renvois vers ADR-019 (les `CF-*` autres que `CF-Connecting-IP` ne sont pas
+    validés) et ADR-020 (repli du routage par `Host`) posés aux deux étapes
+    concernées, pour que le lecteur du diagramme voie les limites.
+  - `C4 niveau 2` réécrit (bordures alignées, trois chemins `/waf/*` visibles),
+    `C4 niveau 3` passé de 15 à **42 paquets** groupés par rôle, `Go Project
+    Structure` corrigé — il annonçait un `middleware/chain.go` qui n'existe pas et
+    un `configs/config.schema.json` qui vit en réalité dans `specs/schemas/`.
+  - Index des ADR complété : il s'arrêtait à ADR-004, il couvre les 20, avec le
+    statut affiché pour ceux qui ne sont pas `accepted`.
+
 - **Montée du projet vers Go 1.27** : `go.mod` passe de `go 1.26.0` +
   `toolchain go1.26.5` à `go 1.27.0`. La directive `go` fait elle-même office de
   plancher de toolchain : `toolchain go1.26.5` devenait redondant (et donc
@@ -88,6 +114,37 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
     par sous-requête refusée.
 
 ### Security
+
+- **FR-17 — la condition `ip` du moteur de règles lisait `X-Real-IP`**, un en-tête
+  **client**. `internal/rules/rules.go` était le **seul** endroit du dépôt à ne pas
+  résoudre l'IP via `cloudflare.RealIP` : les 20 autres consommateurs (whitelist,
+  blacklist, rate limit, trust score, anti-bot, anti-DDoS, threat intel, challenge,
+  risque…) passent tous par le chemin de confiance. Conséquence : `X-Real-IP:
+  8.8.8.8` faisait échapper un client réellement en `10.1.2.3` à une règle
+  `ip in_cidr ["10.0.0.0/8"]` de blocage, et `X-Real-IP: <ip de confiance>`
+  permettait d'usurper une règle d'attribution de score.
+  - **Exploitable à travers Cloudflare** : contrairement à `CF-Connecting-IP`,
+    `X-Real-IP` n'est ni posé ni réécrit par Cloudflare — la valeur du client
+    traverse telle quelle. Aucun accès direct à l'origine n'est nécessaire.
+  - `X-Real-IP` est un en-tête **sortant** que le proxy pose vers l'upstream
+    (`internal/proxy/handler.go`) depuis l'IP réelle. Sa présence en **entrée**
+    n'avait aucune signification : la lecture confondait les deux sens.
+  - Corrigé en alignant `clientIP` sur `cloudflare.RealIP`, soit un seul chemin
+    d'IP pour toutes les décisions du WAF.
+- **Audit des surfaces de confiance implicite** (tâche ouverte de T14.1) — deux
+  constats sortent du périmètre d'un correctif et attendent une décision
+  d'opérateur, chacun son ADR en statut `proposed` :
+  - **ADR-019** — les en-têtes d'infrastructure (`CF-IPCountry` pour FR-16 et le
+    champ `country` de FR-17, `ja3_header` pour FR-11) sont honorés sans preuve
+    que la requête vient bien de l'intermédiaire qui les pose. La forge n'est
+    qu'un cas particulier : ces contrôles **dégradent gracieusement** quand
+    l'en-tête est absent, donc l'omission suffit déjà. Quatre options, de
+    l'assainissement sans rejet à une liste `trusted_proxies`.
+  - **ADR-020** — l'en-tête `Host` pilote à la fois le routage et la politique par
+    domaine. Un `Host` non listé retombe sur `upstream.address` **et** sur la
+    politique globale : si le défaut pointe la même origine qu'un domaine durci,
+    le durcissement est contournable par un en-tête. Aucune liaison non plus
+    entre le SNI et le `Host` en TLS par domaine (FR-33).
 
 - **FR-30 — contournement complet du pipeline par en-tête `X-WAF-*` forgé**
   (nouveau paquet `internal/middleware/ingress`). Les middlewares se coordonnent

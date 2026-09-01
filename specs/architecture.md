@@ -1,7 +1,8 @@
 ---
 status: approved
-version: 1.1.0
+version: 1.2.0
 last-reviewed: 2026-09-01
+change: "Remise à niveau du Request Processing Pipeline, du C4 niveau 2/3 et de la structure projet sur le code réel : 21 étapes dans leur ordre d'exécution avec leur clé de montage, 42 paquets internes, chemins /waf/* qui ne traversent pas la chaîne"
 ---
 
 # Architecture — WAF Anti-DDoS / Anti-Bot
@@ -39,110 +40,241 @@ last-reviewed: 2026-09-01
 ## C4 Level 2 — Containers
 
 ```
-┌─────────────────────────────────────────────────────────────────┐
-│                        WAF Go Application                       │
-│                                                                 │
-│  ┌──────────────┐    ┌───────────────────────────────────────┐  │
-│  │  HTTP Server │    │           Middleware Pipeline         │  │
-│  │   :8080      │───▶│  CF-IP → Whitelist → Blacklist →     │  │
-│  │  (public)    │    │  RateLimit → BotDetect → TrustScore  │  │
-│  └──────────────┘    │  → Challenge → Proxy                 │  │
-│                      └───────────────────┬───────────────────┘  │
-│  ┌──────────────┐                        │                      │
-│  │  Admin API   │    ┌───────────────────▼───────────────────┐  │
-│  │   :9090      │    │          State Store (in-memory)      │  │
-│  │  (private)   │───▶│  Visitors / Rate Buckets / Nonces    │  │
-│  └──────────────┘    │  (+ Redis optionnel pour multi-nœud) │  │
-│                      └───────────────────────────────────────┘  │
-│  ┌──────────────┐    ┌───────────────────────────────────────┐  │
-│  │  Metrics     │    │           Config Engine               │  │
-│  │   /waf/      │    │  YAML loader + hot-reload + validate  │  │
-│  │   metrics    │    └───────────────────────────────────────┘  │
-│  └──────────────┘                                               │
-└─────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│                        WAF Go Application                           │
+│                                                                     │
+│  ┌───────────────────────┐    ┌──────────────────────────────────┐  │
+│  │  Listener public      │    │      Middleware Pipeline         │  │
+│  │  :443 HTTPS (SNI)     │───▶│  ingress → secheaders →          │  │
+│  │  :80  redirect + ACME │    │  maintenance → slowloris → mux   │  │
+│  └───────────────────────┘    │    ├── /waf/health               │  │
+│                               │    ├── /waf/metrics              │  │
+│  ┌───────────────────────┐    │    ├── /waf/origin/verify        │  │
+│  │  Admin API :9090      │    │    └── "/" → staticassets →      │  │
+│  │  (privée, token)      │    │        selfprotect → cloudflare →│  │
+│  └───────────┬───────────┘    │        metrics → logger →        │  │
+│              │                │        access → antiddos →       │  │
+│              │                │        challenge → ratelimit →   │  │
+│              │                │        antibot → détecteurs →    │  │
+│              │                │        risque | trust → origin → │  │
+│              │                │        tarpit → proxy → upstream │  │
+│              │                └──────────────┬───────────────────┘  │
+│              │                               │                      │
+│              │       ┌───────────────────────▼───────────────────┐  │
+│              └──────▶│               State Store                 │  │
+│                      │  Visiteurs · buckets · nonces · preuves   │  │
+│                      │  memory (LRU + TTL) | redis (multi-nœuds) │  │
+│                      └───────────────────────────────────────────┘  │
+│                                                                     │
+│  ┌───────────────────────┐    ┌──────────────────────────────────┐  │
+│  │  Config Engine        │    │  Alerting · Audit · Cluster      │  │
+│  │  YAML + env + reload  │    │  webhooks · GDPR · sync Redis    │  │
+│  └───────────────────────┘    └──────────────────────────────────┘  │
+└─────────────────────────────────────────────────────────────────────┘
 ```
+
+> L'ordre exact, les conditions de montage et les sorties anticipées sont dans la
+> section *Request Processing Pipeline*.
 
 ## C4 Level 3 — Components (internal packages)
 
 ```
 internal/
-├── config/          Config struct, YAML loader, env override, validator
-├── proxy/           ReverseProxy wrapper (net/http/httputil), header rewrite
-├── middleware/
-│   ├── ingress/     Suppression des en-têtes X-WAF-* fournis par le client (le plus externe)
-│   ├── cloudflare/  IP range validation, CF-Connecting-IP extraction
-│   ├── ratelimit/   Token Bucket per IP, sliding window, 429 response
-│   ├── antibot/     User-agent analysis, header heuristics, honeypot
-│   ├── antiddos/    Circuit breaker, global rate, slow-down
-│   └── challenge/   Nonce generation, JS page serving, response validation
-├── trust/           Score management, TTL expiry, threshold evaluation
-├── fingerprint/     Browser signal parsing, fingerprint hash computation
-├── storage/
-│   ├── memory/      sync.Map + LRU eviction, TTL cleanup goroutine
-│   └── redis/       Redis adapter (optionnel, même interface)
-├── signing/         HMAC-SHA256 cookie signing/validation
-├── logger/          Structured JSON logger (log/slog, stdlib), request_id injection
-└── metrics/         Prometheus counters/histograms, /waf/metrics handler
+├── middleware/          Middlewares de la chaîne publique
+│   ├── ingress/         Suppression des X-WAF-* fournis par le client (FR-30)
+│   ├── cloudflare/      Plages Cloudflare, extraction de CF-Connecting-IP (FR-02)
+│   ├── access/          Whitelist / blacklist IP, CIDR, user-agent (FR-04)
+│   ├── antiddos/        Pression globale et par domaine, circuit breaker,
+│   │                    mode « sous attaque » (FR-08, FR-39)
+│   ├── challenge/       Nonce, page PoW, /waf/verify, cookie, gate par domaine (FR-06)
+│   ├── ratelimit/       Token bucket par IP, throttle de pression (FR-03)
+│   └── antibot/         Heuristiques UA et en-têtes, honeypots (FR-07)
+│
+├── Détecteurs de signal (consommés par le moteur de risque)
+│   ├── integrity/       Cohérence de la requête (FR-18)
+│   ├── behavioral/      Séquences de navigation (FR-12)
+│   ├── threatintel/     Réputation d'IP, sources statiques + AbuseIPDB (FR-13)
+│   ├── geo/             Règles géographiques via CF-IPCountry (FR-16)
+│   ├── tlsfp/           JA3 : blacklist et détection de swap (FR-11)
+│   ├── rules/           Moteur de règles YAML compilé (FR-17)
+│   ├── fingerprint/     Signaux navigateur et hash d'empreinte (FR-06)
+│   └── adaptive/        Difficulté PoW pilotée par la pression (FR-14, FR-16)
+│
+├── Décision
+│   ├── risk/            Fusion de familles, corroboration, mitigation
+│   │                    graduée, mode shadow (FR-33..FR-38)
+│   └── trust/           Score de confiance, TTL, seuils (FR-05)
+│
+├── Sortie et transport
+│   ├── proxy/           ReverseProxy, routage par Host, réécriture d'en-têtes (FR-01)
+│   ├── origin/          Token HMAC vers l'upstream + oracle de vérification (FR-19)
+│   ├── upstream/        Health checks, failover, load balancing (FR-25, FR-26)
+│   ├── upstreamtime/    Mesure du temps passé côté upstream (FR-09)
+│   ├── tlsmgr/          Certificats par domaine, sélection par SNI (FR-33)
+│   └── acme/            Let's Encrypt via autocert (FR-31)
+│
+├── Réponse au client
+│   ├── secheaders/      Injection d'en-têtes, masquage upstream (FR-21, FR-22)
+│   ├── maintenance/     Page de maintenance, erreurs brandées (FR-32)
+│   ├── staticassets/    Bypass des assets statiques (FR-24)
+│   ├── slowloris/       Borne de connexions concurrentes par IP (FR-23)
+│   ├── selfprotect/     Garde de flood sur /waf/verify (FR-30)
+│   └── deception/       Tarpit et contenu honeypot (FR-15)
+│
+├── État
+│   └── storage/
+│       ├── memory/      sync.Map + éviction LRU + TTL
+│       └── redis/       Adaptateur Redis, même interface (FR-20)
+│
+└── Transverse
+    ├── config/          Struct, chargement YAML, override env, Validate()
+    ├── logger/          Événement de sécurité JSON via log/slog (FR-09)
+    ├── metrics/         Compteurs et histogrammes Prometheus (RED)
+    ├── admin/           Serveur et handlers de l'API admin :9090 (FR-10)
+    ├── audit/           Journal d'audit des actions admin (FR-27)
+    ├── alert/           Webhooks Discord, Slack, génériques (FR-29)
+    ├── cluster/         Synchronisation d'état inter-nœuds (FR-20)
+    ├── gdpr/            Anonymisation, rétention, registre (FR-28)
+    ├── signing/         HMAC-SHA256 : signature et validation
+    └── jsonstrict/      Parsing JSON durci sur les entrées non fiables (FR-30)
 ```
 
 ## Request Processing Pipeline
+
+> Ordre d'**exécution** réel, tel que composé par `routes()` dans
+> `cmd/waf/main.go`. Beaucoup d'étapes sont montées conditionnellement : la clé de
+> configuration qui les monte est indiquée. Une étape non montée est absente de la
+> chaîne, elle ne se contente pas de ne rien faire.
+>
+> Les middlewares se coordonnent en posant des en-têtes `X-WAF-*` **sur la
+> requête**, relus en aval. `X-WAF-Action: PASS` est un court-circuit honoré par
+> le challenge, le rate limiting, l'intégrité, le threat intel, le moteur de
+> règles, la géo et le TLSFP. Ces en-têtes sont de l'état interne : FR-30 impose
+> leur suppression à l'entrée.
 
 ```
 REQUÊTE ENTRANTE
       │
       ▼
-[0] IngressSanitizer                                      (internal/middleware/ingress)
-      │ Supprime tout en-tête `X-WAF-*` fourni par le client
-      │ Les étapes suivantes se coordonnent via ces en-têtes : ils
-      │ sont de l'état interne, jamais une entrée client (FR-30)
+── Enveloppe (tous les chemins, y compris /waf/*) ────────────────────────────────
+      │
+[0] origin.CaptureInboundToken            si origin_protection.enabled
+      │ Mémorise le X-WAF-Origin-Token entrant dans le contexte.
+      │ Seule exception à [1] : l'upstream le retransmet à
+      │ /waf/origin/verify, qui le vérifie par HMAC (FR-19).
       ▼
-[1] CloudflareMiddleware
-      │ Vérifie IP source ∈ ranges Cloudflare
-      │ Extrait CF-Connecting-IP comme IP réelle
-      │ Rejette si tentative de forge
+[1] ingress.Middleware                    toujours
+      │ Supprime TOUT en-tête X-WAF-* fourni par le client (FR-30).
+      │ Doit précéder tout middleware qui lit ces en-têtes.
       ▼
-[2] WhitelistMiddleware
-      │ IP ∈ whitelist CIDR ? → PASS THROUGH (skip tout)
-      │ Bot légitime user-agent ? → PASS THROUGH
+[2] secheaders                            si security_headers.enabled
+      │ Injecte les en-têtes de sécurité et masque les en-têtes
+      │ révélateurs de l'upstream en réponse (FR-21/FR-22).
       ▼
-[3] BlacklistMiddleware
-      │ IP ∈ blacklist ? → 403 Forbidden
+[3] maintenance                           toujours (inactif si non configuré)
+      │ Page de maintenance + pages d'erreur brandées (FR-32).
       ▼
-[4] RateLimitMiddleware
-      │ Token bucket pour cette IP
-      │ Bucket vide ? → 429 + décrémente score (-10)
-      │ Bucket OK → consomme 1 token
+[4] slowloris                             si slowloris.enabled
+      │ Borne les requêtes concurrentes par IP (FR-23).
       ▼
-[5] AntiBotMiddleware
-      │ User-Agent vide/suspect → score -= 15..30
-      │ Headers manquants (Accept, Accept-Encoding) → score -= 5
-      │ URL honeypot → score = 0, log event
+[5] http.ServeMux
+      │ /waf/health          → healthHandler
+      │ /waf/metrics         → handler Prometheus
+      │ /waf/origin/verify   → origin.VerifyHandler   si origin_protection.enabled
+      │ /                    → chaîne de protection ci-dessous
+      │
+      │ Les trois chemins /waf/* ci-dessus sont servis directement :
+      │ ils ne traversent PAS les étapes [6] à [20].
       ▼
-[6] AntiDDoSMiddleware
-      │ Taux global > seuil → mode dégradé
-      │ IP: N violations consécutives → circuit-breaker
+── Chaîne de protection (chemin "/" uniquement) ─────────────────────────────────
+      │
+[6] staticassets                          si static_assets.enabled
+      │ Bypass des assets statiques : pose X-WAF-Action=PASS (FR-24).
+      │ La blacklist reste appliquée en [11].
       ▼
-[7] TrustScoreMiddleware
-      │ score < block_threshold → 403
-      │ score < challenge_threshold → → [8] Challenge
-      │ score >= challenge_threshold → → [9] Proxy
+[7] selfprotect.PathGuard("/waf/verify")  si self_protection.enabled
+      │ Limite le flood de POST /waf/verify par IP (FR-30).
       ▼
-[8] ChallengeMiddleware
-      │ Cookie valide ? → met à jour score, → [9] Proxy
-      │ Pas de cookie → sert page HTML challenge
-      │ POST /waf/verify → valide réponse JS
-      │   → OK : émet cookie signé, redirect
-      │   → KO : décrémente score, re-challenge
+[8] cloudflare.Middleware                 si cloudflare.trusted
+      │ Valide que la source appartient aux plages Cloudflare, puis
+      │ retient CF-Connecting-IP comme IP réelle ; 400 si l'en-tête
+      │ est présent hors plage Cloudflare (FR-02).
+      │ Non monté : l'IP réelle est celle de la connexion.
+      │ ⚠ Les autres CF-* ne sont pas validés — cf. ADR-019.
       ▼
-[9] ReverseProxy
-      │ Proxifie vers upstream (domaine-specific)
-      │ Ajoute X-Forwarded-For, X-Real-IP, X-WAF-Score
+[9] metrics.Middleware                    toujours
+      │ Compteurs et histogrammes Prometheus (RED).
       ▼
-[10] ResponseLogger
-      │ Log JSON : ip, domain, path, status, latency, action, score
+[10] logger.Middleware                    toujours
+      │ Événement de sécurité JSON structuré (FR-09).
       ▼
-RÉPONSE UPSTREAM → CLIENT
+[11] access.Middleware                    toujours
+      │ Whitelist IP/CIDR/UA → X-WAF-Action=PASS.
+      │ Blacklist IP/CIDR    → 403 (FR-04).
+      ▼
+[12] antiddos.Handler                     toujours
+      │ Pression globale ou par domaine, circuit breaker,
+      │ mode « sous attaque » → X-WAF-Under-Attack-Enforce (FR-08/FR-39).
+      ▼
+[13] challenge.Handler                    si challenge.Enabled(cfg)
+      │ Monté dès qu'un hôte peut être challengé — global ou
+      │ domains[].challenge_enabled. Décision par hôte dans le
+      │ middleware. Sert la page PoW, traite POST /waf/verify,
+      │ émet le cookie signé (FR-06).
+      ▼
+[14] ratelimit.Handler                    si rate_limit.enabled
+      │ Token bucket par IP, throttle piloté par la pression (FR-03).
+      ▼
+[15] antibot.Handler                      toujours
+      │ Heuristiques User-Agent et en-têtes, honeypots (FR-07).
+      ▼
+[16] Détecteurs de signal — dans cet ordre, chacun conditionnel
+      │ integrity     toujours              Cohérence de la requête (FR-18)
+      │ adaptive      si adaptive.enabled   Difficulté PoW adaptative (FR-14)
+      │ behavioral    si behavioral.enabled Séquences de navigation (FR-12)
+      │ threatintel   si threat_intel.…     Réputation d'IP (FR-13)
+      │ geo           si geo.enabled        Règles géographiques (FR-16)
+      │ tlsfp         si tls_fingerprint.…  JA3 : blacklist et swap (FR-11)
+      │ rules         si rules.enabled      Moteur de règles YAML (FR-17)
+      │
+      │ Chacun publie sa contribution dans un X-WAF-Risk-<famille>
+      │ consommé en [17]. geo et tlsfp peuvent bloquer directement.
+      ▼
+[17] Décision
+      │ si risk_engine.enabled → risk.Handler
+      │     Fusion des familles, corroboration, échelle de mitigation
+      │     graduée, mode shadow (FR-33..FR-38)
+      │ sinon                  → trust.ScoreManager.Middleware
+      │     Score de confiance seul : BLOCK ou CHALLENGE au seuil (FR-05)
+      ▼
+[18] origin.Injector                      si origin_protection.enabled
+      │ Pose X-WAF-Origin-Token = HMAC(secret, hôte + heure) sur la
+      │ requête ; le proxy le transmet à l'upstream (FR-19).
+      ▼
+[19] deception.Tarpit.Dispatch            si deception.enabled
+      │ Intercepte les requêtes classées TARPIT en [17] et sert une
+      │ réponse volontairement lente et fragmentée (FR-15).
+      │ Les autres passent au proxy.
+      ▼
+[20] proxy.Handler
+      │ Routage par Host vers domains[].upstream, repli sur
+      │ upstream.address (⚠ cf. ADR-020). Pool avec health checks et
+      │ load balancing si configuré (FR-25/FR-26).
+      │ Pose X-Forwarded-*, X-Real-IP et X-WAF-Score vers l'upstream.
+      ▼
+RÉPONSE UPSTREAM → [10] journalise → [9] mesure → [2] en-têtes → CLIENT
 ```
+
+**Sorties anticipées.** Toute étape peut répondre sans appeler la suivante :
+`403` (blacklist, géo, règle, JA3 blacklist, score sous le seuil de blocage),
+`429` (rate limit, self-protection), `503` (circuit breaker, maintenance),
+`400` (`CF-Connecting-IP` forgé, `Host` invalide sur le redirecteur), ou la page
+de challenge (`200 text/html`). La réponse traverse alors en remontée les étapes
+déjà franchies — donc `[10]` la journalise et `[2]` l'habille.
+
+**Serveurs séparés.** L'API admin (`:9090`), le redirecteur HTTP→HTTPS et le
+serveur de challenge ACME ont leurs propres chaînes et ne traversent aucune des
+étapes ci-dessus.
 
 ## JavaScript Challenge — Séquence détaillée
 
@@ -276,86 +408,62 @@ RateBucket {
 
 ## Go Project Structure
 
+> Pour le détail des responsabilités par paquet, voir *C4 Level 3* ci-dessus.
+
 ```
 waf/
 ├── cmd/
 │   └── waf/
-│       └── main.go              # Point d'entrée, bootstrap
-├── internal/
-│   ├── config/
-│   │   ├── config.go            # Struct Config + Load() + Validate()
-│   │   └── config_test.go
-│   ├── proxy/
-│   │   ├── handler.go           # ReverseProxy, domain routing
-│   │   └── handler_test.go
-│   ├── middleware/
-│   │   ├── chain.go             # Composition de middlewares
-│   │   ├── cloudflare/
-│   │   │   ├── middleware.go
-│   │   │   ├── ranges.go        # IP ranges Cloudflare
-│   │   │   └── middleware_test.go
-│   │   ├── ratelimit/
-│   │   │   ├── middleware.go
-│   │   │   ├── bucket.go        # Token Bucket algorithm
-│   │   │   └── middleware_test.go
-│   │   ├── antibot/
-│   │   │   ├── middleware.go
-│   │   │   ├── rules.go         # User-agent rules, header checks
-│   │   │   └── middleware_test.go
-│   │   ├── antiddos/
-│   │   │   ├── middleware.go
-│   │   │   ├── breaker.go       # Circuit breaker
-│   │   │   └── middleware_test.go
-│   │   └── challenge/
-│   │       ├── middleware.go
-│   │       ├── nonce.go         # Token generation + validation
-│   │       ├── pow.go           # Proof-of-work validation (Go side)
-│   │       ├── cookie.go        # Cookie signing/validation
-│   │       └── middleware_test.go
-│   ├── trust/
-│   │   ├── score.go             # Score management, threshold evaluation
-│   │   └── score_test.go
-│   ├── fingerprint/
-│   │   ├── fingerprint.go       # Parse + hash browser signals
-│   │   └── fingerprint_test.go
-│   ├── storage/
-│   │   ├── interface.go         # Store interface
-│   │   ├── memory/
-│   │   │   ├── store.go         # In-memory store avec LRU + TTL
-│   │   │   └── store_test.go
-│   │   └── redis/
-│   │       ├── store.go         # Redis adapter
-│   │       └── store_test.go
-│   ├── admin/
-│   │   ├── server.go            # Admin HTTP server :9090
-│   │   ├── handlers.go          # Admin API handlers
-│   │   └── handlers_test.go
-│   ├── signing/
-│   │   ├── hmac.go              # HMAC-SHA256 sign/verify
-│   │   └── hmac_test.go
-│   ├── logger/
-│   │   ├── logger.go            # log/slog wrapper, request_id injection
-│   │   └── fields.go            # Log field constants
-│   └── metrics/
-│       ├── metrics.go           # Prometheus metrics definitions
-│       └── handler.go           # /waf/metrics HTTP handler
+│       ├── main.go              # Bootstrap, construction de la chaîne (routes())
+│       └── main_test.go         # Tests e2e sur routes()
+├── internal/                    # 42 paquets — cf. C4 Level 3
 ├── web/
-│   └── challenge.html           # Template HTML/CSS/JS du challenge
+│   └── challenge.html           # Template HTML/CSS/JS du challenge PoW
 ├── configs/
-│   ├── config.example.yaml      # Exemple de configuration complète
-│   └── config.schema.json       # JSON Schema de validation
-├── specs/                       # Ce répertoire (specs SDD)
-├── Dockerfile
+│   └── config.example.yaml      # Exemple de configuration complète
+├── specs/                       # Specs SDD — source de vérité
+│   ├── api/                     # Contrats OpenAPI 3.1 (API admin)
+│   ├── schemas/                 # JSON Schema, dont config.schema.json
+│   ├── features/                # Specs de comportement Gherkin
+│   ├── decisions/               # ADR
+│   ├── requirements*.md         # FR-01..FR-39, NFR
+│   ├── architecture*.md         # Ce document et ses compléments
+│   ├── plan.md, tasks.md        # Découpage en tranches et tâches
+│   ├── validation.md            # Journal des gates et décisions de triage
+│   └── changelog.md             # Keep a Changelog
+├── .github/workflows/           # CI : lint, test (race + couverture), Trivy, Semgrep
+├── .golangci.yml                # Configuration golangci-lint v2
+├── .spectral.yaml               # Ruleset Spectral pour l'OpenAPI admin
+├── .trivyignore
+├── CONFIG.md                    # Référence des clés de configuration
+├── SECURITY.md
+├── AGENTS.md, CLAUDE.md         # Instructions agents / SDD
+├── Dockerfile                   # Build multi-stage, utilisateur non root
 ├── docker-compose.yml
-├── Makefile
-├── go.mod
-├── go.sum
+├── Makefile                     # build, test, lint, run, docker-build
+├── go.mod, go.sum
 └── README.md
 ```
 
 ## ADRs Référencés
 
-- [ADR-001](decisions/ADR-001-go-language-choice.md) — Choix Go vs Bun
-- [ADR-002](decisions/ADR-002-storage-backend.md) — Stockage état visiteurs
-- [ADR-003](decisions/ADR-003-js-challenge-strategy.md) — Stratégie challenge JS
+- [ADR-001](decisions/ADR-001-go-language-choice.md) — Choix du langage : Go vs Bun/TypeScript
+- [ADR-002](decisions/ADR-002-storage-backend.md) — Backend de stockage de l'état des visiteurs
+- [ADR-003](decisions/ADR-003-js-challenge-strategy.md) — Stratégie du challenge JavaScript
 - [ADR-004](decisions/ADR-004-fingerprinting.md) — Approche fingerprinting navigateur
+- [ADR-005](decisions/ADR-005-tls-ja3-fingerprinting.md) — TLS/JA3 Fingerprinting
+- [ADR-006](decisions/ADR-006-threat-intelligence-integration.md) — Intégration Threat Intelligence externe
+- [ADR-007](decisions/ADR-007-custom-rules-engine.md) — Moteur de Règles Personnalisées
+- [ADR-008](decisions/ADR-008-deception-layer.md) — Deception Layer (Tarpit + Honeypot Content)
+- [ADR-009](decisions/ADR-009-behavioral-analysis.md) — Behavioral Sequence Analysis
+- [ADR-010](decisions/ADR-010-adaptive-difficulty.md) — Adaptive PoW Difficulty
+- [ADR-011](decisions/ADR-011-security-headers.md) — Stratégie Security Headers
+- [ADR-012](decisions/ADR-012-upstream-health-loadbalancing.md) — Upstream Health Checks & Load Balancing
+- [ADR-013](decisions/ADR-013-gdpr-compliance.md) — Conformité GDPR & Privacy by Design
+- [ADR-014](decisions/ADR-014-logging-library.md) — Bibliothèque de logging : log/slog (stdlib) vs zerolog
+- [ADR-015](decisions/ADR-015-risk-scoring-decision-engine.md) — Moteur de Scoring de Risque & Décision graduée
+- [ADR-016](decisions/ADR-016-adaptive-global-pressure.md) — Pression globale adaptative au lieu du 503 global
+- [ADR-017](decisions/ADR-017-per-domain-tls.md) — Terminaison TLS par domaine (sélection par SNI)
+- [ADR-018](decisions/ADR-018-under-attack-mode.md) — Mode « sous attaque » : challenge forcé piloté par la pression
+- [ADR-019](decisions/ADR-019-infrastructure-header-trust.md) — Frontière de confiance des en-têtes d'infrastructure (`CF-*`, `ja3_header`) **(`proposed`)**
+- [ADR-020](decisions/ADR-020-host-header-routing-trust.md) — Confiance accordée à l'en-tête `Host` pour le routage et la politique par domaine **(`proposed`)**
