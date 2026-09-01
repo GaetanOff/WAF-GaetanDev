@@ -631,3 +631,21 @@ last-updated: 2026-06-09
 - **Validation 2026-08-31** : `go build ./...`, `go vet ./...`, `go test ./...` (413 tests, 41 paquets), `gofmt -l` passent ; schema JSON valide ; `config.example.yaml` conforme. Detail dans validation.md.
 - **Statut** : implemente.
 - **Spec** : requirements.md FR-06 (v2.2.0) ; features/js-challenge.feature ; schemas/config.schema.json
+
+## Sprint 14 - Durcissement de la frontiere d'ingress (Phase 14)
+
+### T14.1 - En-tetes X-WAF-* forgeables par le client (FR-30)
+- [x] Constat : les middlewares se coordonnent via des en-tetes `X-WAF-*` poses **sur la requete** et relus en aval (16 lectures `r.Header.Get`). Rien ne les nettoyait a l'entree : un client pouvait les fabriquer
+- [x] Impact verifie : `X-WAF-Action: PASS` est teste en court-circuit par le challenge (`internal/trust/score.go`), le rate limiting (`internal/middleware/ratelimit`), l'integrite (`internal/integrity`), le threat intel (`internal/threatintel`) et le moteur de regles (`internal/rules`) — contournement complet du WAF en un seul en-tete, atteignable depuis Internet (Cloudflare ne filtre pas les `X-*` arbitraires)
+- [x] Nouveau paquet `internal/middleware/ingress` : supprime tout en-tete de prefixe `X-WAF-` de la requete entrante
+- [x] Suppression **par prefixe** et non par liste nominative : les en-tetes internes ajoutes plus tard sont couverts d'office ; une liste se desynchronise en silence et son oubli est un fail-open
+- [x] Appariement **insensible a la casse** (`strings.EqualFold` sur le prefixe) plutot que `HasPrefix` sur la forme canonique : la protection ne doit pas dependre d'un invariant interne de `net/http`
+- [x] Cable en position **la plus externe** de `routes()` (apres `secheaders`, donc premier a l'execution) dans `cmd/waf/main.go`
+- [x] Flux interne preserve : les detecteurs (`integrity`, `geo`, `antiddos`, `ratelimit`, `antibot`, `tlsfp`, `behavioral`) posent leurs `X-WAF-Risk-*` **a l'interieur** du pipeline, donc apres ce middleware ; `CF-Connecting-IP`, `X-Forwarded-*` et `Authorization` ne sont pas touches
+- [x] Deux tests de `cmd/waf` utilisaient la faille comme point d'injection (`X-WAF-Risk-*` poses sur la requete cliente, `detectors = nil`) : ils passent desormais par un detecteur du parametre `detectors`, **comme en production**. `TestRoutesRiskEngineShadowByDefault` passait pour la mauvaise raison (il verifie que le proxy *est* appele, ce qui devenait vrai trivialement) et redevient significatif
+- [x] Tests : 13 cas unitaires sur le paquet (9 en-tetes forges dont variantes de casse, cles non canoniques ecrites directement dans la map, en-tete multivalue, non-regression des en-tetes legitimes, non-debordement du prefixe sur `X-WAF` nu et `X-WAFER-*`) + 6 cas e2e sur `routes()` avec temoin. Cablage et filtre **verifies en echec** par mutation. Couverture du paquet : 100%
+- [ ] Audit des autres surfaces de confiance implicite (`X-Forwarded-*` hors chemin Cloudflare, `Host` en amont du routage `domains[]`) — **hors perimetre**, demande ses propres specs
+- **Acceptance** : une requete cliente portant `X-WAF-Action: PASS` (ou tout autre `X-WAF-*`) est traitee exactement comme si l'en-tete n'existait pas ; les signaux poses par le pipeline lui-meme restent lisibles en aval ; aucun en-tete hors prefixe n'est altere.
+- **Validation 2026-09-01** : `go build ./...`, `go vet ./...`, `go test ./...` (433 tests, 42 paquets), `gofmt -l` (copies normalisees LF), `golangci-lint run` passent. Detail dans validation.md.
+- **Statut** : implemente.
+- **Spec** : requirements-ops.md FR-30 (v3.2.0) ; features/waf-self-protection.feature ; architecture.md (v1.1.0)
