@@ -33,6 +33,7 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/antiddos"
 	"github.com/gaetandev/waf/internal/middleware/challenge"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
+	"github.com/gaetandev/waf/internal/middleware/ingress"
 	"github.com/gaetandev/waf/internal/middleware/ratelimit"
 	"github.com/gaetandev/waf/internal/origin"
 	"github.com/gaetandev/waf/internal/proxy"
@@ -486,6 +487,11 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	if cfg.SecurityHeaders.Enabled {
 		handler = secheaders.New(cfg.SecurityHeaders).Handler(handler)
 	}
+	// Assainissement de l'ingress : supprime les en-têtes X-WAF-* fournis par le
+	// client. Doit rester le middleware le plus externe — le pipeline traite ces
+	// en-têtes comme de l'état interne de confiance (X-WAF-Action: PASS vaut
+	// bypass du challenge, du rate limiting, de l'intégrité et des règles).
+	handler = ingress.Middleware(handler)
 	return handler
 }
 

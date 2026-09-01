@@ -1,7 +1,7 @@
 ---
 status: approved
-version: 1.0.0
-last-reviewed: 2026-06-03
+version: 1.1.0
+last-reviewed: 2026-09-01
 ---
 
 # Architecture — WAF Anti-DDoS / Anti-Bot
@@ -69,6 +69,7 @@ internal/
 ├── config/          Config struct, YAML loader, env override, validator
 ├── proxy/           ReverseProxy wrapper (net/http/httputil), header rewrite
 ├── middleware/
+│   ├── ingress/     Suppression des en-têtes X-WAF-* fournis par le client (le plus externe)
 │   ├── cloudflare/  IP range validation, CF-Connecting-IP extraction
 │   ├── ratelimit/   Token Bucket per IP, sliding window, 429 response
 │   ├── antibot/     User-agent analysis, header heuristics, honeypot
@@ -89,6 +90,11 @@ internal/
 ```
 REQUÊTE ENTRANTE
       │
+      ▼
+[0] IngressSanitizer                                      (internal/middleware/ingress)
+      │ Supprime tout en-tête `X-WAF-*` fourni par le client
+      │ Les étapes suivantes se coordonnent via ces en-têtes : ils
+      │ sont de l'état interne, jamais une entrée client (FR-30)
       ▼
 [1] CloudflareMiddleware
       │ Vérifie IP source ∈ ranges Cloudflare

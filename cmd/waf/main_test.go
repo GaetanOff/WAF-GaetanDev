@@ -207,6 +207,22 @@ func TestRoutesExposesPrometheusMetricsEndpoint(t *testing.T) {
 	}
 }
 
+// riskFamilyDetector simule les détecteurs de production (intégrité, geo, tlsfp,
+// behavioral, rate…) qui publient leurs contributions via les en-têtes
+// X-WAF-Risk-* depuis l'intérieur du pipeline. Injecter ces en-têtes depuis la
+// requête cliente ne fonctionne plus : le middleware ingress supprime tout
+// X-WAF-* fourni par le client (sinon X-WAF-Action: PASS contournerait le WAF).
+func riskFamilyDetector(families map[string]string) func(http.Handler) http.Handler {
+	return func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			for name, value := range families {
+				r.Header.Set(name, value)
+			}
+			next.ServeHTTP(w, r)
+		})
+	}
+}
+
 func TestRoutesAppliesRiskDecisionBeforeProxy(t *testing.T) {
 	cfg := config.Default()
 	cfg.Cloudflare.Trusted = false
@@ -225,7 +241,14 @@ func TestRoutesAppliesRiskDecisionBeforeProxy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("risk.NewMiddleware() error = %v", err)
 	}
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
+		"X-WAF-Risk-Behavioral":  "100",
+		"X-WAF-Risk-TLS":         "100",
+		"X-WAF-Risk-Fingerprint": "100",
+		"X-WAF-Risk-Integrity":   "100",
+		"X-WAF-Risk-Rate":        "100",
+		"X-WAF-Risk-Geo":         "100",
+	})}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("proxy should not be called")
 	}))
 	request := requestFrom("198.51.100.10:443")
@@ -234,12 +257,6 @@ func TestRoutesAppliesRiskDecisionBeforeProxy(t *testing.T) {
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
 	request.Header.Set("Accept-Language", "en-US")
 	request.Header.Set("Accept-Encoding", "gzip")
-	request.Header.Set("X-WAF-Risk-Behavioral", "100")
-	request.Header.Set("X-WAF-Risk-TLS", "100")
-	request.Header.Set("X-WAF-Risk-Fingerprint", "100")
-	request.Header.Set("X-WAF-Risk-Integrity", "100")
-	request.Header.Set("X-WAF-Risk-Rate", "100")
-	request.Header.Set("X-WAF-Risk-Geo", "100")
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
@@ -267,18 +284,23 @@ func TestRoutesRiskEngineShadowByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("risk.NewMiddleware() error = %v", err)
 	}
+	// Familles synthétiques élevées, publiées depuis l'intérieur du pipeline
+	// comme le font les détecteurs de production. Sans shadow, la fusion rend
+	// une décision de mitigation (THROTTLE à 58 aujourd'hui) : c'est ce que
+	// l'assertion sur X-WAF-Risk-Decision vérifie, sinon « le proxy est appelé »
+	// serait vrai trivialement.
 	proxyCalled := false
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
+		"X-WAF-Risk-Behavioral": "100",
+		"X-WAF-Risk-TLS":        "100",
+		"X-WAF-Risk-Integrity":  "100",
+		"X-WAF-Risk-Geo":        "100",
+	})}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		proxyCalled = true
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	request := requestFrom("198.51.100.10:443")
 	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
-	// Familles synthétiques élevées : sans shadow, ce serait un BLOCK.
-	request.Header.Set("X-WAF-Risk-Behavioral", "100")
-	request.Header.Set("X-WAF-Risk-TLS", "100")
-	request.Header.Set("X-WAF-Risk-Integrity", "100")
-	request.Header.Set("X-WAF-Risk-Geo", "100")
 	response := httptest.NewRecorder()
 
 	handler.ServeHTTP(response, request)
@@ -288,6 +310,9 @@ func TestRoutesRiskEngineShadowByDefault(t *testing.T) {
 	}
 	if request.Header.Get("X-WAF-Risk-Shadow-Mode") != "true" {
 		t.Fatalf("X-WAF-Risk-Shadow-Mode = %q, want true", request.Header.Get("X-WAF-Risk-Shadow-Mode"))
+	}
+	if decision := request.Header.Get("X-WAF-Risk-Decision"); decision == "" || decision == "ALLOW" {
+		t.Fatalf("X-WAF-Risk-Decision = %q, want une décision de mitigation : sans elle le shadow n'est pas testé", decision)
 	}
 }
 
@@ -359,6 +384,54 @@ func TestRunHealthCheck(t *testing.T) {
 			err := runHealthCheck(tt.url)
 			if (err != nil) != tt.wantErr {
 				t.Fatalf("runHealthCheck() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+		})
+	}
+}
+
+// FR-30 : les en-têtes X-WAF-* sont de l'état interne du pipeline. Un client qui
+// posait lui-même X-WAF-Action: PASS court-circuitait le challenge, le rate
+// limiting, l'analyse d'intégrité, le threat intel et le moteur de règles — un
+// contournement complet du WAF en un seul en-tête. Le premier cas est le témoin :
+// sans lui, le test passerait même si le challenge ne se déclenchait jamais.
+func TestRoutesIgnoresClientSuppliedWAFHeaders(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.Challenge.Enabled = true
+
+	tests := []struct {
+		name   string
+		forged map[string]string
+	}{
+		{name: "temoin sans en-tete forge"},
+		{name: "action PASS", forged: map[string]string{"X-WAF-Action": "PASS"}},
+		{name: "action PASS en minuscules", forged: map[string]string{"x-waf-action": "PASS"}},
+		{name: "score de confiance", forged: map[string]string{"X-WAF-Score": "100", "X-WAF-State": "TRUSTED"}},
+		{name: "familles de risque", forged: map[string]string{"X-WAF-Risk-Behavioral": "0", "X-WAF-Risk-Decision": "ALLOW"}},
+		{name: "jeton d'origine", forged: map[string]string{"X-WAF-Origin-Token": "forge"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			proxied := false
+			handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				proxied = true
+				w.WriteHeader(http.StatusNoContent)
+			}))
+
+			request := requestFrom("198.51.100.10:443")
+			for name, value := range tt.forged {
+				request.Header.Set(name, value)
+			}
+			response := httptest.NewRecorder()
+
+			handler.ServeHTTP(response, request)
+
+			if proxied {
+				t.Fatalf("upstream atteint (status %d) : en-têtes %v honorés", response.Code, tt.forged)
+			}
+			if got := response.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
+				t.Fatalf("Content-Type = %q, want la page de challenge (status %d)", got, response.Code)
 			}
 		})
 	}

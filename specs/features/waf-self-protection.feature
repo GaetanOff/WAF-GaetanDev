@@ -37,6 +37,48 @@ Feature: Auto-protection du WAF
     And seulement les 5 plus récents sont valides
     And un event est journalisé avec reason="nonce_flood_detection"
 
+  # ── Assainissement des en-têtes internes à l'ingress ────────────────────────
+
+  Scenario: En-tête X-WAF-Action forgé par le client — le pipeline n'est pas contourné
+    Given le challenge JS est actif et le visiteur est sous le seuil de confiance
+    When il envoie une requête GET "/" avec l'en-tête "X-WAF-Action: PASS"
+    Then l'en-tête est supprimé avant tout autre middleware
+    And le WAF sert la page de challenge comme si l'en-tête n'avait jamais existé
+    And la requête n'atteint pas l'upstream
+    # Sans ce nettoyage, PASS court-circuite challenge (FR-06), rate limiting
+    # (FR-03), intégrité (FR-18), threat intel (FR-13) et moteur de règles (FR-17).
+
+  Scenario Outline: Tout en-tête de préfixe X-WAF- fourni par le client est supprimé
+    Given un client envoie l'en-tête "<header>" avec une valeur arbitraire
+    When la requête entre dans le pipeline
+    Then les middlewares en aval lisent une valeur vide pour "<header>"
+
+    Examples:
+      | header                     |
+      | X-WAF-Action               |
+      | x-waf-action               |
+      | X-WAF-ACTION               |
+      | X-WAF-Score                |
+      | X-WAF-Score-Delta          |
+      | X-WAF-Reason               |
+      | X-WAF-Risk-Decision        |
+      | X-WAF-Under-Attack-Enforce |
+      | X-WAF-Origin-Token         |
+
+  Scenario: Les en-têtes légitimes du client ne sont pas altérés
+    Given un client envoie "CF-Connecting-IP: 203.0.113.7", "X-Forwarded-Host: panel.example.com" et "Authorization: Bearer token"
+    When la requête entre dans le pipeline
+    Then ces trois en-têtes sont transmis inchangés
+    # L'extraction d'IP réelle (FR-02) et l'authentification admin (FR-10) en dépendent.
+
+  Scenario: Les signaux posés à l'intérieur du pipeline restent visibles
+    Given le bypass d'assets statiques (FR-24) pose "X-WAF-Action: PASS" sur la requête
+    And les détecteurs posent leurs contributions "X-WAF-Risk-*"
+    When la requête poursuit sa traversée du pipeline
+    Then le challenge, le rate limiting et le moteur de risque lisent bien ces valeurs
+    # L'assainissement s'applique une seule fois, à l'entrée : il ne rejoue pas
+    # sur les en-têtes produits par le pipeline lui-même.
+
   # ── Protection API Admin ─────────────────────────────────────────────────────
 
   Scenario: Rate limit sur les tentatives d'authentification admin
