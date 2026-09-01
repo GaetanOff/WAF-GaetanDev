@@ -488,10 +488,18 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 		handler = secheaders.New(cfg.SecurityHeaders).Handler(handler)
 	}
 	// Assainissement de l'ingress : supprime les en-têtes X-WAF-* fournis par le
-	// client. Doit rester le middleware le plus externe — le pipeline traite ces
-	// en-têtes comme de l'état interne de confiance (X-WAF-Action: PASS vaut
-	// bypass du challenge, du rate limiting, de l'intégrité et des règles).
+	// client. Doit précéder tout middleware qui lit ces en-têtes — le pipeline les
+	// traite comme de l'état interne de confiance (X-WAF-Action: PASS vaut bypass
+	// du challenge, du rate limiting, de l'intégrité et des règles). Seule la
+	// capture FR-19 ci-dessous s'exécute en amont, et elle n'interprète rien.
 	handler = ingress.Middleware(handler)
+	// FR-19 : le token que l'upstream retransmet à /waf/origin/verify est le seul
+	// X-WAF-* d'origine cliente à rester lisible. Capturé ici, donc en amont de
+	// l'assainissement, et lu hors de r.Header — sans quoi l'oracle répondrait
+	// 401 à tout token, valide compris. La valeur reste vérifiée par HMAC.
+	if cfg.OriginProtection.Enabled {
+		handler = origin.CaptureInboundToken(handler)
+	}
 	return handler
 }
 

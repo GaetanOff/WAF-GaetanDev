@@ -16,6 +16,7 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/antiddos"
 	"github.com/gaetandev/waf/internal/middleware/challenge"
 	"github.com/gaetandev/waf/internal/middleware/ratelimit"
+	"github.com/gaetandev/waf/internal/origin"
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/trust"
@@ -432,6 +433,50 @@ func TestRoutesIgnoresClientSuppliedWAFHeaders(t *testing.T) {
 			}
 			if got := response.Header().Get("Content-Type"); got != "text/html; charset=utf-8" {
 				t.Fatalf("Content-Type = %q, want la page de challenge (status %d)", got, response.Code)
+			}
+		})
+	}
+}
+
+// FR-19 × FR-30 : l'assainissement d'ingress supprime tout X-WAF-* fourni par le
+// client, mais /waf/origin/verify est appelé par l'upstream qui lui retransmet le
+// X-WAF-Origin-Token reçu. Sans la capture en amont de l'assainisseur, l'oracle
+// répond 401 à tout token, valide compris — la vérification FR-19 est inopérante.
+func TestRoutesOriginVerifyReadsTheRetransmittedToken(t *testing.T) {
+	const secret = "0123456789abcdef0123456789abcdef"
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.Challenge.Enabled = false
+	cfg.OriginProtection.Enabled = true
+	cfg.OriginProtection.Secret = secret
+
+	tests := []struct {
+		name       string
+		token      string
+		wantStatus int
+	}{
+		{name: "token valide", token: origin.NewSigner(secret).Token("example.test"), wantStatus: http.StatusOK},
+		{name: "token forge", token: "forge", wantStatus: http.StatusUnauthorized},
+		{name: "aucun token", token: "", wantStatus: http.StatusUnauthorized},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				t.Fatal("proxy should not be called for /waf/origin/verify")
+			}))
+
+			request := httptest.NewRequest(http.MethodGet, "http://example.test/waf/origin/verify", nil)
+			request.RemoteAddr = "198.51.100.10:443"
+			if tt.token != "" {
+				request.Header.Set(origin.HeaderToken, tt.token)
+			}
+			response := httptest.NewRecorder()
+
+			handler.ServeHTTP(response, request)
+
+			if response.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d (body %s)", response.Code, tt.wantStatus, response.Body.String())
 			}
 		})
 	}
