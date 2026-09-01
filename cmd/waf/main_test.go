@@ -284,6 +284,11 @@ func TestRoutesRiskEngineShadowByDefault(t *testing.T) {
 	if err != nil {
 		t.Fatalf("risk.NewMiddleware() error = %v", err)
 	}
+	// Familles synthétiques élevées, publiées depuis l'intérieur du pipeline
+	// comme le font les détecteurs de production. Sans shadow, la fusion rend
+	// une décision de mitigation (THROTTLE à 58 aujourd'hui) : c'est ce que
+	// l'assertion sur X-WAF-Risk-Decision vérifie, sinon « le proxy est appelé »
+	// serait vrai trivialement.
 	proxyCalled := false
 	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
 		"X-WAF-Risk-Behavioral": "100",
@@ -305,6 +310,9 @@ func TestRoutesRiskEngineShadowByDefault(t *testing.T) {
 	}
 	if request.Header.Get("X-WAF-Risk-Shadow-Mode") != "true" {
 		t.Fatalf("X-WAF-Risk-Shadow-Mode = %q, want true", request.Header.Get("X-WAF-Risk-Shadow-Mode"))
+	}
+	if decision := request.Header.Get("X-WAF-Risk-Decision"); decision == "" || decision == "ALLOW" {
+		t.Fatalf("X-WAF-Risk-Decision = %q, want une décision de mitigation : sans elle le shadow n'est pas testé", decision)
 	}
 }
 
