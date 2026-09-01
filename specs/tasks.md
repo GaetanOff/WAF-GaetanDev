@@ -678,3 +678,19 @@ last-updated: 2026-06-09
 - **Validation 2026-09-01** : `go build ./...`, `go vet ./...`, `go test ./...` (447 tests, 42 paquets), `gofmt -l` passent. Detail dans validation.md.
 - **Statut** : correctif FR-17 implemente ; ADR-019 et ADR-020 en attente de decision.
 - **Spec** : requirements-advanced.md FR-17 (v2.3.0) ; requirements-ops.md FR-30 (v3.3.0) ; features/rules-engine.feature ; ADR-019 ; ADR-020
+
+### T14.4 - Remise a niveau d'architecture.md sur le code reel
+- [x] Constat : le `Request Processing Pipeline` decrivait 10 etapes de la v1. Manquaient `ingress`, `secheaders`, `maintenance`, `slowloris`, `staticassets`, `selfprotect`, `metrics`, `access`, les 7 detecteurs de signal, le moteur de risque, `origin` et le tarpit — la moitie de la chaine, dont tout ce qui a ete livre depuis la phase 8
+- [x] 21 etapes listees dans leur **ordre d'execution**, chacune avec **la cle de configuration qui la monte** : une etape non montee est absente de la chaine, elle ne se contente pas de ne rien faire
+- [x] Documente que `/waf/health`, `/waf/metrics` et `/waf/origin/verify` sont servis par le `mux` **sans traverser** les etapes [6] a [20] — fait structurant absent du document
+- [x] Sorties anticipees (403, 429, 503, 400, page de challenge) et chemin de remontee de la reponse
+- [x] Renvois vers ADR-019 et ADR-020 poses aux deux etapes concernees, pour que le lecteur du diagramme voie les limites
+- [x] `C4 niveau 2` reecrit (bordures alignees a 71 colonnes, trois chemins `/waf/*` visibles) ; `C4 niveau 3` de 15 a 42 paquets groupes par role ; `Go Project Structure` corrige (`middleware/chain.go` n'existe pas, `config.schema.json` vit dans `specs/schemas/`)
+- [x] Index des ADR complete : il s'arretait a ADR-004, il couvre les 20, statut affiche pour les non-`accepted`
+- [x] Verifie ligne par ligne contre `routes()` : ordre de composition, conditions de montage, position du tarpit entre `origin.Injector` et le proxy
+- [ ] `architecture-advanced.md` et `architecture-ops.md` — **non verifies**, hors perimetre de cette passe
+- [ ] Sections `Data Model`, `Cookie de Session`, `Score de Confiance` d'`architecture.md` — **non verifiees** contre le code, hors perimetre
+- **Acceptance** : un lecteur du seul `architecture.md` peut reconstituer l'ordre reel de la chaine, savoir quelle cle de config monte chaque etape, et savoir quels chemins ne la traversent pas.
+- **Validation 2026-09-01** : document uniquement, aucun code touche. `go build ./...`, `go vet ./...`, `go test ./...` (447 tests, 42 paquets) passent — inchanges.
+- **Statut** : implemente.
+- **Spec** : architecture.md (v1.2.0) ; ADR-019 ; ADR-020
