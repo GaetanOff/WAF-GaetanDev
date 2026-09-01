@@ -663,3 +663,18 @@ last-updated: 2026-06-09
 - **Validation 2026-09-01** : `go build ./...`, `go vet ./...`, `go test ./...` (440 tests, 42 paquets), `gofmt -l` passent. Detail dans validation.md.
 - **Statut** : implemente.
 - **Spec** : requirements-advanced.md FR-19 (v2.2.0) ; requirements-ops.md FR-30 (v3.2.1) ; features/origin-protection.feature ; features/waf-self-protection.feature
+
+### T14.3 - Audit des surfaces de confiance implicite (FR-17, ADR-019, ADR-020)
+- [x] Inventaire : toutes les lectures d'en-tete entrant utilisees pour une decision de securite, hors namespace `X-WAF-*` deja couvert par T14.1
+- [x] Constat FR-17 : `internal/rules/rules.go` resolvait la condition `ip` via `r.Header.Get("X-Real-IP")` — **seul** endroit du depot a ne pas passer par `cloudflare.RealIP` (20 autres consommateurs le font). `X-Real-IP` est un en-tete **sortant** pose par `internal/proxy` vers l'upstream ; en entree il vient du client, et Cloudflare ne le reecrit pas
+- [x] Impact verifie : `X-Real-IP: 8.8.8.8` faisait echapper un client reellement en `10.1.2.3` a une regle `ip in_cidr ["10.0.0.0/8"]` de blocage ; `X-Real-IP: <ip de confiance>` usurpait une regle d'attribution de score. **Exploitable a travers Cloudflare**, sans acces direct a l'origine
+- [x] Corrige : `clientIP` delegue a `cloudflare.RealIP` — un seul chemin d'IP pour toutes les decisions du WAF
+- [x] Tests : table de 5 cas (2 temoins, evasion, usurpation, X-Forwarded-For) + resolution derriere Cloudflare avec `CF-Connecting-IP` validee. **Verifies en echec** par mutation (retour de la precedence `X-Real-IP`)
+- [x] ADR-019 `proposed` : en-tetes d'infrastructure (`CF-IPCountry` pour FR-16 et le champ `country`, `ja3_header` pour FR-11) honores sans preuve d'origine. La forge n'est qu'un cas particulier — ces controles **degradent gracieusement** sur en-tete absent, donc l'omission suffit deja. 4 options exposees, **non tranchees**
+- [x] ADR-020 `proposed` : `Host` pilote a la fois le routage et la politique par domaine. Un `Host` non liste retombe sur `upstream.address` **et** sur la politique globale — si le defaut pointe la meme origine qu'un domaine durci, le durcissement est contournable par un en-tete. Pas de liaison SNI/`Host` en TLS par domaine (FR-33). Options exposees, **non tranchees**
+- [ ] Implementation d'ADR-019 et ADR-020 — **bloquee sur decision d'operateur** : leurs options rejettent du trafic aujourd'hui accepte (health checks, acces par IP, reutilisation HTTP/2 inter-domaines). Ne pas trancher a la place de l'operateur (invariant CLAUDE.md)
+- [ ] `CONFIG.md` : documenter que `blocked_countries`/`allowed_countries`/`ja3_blacklist` et le durcissement par domaine sont des controles de reduction de bruit tant qu'ADR-019/020 ne sont pas tranches — **a faire au moment de la decision**, pour ne pas documenter deux fois
+- **Acceptance** : une regle `ip` matche sur l'IP reelle etablie par le WAF quelle que soit la valeur de `X-Real-IP` ou `X-Forwarded-For` fournie par le client ; derriere Cloudflare elle matche sur `CF-Connecting-IP` validee.
+- **Validation 2026-09-01** : `go build ./...`, `go vet ./...`, `go test ./...` (447 tests, 42 paquets), `gofmt -l` passent. Detail dans validation.md.
+- **Statut** : correctif FR-17 implemente ; ADR-019 et ADR-020 en attente de decision.
+- **Spec** : requirements-advanced.md FR-17 (v2.3.0) ; requirements-ops.md FR-30 (v3.3.0) ; features/rules-engine.feature ; ADR-019 ; ADR-020
