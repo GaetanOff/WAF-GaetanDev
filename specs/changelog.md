@@ -89,6 +89,40 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ### Security
 
+- **FR-30 — contournement complet du pipeline par en-tête `X-WAF-*` forgé**
+  (nouveau paquet `internal/middleware/ingress`). Les middlewares se coordonnent
+  en posant des en-têtes `X-WAF-*` **sur la requête**, relus en aval ; rien ne les
+  nettoyait à l'entrée, donc un client pouvait les fabriquer. `X-WAF-Action: PASS`
+  est testé en court-circuit par le challenge (`internal/trust/score.go`), le rate
+  limiting (`internal/middleware/ratelimit`), l'analyse d'intégrité
+  (`internal/integrity`), le threat intel (`internal/threatintel`) et le moteur de
+  règles (`internal/rules`) : un seul en-tête suffisait à traverser tout le WAF.
+  Reproduit sur `routes()` avant correctif — visiteur sous le seuil, `Accept:
+  text/html`, `X-WAF-Action: PASS` → **204 de l'upstream** au lieu de la page de
+  challenge. Atteignable depuis Internet : les proxies amont, Cloudflare compris,
+  ne filtrent pas les `X-*` arbitraires.
+  - Le middleware supprime **tout** en-tête de préfixe `X-WAF-` et est câblé en
+    position **la plus externe** de `routes()`, après `secheaders` — donc premier
+    à l'exécution, avant que quoi que ce soit ne lise ces en-têtes.
+  - Suppression **par préfixe** et non par liste nominative : les 16 en-têtes
+    internes actuels sont couverts, et ceux ajoutés plus tard le sont d'office.
+    Une liste nominative se désynchronise en silence, et l'oubli est un fail-open.
+  - `net/http` canonicalise les clés de `http.Header`, donc `x-waf-action` comme
+    `X-WAF-ACTION` sont couverts par le seul préfixe `X-Waf-` ; les tests le
+    vérifient explicitement.
+  - **Flux interne préservé** : les détecteurs (`integrity`, `geo`, `antiddos`,
+    `ratelimit`, `antibot`, `tlsfp`, `behavioral`) posent leurs `X-WAF-Risk-*`
+    *à l'intérieur* du pipeline, donc après ce middleware. Seul ce qui vient du
+    client est retiré. `CF-Connecting-IP` (FR-02), les `X-Forwarded-*` et
+    `Authorization` (FR-10) ne sont pas touchés.
+  - Effet de bord assumé sur deux tests de `cmd/waf` qui **utilisaient la faille
+    comme point d'injection** : ils posaient `X-WAF-Risk-*` sur la requête cliente
+    pour piloter le moteur de risque. `TestRoutesAppliesRiskDecisionBeforeProxy`
+    échouait franchement ; `TestRoutesRiskEngineShadowByDefault` passait pour la
+    mauvaise raison (il vérifie que le proxy *est* appelé, ce qui devenait vrai
+    trivialement). Les deux passent désormais par un détecteur du paramètre
+    `detectors`, **comme en production**, et redeviennent significatifs.
+
 - Alertes code-scanning n°35/36 (`go/clear-text-logging`, CWE-312, HIGH)
   **corrigées** : les en-têtes Cloudflare `CF-Ray` et `CF-IPCountry` étaient lus
   via le helper générique `optionalHeader(r, name)` au **nom d'en-tête variable**,

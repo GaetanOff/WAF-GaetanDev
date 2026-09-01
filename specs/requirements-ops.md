@@ -1,9 +1,9 @@
 ---
 status: approved
-version: 3.1.0
-last-reviewed: 2026-06-10
+version: 3.2.0
+last-reviewed: 2026-09-01
 extends: requirements-advanced.md (v2.0.0)
-change: "Ajout FR-33 — terminaison TLS par domaine (sélection par SNI), voir ADR-017 ; implémenté en Slice 11.1"
+change: "FR-30 : le WAF DOIT supprimer tout en-tête `X-WAF-*` fourni par le client avant tout autre middleware — ces en-têtes sont de l'état interne (X-WAF-Action: PASS valait contournement complet du pipeline)"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -157,6 +157,36 @@ change: "Ajout FR-33 — terminaison TLS par domaine (sélection par SNI), voir 
 - Les webhooks NE DOIVENT PAS bloquer le pipeline de traitement des requêtes (exécution asynchrone via channel)
 
 ## FR-30 — Auto-protection du WAF
+
+### Assainissement des en-têtes internes à l'ingress
+
+- Les middlewares du WAF se coordonnent en posant des en-têtes `X-WAF-*` **sur la
+  requête**, relus par les middlewares en aval : `X-WAF-Action`, `X-WAF-Reason`,
+  `X-WAF-Score`, `X-WAF-Score-Delta`, `X-WAF-Risk-*`, `X-WAF-Global-Pressure`,
+  `X-WAF-Under-Attack`, `X-WAF-Under-Attack-Enforce`, `X-WAF-Origin-Token`, etc.
+  Ces en-têtes sont de l'**état interne de confiance** : ils DOIVENT provenir du
+  pipeline, jamais du client
+- Le WAF DOIT supprimer de la requête entrante **tout en-tête dont le nom commence
+  par `X-WAF-`**, avant l'exécution de tout autre middleware
+  - La suppression est faite **par préfixe**, et non par liste nominative : tout
+    en-tête interne ajouté ultérieurement est couvert d'office. Une liste
+    nominative se désynchronise en silence, et son oubli est un fail-open
+  - L'appariement DOIT être insensible à la casse (`x-waf-action`,
+    `X-WAF-ACTION`, `X-Waf-Action` sont le même en-tête)
+- Aucun autre en-tête NE DOIT être altéré — en particulier `CF-Connecting-IP`
+  (FR-02), les `X-Forwarded-*` et `Authorization`, dont dépendent l'extraction
+  d'IP réelle et l'API admin (FR-10)
+- Les en-têtes internes posés **à l'intérieur** du pipeline NE DOIVENT PAS être
+  affectés : `X-WAF-Action: PASS` de la whitelist (FR-04) et du bypass d'assets
+  statiques (FR-24), les `X-WAF-Risk-*` des détecteurs de familles de risque
+  (FR-11, FR-12, FR-16, FR-18), `X-WAF-Origin-Token` (FR-19). L'assainissement
+  s'applique une seule fois, à l'entrée
+- Motif : `X-WAF-Action: PASS` est testé en court-circuit par le challenge
+  (FR-06), le rate limiting (FR-03), l'analyse d'intégrité (FR-18), le threat
+  intel (FR-13) et le moteur de règles (FR-17). Sans assainissement, un client
+  qui pose lui-même cet en-tête obtient un **contournement complet du WAF en un
+  seul en-tête**. La menace est atteignable depuis Internet : les proxies amont,
+  Cloudflare compris, ne filtrent pas les en-têtes `X-*` arbitraires
 
 ### Protection de l'endpoint /waf/verify
 - Le WAF DOIT appliquer un rate limit strict sur `POST /waf/verify` : configurable (défaut: 10 req/s par IP)
