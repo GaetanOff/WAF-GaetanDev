@@ -40,14 +40,22 @@ upstream:
 # Intégration Cloudflare
 cloudflare:
   trusted: true               # Faire confiance à CF-Connecting-IP
-  auto_update_ranges: false   # true = fetch https://www.cloudflare.com/ips-v4 toutes les 24h
-  update_interval: "24h"
+  # true = récupère https://www.cloudflare.com/ips-v4 et ips-v6 au démarrage puis
+  # toutes les update_interval. Une liste invalide ou trop large est rejetée en
+  # entier : la liste compilée dans le binaire reste alors en vigueur. Exige
+  # trusted: true.
+  auto_update_ranges: false
+  update_interval: "24h"      # >= 1m quand auto_update_ranges est actif
 
 # Rate limiting global (Token Bucket par IP)
 rate_limit:
   enabled: true
-  requests_per_second: 50    # Tokens ajoutés par seconde
-  burst: 100                 # Capacité max du bucket (spike autorisé)
+  requests_per_second: 50    # Tokens ajoutés par seconde (borne la RAFALE avec burst)
+  burst: 100                 # Capacité max du bucket seconde (spike autorisé)
+  # Fenêtres supplémentaires : chacune son propre bucket (recharge = limite /
+  # durée de la fenêtre, capacité = la limite). Elles bornent le débit SOUTENU —
+  # le martèlement lent qu'une limite par seconde ne voit pas. 0 désactive une
+  # fenêtre. requests_per_hour doit être >= requests_per_minute.
   requests_per_minute: 1000
   requests_per_hour: 10000
 
@@ -282,12 +290,18 @@ admin:
 
 # Stockage de l'état visiteurs
 storage:
-  backend: "memory"          # "memory" (défaut) ou "redis"
+  # "memory" : état par processus, borné par trust.max_visitors.
+  # "redis"   : état partagé entre instances. Redis injoignable au démarrage est
+  #             une erreur de démarrage (pas de repli silencieux en mémoire) ;
+  #             une perte en cours d'exploitation bascule le nœud sur son état
+  #             local (waf_storage_degraded = 1) sans interrompre le service.
+  backend: "memory"
   # redis:
   #   address: "redis:6379"
   #   password: ""           # Préférer WAF_REDIS_PASSWORD env var
   #   db: 0
   #   tls: false
+  #   timeout: "100ms"       # Budget par opération sur le chemin de requête
 
 # IPs et CIDRs toujours autorisés (bypass total)
 whitelist:
@@ -371,5 +385,8 @@ domains:
 # Logging
 logging:
   level: "info"              # debug | info | warn | error
-  format: "json"             # json (production) | pretty (développement)
+  # json   : contrat d'audit, conforme à specs/schemas/security-event.schema.json
+  # pretty : rendu console lisible (développement), HORS contrat d'audit —
+  #          colorisé seulement sur un terminal, jamais si NO_COLOR est défini
+  format: "json"
   output: "stdout"           # stdout | stderr

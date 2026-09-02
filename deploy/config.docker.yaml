@@ -21,15 +21,15 @@ upstream:
 
 cloudflare:
   trusted: false                 # direct access for local testing
-  auto_update_ranges: false
-  update_interval: "24h"
+  auto_update_ranges: false   # true = rafraîchit les plages depuis cloudflare.com (exige trusted)
+  update_interval: "24h"      # >= 1m quand auto_update_ranges est actif
 
 rate_limit:
   enabled: true
   requests_per_second: 50
   burst: 100
-  requests_per_minute: 1000
-  requests_per_hour: 10000
+  requests_per_minute: 1000   # fenêtre minute (0 = désactivée)
+  requests_per_hour: 10000    # fenêtre heure (0 = désactivée, doit être >= requests_per_minute)
 
 antiddos:
   enabled: true

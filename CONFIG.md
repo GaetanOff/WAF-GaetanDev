@@ -124,8 +124,27 @@ cloudflare:
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `trusted` | bool | `true` | Faire confiance au header `CF-Connecting-IP` pour extraire la vraie IP du visiteur. Ne s'applique que si la requête provient d'une IP Cloudflare connue — sinon le header est ignoré et la requête est rejetée avec un 400. Mettre à `false` si le WAF n'est **pas** derrière Cloudflare. |
-| `auto_update_ranges` | bool | `false` | Récupérer automatiquement les plages IP Cloudflare depuis `https://www.cloudflare.com/ips-v4` et `ips-v6` toutes les `update_interval`. Utile si vous voulez que la liste reste à jour sans redéploiement. |
-| `update_interval` | durée | `"24h"` | Fréquence de rafraîchissement des plages IP (si `auto_update_ranges: true`). |
+| `auto_update_ranges` | bool | `false` | Récupérer les plages IP Cloudflare depuis `https://www.cloudflare.com/ips-v4` et `ips-v6` (HTTPS uniquement) au démarrage puis toutes les `update_interval`. **Exige `trusted: true`** — les plages ne servent qu'à valider `CF-Connecting-IP`, la combinaison inverse est refusée au démarrage. |
+| `update_interval` | durée | `"24h"` | Fréquence de rafraîchissement des plages IP. **Minimum `1m`** quand `auto_update_ranges: true` : les listes officielles changent quelques fois par an, un intervalle plus court ne rafraîchit rien et martèle une dépendance externe depuis chaque instance. |
+
+**Ce que fait le rafraîchissement, exactement** :
+
+- La liste compilée dans le binaire (relevée le 2026-06-04) sert de valeur
+  initiale **et de repli permanent**. Elle n'est jamais remplacée par une liste
+  partielle : les deux familles (IPv4 + IPv6) doivent être récupérées et valides.
+- Une liste récupérée est **rejetée en entier** si un préfixe n'est pas canonique,
+  si un préfixe est plus large que `/8` (IPv4) ou `/19` (IPv6), si une famille est
+  incohérente avec sa source, si le nombre de préfixes sort des bornes de
+  plausibilité (≥ 4 par famille, ≤ 512 au total) ou si le corps de réponse
+  dépasse 64 KiB. Sur rejet, la liste en vigueur est **conservée**.
+- Ce garde-fou n'est pas cosmétique : la liste décide quelles sources ont le droit
+  de poser `CF-Connecting-IP`, donc quelle IP le WAF croit pour **toutes** ses
+  décisions ensuite. Un `0.0.0.0/0` adopté rendrait l'en-tête forgeable par
+  n'importe qui.
+- Un échec de récupération n'empêche **pas** le WAF de démarrer ni de servir : il
+  est journalisé en `warn` et compté dans
+  `waf_cloudflare_ranges_update_total{result="error"}`. Le nombre de préfixes en
+  vigueur est exposé par la jauge `waf_cloudflare_ranges`.
 
 ---
 
@@ -140,17 +159,40 @@ rate_limit:
   requests_per_hour: 10000
 ```
 
-Implémente un algorithme **Token Bucket** par IP. Les IPs en whitelist sont exemptées.
+Implémente un algorithme **Token Bucket** par IP, sur **trois fenêtres**
+indépendantes (seconde, minute, heure). Les IPs en whitelist sont exemptées.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `true` | Active/désactive le rate limiting global. |
 | `requests_per_second` | float | `50` | Tokens ajoutés au bucket par seconde (débit moyen autorisé). |
-| `burst` | int | `100` | Capacité maximale du bucket. Permet d'absorber un pic de trafic soudain sans déclencher immédiatement le 429. |
-| `requests_per_minute` | int | `1000` | Limite cumulée sur une fenêtre glissante d'1 minute. |
-| `requests_per_hour` | int | `10000` | Limite cumulée sur une fenêtre glissante d'1 heure. |
+| `burst` | int | `100` | Capacité maximale du bucket de la fenêtre seconde. Permet d'absorber un pic de trafic soudain sans déclencher immédiatement le 429. |
+| `requests_per_minute` | int | `1000` | Limite sur la fenêtre minute. Bucket dédié : recharge = `limite / 60 s`, capacité = la limite. `0` **désactive** la fenêtre. |
+| `requests_per_hour` | int | `10000` | Limite sur la fenêtre heure. Bucket dédié : recharge = `limite / 3600 s`, capacité = la limite. `0` **désactive** la fenêtre. Doit être **≥ `requests_per_minute`** quand les deux sont actives (sinon la fenêtre minute est inatteignable — refusé au démarrage). |
 
-Quand la limite est atteinte : **HTTP 429** avec header `Retry-After` + pénalité de score de confiance (-10).
+**Comment les trois fenêtres se combinent** :
+
+- Une requête n'est admise que si les trois fenêtres actives disposent d'un jeton.
+- Un refus par une fenêtre **ne consomme pas** le jeton des autres : un client buté
+  sur sa limite horaire retrouve son burst à la seconde intact dès la réouverture.
+- `burst` ne s'applique qu'à la fenêtre seconde : c'est elle qui borne la
+  **rafale**. Les fenêtres minute et heure bornent le **débit soutenu** — c'est
+  elles qui attrapent le martèlement lent, invisible pour une limite par seconde.
+- Le resserrement sous pression globale ([FR-08](#antiddos--protection-anti-ddos-globale))
+  s'applique au débit de recharge des trois fenêtres.
+
+Quand une limite est atteinte : **HTTP 429** avec header `Retry-After` (le délai
+de la fenêtre qui rouvre **le plus tard**) + pénalité de score de confiance (-10).
+Le `reason` journalisé nomme la fenêtre qui a refusé — `rate_limit_exceeded`
+(seconde), `rate_limit_exceeded_minute`, `rate_limit_exceeded_hour` — sans quoi
+un opérateur ne peut pas savoir quelle limite règle son trafic.
+
+> **Changement de comportement (phase 15, 2026-09-02)** : `requests_per_minute` et
+> `requests_per_hour` étaient documentées mais **jamais appliquées** ; seule la
+> fenêtre seconde existait. Elles le sont désormais. Avec les défauts
+> (`50 req/s`, `1000 req/min`), le débit soutenu autorisé passe de 3000 à 1000
+> requêtes par minute et par IP. Relevez ces valeurs — ou passez-les à `0` — si
+> votre trafic légitime dépassait ce plafond.
 
 ---
 
@@ -860,15 +902,43 @@ storage:
   #   password: ""   # Préférer WAF_REDIS_PASSWORD
   #   db: 0
   #   tls: false
+  #   timeout: "100ms"
 ```
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
-| `backend` | string | `"memory"` | `"memory"` : stockage en mémoire (simple, remise à zéro au redémarrage). `"redis"` : stockage persistant partagé entre instances (nécessaire pour `cluster.enabled: true`). |
+| `backend` | string | `"memory"` | `"memory"` : état par processus, borné par `trust.max_visitors`, remis à zéro au redémarrage. `"redis"` : état **partagé entre instances** (voir ci-dessous). |
 | `redis.address` | string | — | Adresse Redis au format `host:port`. **Obligatoire si `backend: "redis"`.** |
 | `redis.password` | string | `""` | Mot de passe Redis. **Utiliser `WAF_REDIS_PASSWORD`.** |
 | `redis.db` | int | `0` | Numéro de base Redis (0–15). |
 | `redis.tls` | bool | `false` | Active TLS pour la connexion Redis. |
+| `redis.timeout` | durée | `"100ms"` | Budget par opération Redis sur le chemin de requête. Un dépassement compte comme une erreur — donc rapproche la bascule en mode dégradé — plutôt que de bloquer la requête. |
+
+**Backend `redis` — ce qu'il fait et ce qu'il ne fait pas** ([ADR-021](specs/decisions/ADR-021-redis-store-degraded-mode.md)) :
+
+- **Clés** : `waf:visitor:<hash>` et `waf:bucket:<hash>`, valeurs JSON. L'expiration
+  est déléguée à Redis (`EXPIRE` dérivé de l'échéance portée par l'état) : il n'y a
+  pas de goroutine de nettoyage côté WAF.
+- **Écriture traversante** : chaque écriture va dans Redis **et** dans un store
+  local. Un basculement en mode dégradé hérite ainsi d'un état récent au lieu de
+  repartir de zéro.
+- **Mode dégradé** : après 3 erreurs Redis consécutives, le nœud sert **tout**
+  depuis son état local pendant 5 s, puis re-sonde Redis. Les requêtes continuent
+  d'être traitées ([FR-20](specs/requirements-advanced.md)). L'état est observable :
+  jauge `waf_storage_degraded` (0/1) et compteur `waf_storage_errors_total{operation}`.
+- **Redis injoignable au démarrage = erreur de démarrage.** Le WAF ne démarre pas
+  silencieusement en mémoire : vous avez demandé un état partagé, une adresse ou un
+  mot de passe fautif doit se voir immédiatement.
+- **Éviction** : `trust.max_visitors` ne borne que le store **local**. Côté Redis,
+  la borne mémoire est la `maxmemory-policy` de votre instance Redis — le WAF ne
+  l'émule pas. C'est une différence de comportement réelle entre les deux backends.
+- **`cluster.enabled` est indépendant du backend** : le bus d'événements Pub/Sub
+  ([FR-20](specs/requirements-advanced.md)) et le store partagé sont deux mécanismes
+  distincts, qui utilisent la même connexion `storage.redis`. `backend: "memory"` +
+  `cluster.enabled: true` reste une combinaison valide (propagation des décisions,
+  sans état partagé).
+- `ListVisitors` (API admin) parcourt les clés par `SCAN` borné à
+  `trust.max_visitors` entrées — jamais de `KEYS` sur un Redis de production.
 
 ---
 
@@ -985,7 +1055,19 @@ logging:
 | Clé | Valeurs | Défaut | Description |
 |---|---|---|---|
 | `level` | `debug`, `info`, `warn`, `error` | `"info"` | Niveau de verbosité. `debug` inclut les détails de chaque décision du moteur de risque — ne pas utiliser en production sous fort trafic. |
-| `format` | `json`, `pretty` | `"json"` | `json` : logs structurés (production, compatible avec Loki, Datadog, etc.). `pretty` : logs colorés lisibles par un humain (développement). |
+| `format` | `json`, `pretty` | `"json"` | `json` : une ligne JSON par événement, conforme à [`security-event.schema.json`](specs/schemas/security-event.schema.json) — **contrat d'audit**, seul format exploitable par un collecteur (Loki, Datadog). `pretty` : rendu console d'une ligne par événement, lisible par un humain et colorisé sur un terminal (développement). |
 | `output` | `stdout`, `stderr` | `"stdout"` | Destination des logs. Utilisez `stdout` pour Docker / Kubernetes (collecte par le runtime de conteneur). |
 
 Les logs incluent un `request_id` unique par requête pour la corrélation.
+
+> **`pretty` est hors du contrat d'audit.** Il promeut les champs utiles au
+> diagnostic (action, IP, méthode, hôte+chemin, statut, latence, raison, score),
+> en omet d'autres (`ip_hash`, `waf_latency_ms`, `cf_ray`) et masque les valeurs
+> neutres. Ne l'utilisez pas là où les logs sont collectés : la conformité de
+> schéma ne porte que sur `json`.
+>
+> La colorisation est automatiquement désactivée quand la sortie n'est pas un
+> terminal (redirection, pipe, fichier) ou quand `NO_COLOR` est défini — des
+> séquences ANSI dans un fichier de log le rendent illisible et cassent les greps.
+> Le format ne change ni le niveau, ni la destination, ni le caractère asynchrone
+> de l'écriture ([NFR-16](specs/requirements.md)).
