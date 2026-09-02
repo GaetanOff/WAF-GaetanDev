@@ -1,9 +1,9 @@
 ---
 status: approved
-version: 2.2.0
-last-reviewed: 2026-08-31
+version: 2.3.0
+last-reviewed: 2026-09-02
 reviewed-by: GaetanDev
-change: "FR-06 : `domains[].challenge_enabled` devient une surcharge à trois états (absent = hérite du global, false = jamais de challenge même sous attaque, true = force le challenge)"
+change: "FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
 ---
 
 # Requirements — WAF Anti-DDoS / Anti-Bot
@@ -22,13 +22,26 @@ change: "FR-06 : `domains[].challenge_enabled` devient une surcharge à trois é
 - Le WAF DOIT extraire l'IP réelle depuis le header `CF-Connecting-IP` quand la requête provient d'un IP Cloudflare connu
 - Le WAF DOIT maintenir une liste des plages IP Cloudflare (IPv4 et IPv6)
 - Le WAF DOIT rejeter les requêtes qui tentent de forger `CF-Connecting-IP` depuis des IPs non-Cloudflare
-- Le WAF DEVRAIT mettre à jour automatiquement les plages IP Cloudflare (configurable)
+- Le WAF DEVRAIT mettre à jour automatiquement les plages IP Cloudflare (`cloudflare.auto_update_ranges`, désactivé par défaut) :
+  - Sources : `https://www.cloudflare.com/ips-v4` et `https://www.cloudflare.com/ips-v6`, en HTTPS exclusivement
+  - Un rafraîchissement DOIT avoir lieu au démarrage puis toutes les `cloudflare.update_interval`
+  - La liste compilée dans le binaire sert de valeur initiale et de **repli permanent** : une liste récupérée n'est adoptée qu'entière et valide
+  - Le WAF DOIT rejeter une liste récupérée qui élargirait la confiance au-delà du plausible — préfixe non canonique, préfixe plus large que `/8` (IPv4) ou `/19` (IPv6), famille d'adresses incohérente avec la source, nombre de préfixes hors bornes, corps de réponse surdimensionné. Sur rejet, la liste en vigueur est CONSERVÉE (jamais de liste vide, jamais d'élargissement silencieux)
+  - Un échec de récupération NE DOIT PAS empêcher le WAF de démarrer ni de servir : il est journalisé et compté (`waf_cloudflare_ranges_update_total{result="error"}`)
+  - Le WAF DOIT exposer le nombre de préfixes en vigueur (`waf_cloudflare_ranges`) et l'origine de la liste (compilée ou récupérée)
+- `cloudflare.auto_update_ranges` sans `cloudflare.trusted` est une contradiction (les plages ne servent qu'à valider `CF-Connecting-IP`) et DOIT être rejeté au démarrage
 
 ### FR-03 — Rate Limiting
 - Le WAF DOIT implémenter un rate limiting par IP avec algorithme Token Bucket
 - Le WAF DOIT supporter des limites configurables par domaine et par route pattern
 - Le WAF DOIT retourner HTTP 429 avec header `Retry-After` quand la limite est atteinte
 - Le WAF DOIT supporter des limites distinctes pour : req/seconde, req/minute, req/heure
+  - Chaque fenêtre est un Token Bucket propre au couple (IP, fenêtre) : débit de recharge = limite ÷ durée de la fenêtre, capacité = la limite elle-même (`burst` ne s'applique qu'à la fenêtre seconde)
+  - Une requête n'est admise que si les TROIS fenêtres actives disposent d'un jeton ; un refus par une fenêtre NE DOIT PAS consommer le jeton des autres
+  - Le `Retry-After` renvoyé est le plus grand des délais des fenêtres qui refusent
+  - Le `reason` journalisé DOIT identifier la fenêtre qui a refusé (`rate_limit_exceeded`, `rate_limit_exceeded_minute`, `rate_limit_exceeded_hour`) — sinon un opérateur ne peut pas savoir quelle limite règle son trafic
+  - `requests_per_minute: 0` ou `requests_per_hour: 0` désactive la fenêtre correspondante ; `requests_per_hour` DOIT être >= `requests_per_minute` quand les deux sont actives
+  - Le resserrement de pression globale (FR-08) s'applique au débit de recharge des trois fenêtres, et la neutralité du 429 de pression (pas de pénalité de score) est évaluée sur les trois
 - Le WAF DOIT exclure les IPs en whitelist du rate limiting
 
 ### FR-04 — Whitelist / Blacklist
@@ -98,6 +111,11 @@ change: "FR-06 : `domains[].challenge_enabled` devient une surcharge à trois é
 - L'`action` loggée DOIT refléter une décision RÉELLE du WAF (en-tête `X-WAF-Action` posé par un middleware) ; un statut provenant de l'**upstream** (ex: 502 origine indisponible, 403/404 applicatif) DOIT être loggé `action=PASS` avec son `upstream_status` réel — jamais comme un blocage WAF (sinon métriques `waf_blocked_total` faussées et fausses alertes webhook)
 - Chaque log DOIT contenir : timestamp, request_id, ip, domain, path, action, reason, trust_score
 - Le WAF DOIT supporter les niveaux de log : debug, info, warn, error
+- Le WAF DOIT supporter deux formats de sortie (`logging.format`), aux contrats explicitement distincts :
+  - `json` (défaut, production) : une ligne JSON par événement, conforme à `security-event.schema.json` — c'est le **contrat d'audit**, seul format exploitable par un collecteur (Loki, Datadog) et seul format sur lequel porte la conformité de schéma
+  - `pretty` (développement) : rendu console d'une ligne par événement, lisible par un humain, colorisé quand la sortie est un terminal. Ce format est **hors du contrat d'audit** : il promeut les champs utiles au diagnostic et omet les champs vides ou redondants. Il NE DOIT PAS être utilisé là où les logs sont collectés
+  - La colorisation DOIT être désactivée quand la sortie n'est pas un terminal (redirection, pipe, fichier) ou quand `NO_COLOR` est défini — des séquences ANSI dans un fichier de log le rendent illisible
+  - Le choix du format NE DOIT PAS changer le niveau, la destination, ni le caractère asynchrone de l'écriture
 - L'écriture des logs NE DOIT PAS bloquer le traitement des requêtes : elle est asynchrone (tampon + écriture en arrière-plan). Si la sortie ralentit (rotation, disque, pipe non lu) et que le tampon est plein, les lignes sont abandonnées (compteur exposé) plutôt que de bloquer le chemin de requête (voir NFR-16)
 - Le WAF DOIT exposer les métriques Prometheus sur `/waf/metrics`
 - Les métriques DOIVENT inclure : req_total, req_blocked_total, req_challenged_total, req_latency_histogram
