@@ -142,11 +142,13 @@
         "auto_update_ranges": {
           "type": "boolean",
           "default": false,
-          "description": "Mettre à jour automatiquement les plages IP Cloudflare depuis l'API"
+          "description": "Rafraîchir les plages IP Cloudflare depuis https://www.cloudflare.com/ips-v4 et ips-v6 au démarrage puis toutes les update_interval. Une liste invalide est rejetée en entier (la liste en vigueur est conservée). Exige cloudflare.trusted"
         },
         "update_interval": {
           "type": "string",
-          "default": "24h"
+          "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
+          "default": "24h",
+          "description": "Période de rafraîchissement des plages IP (>= 1m quand auto_update_ranges est actif)"
         }
       }
     },
@@ -172,11 +174,15 @@
         },
         "requests_per_minute": {
           "type": "integer",
-          "default": 1000
+          "default": 1000,
+          "minimum": 0,
+          "description": "Limite sur la fenêtre minute (Token Bucket dédié : recharge = limite/60s, capacité = limite). 0 désactive la fenêtre"
         },
         "requests_per_hour": {
           "type": "integer",
-          "default": 10000
+          "default": 10000,
+          "minimum": 0,
+          "description": "Limite sur la fenêtre heure (Token Bucket dédié : recharge = limite/3600s, capacité = limite). 0 désactive la fenêtre. Doit être >= requests_per_minute quand les deux sont actives"
         }
       }
     },
@@ -736,7 +742,8 @@
         "format": {
           "type": "string",
           "enum": ["json", "pretty"],
-          "default": "json"
+          "default": "json",
+          "description": "json : une ligne conforme à security-event.schema.json (contrat d'audit, production). pretty : rendu console lisible et colorisé (développement), hors contrat d'audit — champs promus/omis, colorisation seulement sur terminal et hors NO_COLOR"
         },
         "output": {
           "type": "string",
@@ -752,7 +759,8 @@
         "backend": {
           "type": "string",
           "enum": ["memory", "redis"],
-          "default": "memory"
+          "default": "memory",
+          "description": "memory : état par processus, borné par trust.max_visitors (perdu au redémarrage). redis : état partagé entre instances, expiration et borne mémoire déléguées à Redis (ADR-021) ; Redis injoignable au démarrage est une erreur de démarrage"
         },
         "redis": {
           "$ref": "#/definitions/RedisConfig"
@@ -862,6 +870,12 @@
         "tls": {
           "type": "boolean",
           "default": false
+        },
+        "timeout": {
+          "type": "string",
+          "pattern": "^[0-9]+(ns|us|ms|s|m|h)$",
+          "default": "100ms",
+          "description": "Budget par opération Redis sur le chemin de requête. Un dépassement compte comme une erreur (bascule en mode dégradé) plutôt que de bloquer la requête"
         }
       }
     }

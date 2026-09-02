@@ -53,7 +53,7 @@ func RealIP(r *http.Request) string {
 }
 
 func IsCloudflareIP(ip netip.Addr) bool {
-	for _, prefix := range cloudflareRanges {
+	for _, prefix := range Ranges() {
 		if prefix.Contains(ip) {
 			return true
 		}

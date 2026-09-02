@@ -1,8 +1,8 @@
 ---
 status: approved
-version: 1.2.0
-last-reviewed: 2026-09-01
-change: "Remise à niveau du Request Processing Pipeline, du C4 niveau 2/3 et de la structure projet sur le code réel : 21 étapes dans leur ordre d'exécution avec leur clé de montage, 42 paquets internes, chemins /waf/* qui ne traversent pas la chaîne"
+version: 1.3.0
+last-reviewed: 2026-09-02
+change: "Phase 15 : le backend Redis existe réellement (ADR-021, écriture traversante + mode dégradé), le rafraîchissement des plages Cloudflare est une tâche de fond montée par cloudflare.auto_update_ranges, et le logger porte deux formats de sortie au contrat distinct (FR-09)"
 ---
 
 # Architecture — WAF Anti-DDoS / Anti-Bot
@@ -124,11 +124,13 @@ internal/
 ├── État
 │   └── storage/
 │       ├── memory/      sync.Map + éviction LRU + TTL
-│       └── redis/       Adaptateur Redis, même interface (FR-20)
+│       └── redis/       État partagé entre instances : écriture traversante,
+│                        mode dégradé sur perte de Redis, TTL délégué (ADR-021)
 │
 └── Transverse
     ├── config/          Struct, chargement YAML, override env, Validate()
-    ├── logger/          Événement de sécurité JSON via log/slog (FR-09)
+    ├── logger/          Événement de sécurité via log/slog — format json
+    │                     (contrat d'audit) ou pretty (console) (FR-09)
     ├── metrics/         Compteurs et histogrammes Prometheus (RED)
     ├── admin/           Serveur et handlers de l'API admin :9090 (FR-10)
     ├── audit/           Journal d'audit des actions admin (FR-27)
@@ -467,3 +469,4 @@ waf/
 - [ADR-018](decisions/ADR-018-under-attack-mode.md) — Mode « sous attaque » : challenge forcé piloté par la pression
 - [ADR-019](decisions/ADR-019-infrastructure-header-trust.md) — Frontière de confiance des en-têtes d'infrastructure (`CF-*`, `ja3_header`) **(`proposed`)**
 - [ADR-020](decisions/ADR-020-host-header-routing-trust.md) — Confiance accordée à l'en-tête `Host` pour le routage et la politique par domaine **(`proposed`)**
+- [ADR-021](decisions/ADR-021-redis-store-degraded-mode.md) — Sémantique du backend Redis : écriture traversante et mode dégradé

@@ -694,3 +694,78 @@ last-updated: 2026-06-09
 - **Validation 2026-09-01** : document uniquement, aucun code touche. `go build ./...`, `go vet ./...`, `go test ./...` (447 tests, 42 paquets) passent — inchanges.
 - **Statut** : implemente.
 - **Spec** : architecture.md (v1.2.0) ; ADR-019 ; ADR-020
+
+## Sprint 15 - Options de configuration inertes (Phase 15)
+
+> Quatre cles de configuration etaient documentees comme fonctionnelles et
+> n'avaient **aucun effet** dans le code. La correction retenue est
+> d'implementer ce que la documentation promettait, pas de retirer les cles
+> (decision d'operateur du 2026-09-02). Les surcharges `domains[]`
+> (`protected_paths`, `public_paths`, `rate_limit_override`, `trust_override`)
+> restent hors perimetre : elles sont deja documentees comme non cablees
+> (CONFIG.md, validation.md T13.1) et demandent leurs propres specs.
+
+### T15.1 - `rate_limit.requests_per_minute` / `requests_per_hour` sans effet (FR-03)
+- [x] Constat : les deux cles etaient deserialisees, avaient un defaut dans `Default()` et une ligne de description dans CONFIG.md (« fenetre glissante »), mais **zero usage** hors declaration. Le middleware n'implementait qu'un token bucket sur `requests_per_second`/`burst` : le debit SOUTENU n'etait borne par rien
+- [x] FR-03 exigeait deja « des limites distinctes pour req/seconde, req/minute, req/heure » (un DOIT) : c'est le code qui etait en retard sur la spec, pas la doc en avance
+- [x] `internal/middleware/ratelimit` : trois fenetres (`window`), chacune son bucket par IP — recharge = limite / duree de la fenetre, capacite = la limite. `burst` ne s'applique qu'a la fenetre seconde (rafale) ; minute et heure bornent le debit soutenu
+- [x] Cles de stockage suffixees (`:m`, `:h`) ; la fenetre seconde garde la **cle nue**, donc l'etat persiste des deploiements anterieurs reste lisible
+- [x] `TokenBucket.Refill` / `Consume` separent la recharge du prelevement : un refus par une fenetre ne consomme plus le jeton des autres. Sans cette separation, un client bute sur sa limite horaire repartait avec un burst a la seconde vide
+- [x] `Retry-After` = le delai de la fenetre qui rouvre **le plus tard** ; le `reason` journalise nomme la fenetre (`rate_limit_exceeded`, `..._minute`, `..._hour`) — sinon un operateur ne peut pas savoir quelle limite regle son trafic
+- [x] Piege corrige au passage : `NewTokenBucket` ramenait tout debit `< 1` a `1/s`. Cette borne, ecrite pour la fenetre seconde, rendait les fenetres minute/heure **inoperantes** (600 req/min = 10/s, 3600 req/h = 1/s, 60 req/h = 1/60 s). Le garde-fou ne porte plus que sur un debit nul ou negatif
+- [x] Le facteur de pression globale (FR-08) s'applique aux trois fenetres, et la neutralite du 429 de pression est evaluee sur les trois (`nominalWouldAllow`)
+- [x] `memory.Store` : la borne du nombre de buckets passe de `max_visitors` a `max_visitors * bucketsPerVisitor` — sans ce facteur, activer les fenetres divisait par trois le nombre d'IP reellement suivies
+- [x] Validation : `>= 0` sur les deux cles (0 = fenetre desactivee), et `requests_per_hour >= requests_per_minute` quand les deux sont actives (sinon la fenetre minute est inatteignable)
+- [x] Tests : 12 cas dedies (refus minute, refus heure, jetons des autres fenetres intacts sur refus, Retry-After/raison de la fenetre la plus longue, 0 desactive, neutralite de la pression sur la fenetre minute, table `buildWindows`, debits par duree, table `verdict`, Refill sans consommation, Consume sur bucket vide) + 8 cas de validation config. Separation recharge/prelevement **verifiee en echec** par mutation
+- **Acceptance** : une IP sous 50 req/s mais au-dela de 1000 req/min recoit un 429 `rate_limit_exceeded_minute` avec le `Retry-After` de la fenetre minute ; `requests_per_minute: 0` restaure le comportement anterieur (fenetre seconde seule) ; une limite horaire sous la limite par minute est refusee au demarrage.
+- **Attention deploiement** : avec les defauts (`50 req/s`, `1000 req/min`), le debit soutenu autorise passe de 3000 a 1000 req/min par IP. C'est la valeur que CONFIG.md annoncait depuis le debut, mais elle n'etait pas appliquee — a relever (ou passer a 0) si le trafic legitime depassait ce plafond.
+- **Spec** : requirements.md FR-03 (v2.3.0) ; features/rate-limiting.feature ; schemas/config.schema.json
+
+### T15.2 - `cloudflare.auto_update_ranges` / `update_interval` sans effet (FR-02)
+- [x] Constat : aucune reference a `AutoUpdateRanges` hors de `config.go`. Les plages Cloudflare etaient un slice code en dur (`ranges.go`, releve le 2026-06-04) : aucun fetch HTTP, aucun ticker. CONFIG.md et `config.example.yaml` promettaient un rafraichissement toutes les `update_interval`
+- [x] `internal/middleware/cloudflare/updater.go` : recuperation des deux listes officielles en HTTPS, validation, remplacement **atomique** de la liste en vigueur (`atomic.Pointer`, lue par `IsCloudflareIP` sur le chemin de requete)
+- [x] La liste compilee devient la valeur initiale **et le repli permanent** : `Ranges()` retombe dessus tant qu'aucune liste valide n'a ete adoptee
+- [x] Adoption **tout-ou-rien** : une liste IPv6 illisible n'installe pas la seule liste IPv4, sinon la couverture se retrecirait en silence (du trafic Cloudflare legitime commencerait a recevoir des 400)
+- [x] Garde de securite centrale : rejet d'un prefixe non canonique, d'un prefixe plus large que `/8` (IPv4) ou `/19` (IPv6), d'une famille incoherente avec sa source, d'un nombre de prefixes hors bornes (>= 4 par famille, <= 512 au total), d'un corps > 64 KiB, d'un statut non 200. **La liste decide qui peut poser `CF-Connecting-IP`** : un `0.0.0.0/0` adopte rendrait l'en-tete forgeable par n'importe qui
+- [x] Sources figees en HTTPS ; l'option de redirection des URL est **non exportee** (tests uniquement), aucun chemin de production ne peut substituer une source en clair
+- [x] Premiere tentative **dans** la goroutine : le WAF sert immediatement avec la liste compilee et un echec de recuperation n'est pas une erreur de demarrage (FR-02 est un DEVRAIT)
+- [x] Observabilite : jauge `waf_cloudflare_ranges` (initialisee au cardinal de la liste compilee) et compteur `waf_cloudflare_ranges_update_total{result}`. Sans eux, un rafraichissement qui echoue en boucle serait invisible — le WAF continue de servir correctement avec l'ancienne liste
+- [x] Validation : `auto_update_ranges` exige `cloudflare.trusted` (les plages ne servent qu'a valider `CF-Connecting-IP` — accepter la combinaison inverse recreerait une option inerte) et `update_interval >= 1m`
+- [x] Tests : 14 cas (adoption, 7 formes de liste invalide en table, en-tete forge toujours rejete apres un refresh refuse, statut non 200, charge surdimensionnee, exigence HTTPS, URL par defaut, liste precedente conservee sur echec ulterieur, ticker + arret sur annulation de contexte, bornes de `validateFetchedRanges`, repli sur la liste compilee, copie du slice) + 7 cas de validation config. Garde de largeur de prefixe **verifiee en echec** par mutation
+- [ ] Recuperation reelle depuis `cloudflare.com` **non verifiee** : la machine de developpement n'a pas d'acces sortant (timeout observe, comportement de repli conforme). Le format « un CIDR par ligne » vient de la documentation Cloudflare ; a reverifier depuis un reseau avec acces sortant avant d'activer l'option en production
+- **Acceptance** : `auto_update_ranges: true` remplace la liste en vigueur par les prefixes officiels valides et publie leur cardinal ; une liste invalide ou trop large laisse la liste precedente en place et n'empeche pas le WAF de servir ; `trusted: false` + `auto_update_ranges: true` est refuse au demarrage.
+- **Spec** : requirements.md FR-02 (v2.3.0) ; features/cloudflare-ip-ranges.feature ; schemas/config.schema.json
+
+### T15.3 - `logging.format: "pretty"` sans effet (FR-09)
+- [x] Constat : `NewWithWriter` construisait toujours un `slog.NewJSONHandler`, quelle que soit la valeur de `format`. `pretty` etait valide sans erreur et produisait du JSON ; CONFIG.md promettait des logs colores lisibles par un humain
+- [x] FR-09 ne parlait que de JSON : la spec a ete completee pour dire ce que chaque format garantit — `json` = contrat d'audit conforme a `security-event.schema.json`, `pretty` = rendu console **hors contrat d'audit**
+- [x] `internal/logger/pretty.go` : handler `slog.Handler` qui rend une ligne par evenement — horodatage court, action colorisee, IP, methode, hote+chemin, statut, latence, raison, score, puis le reste en `cle=valeur`
+- [x] Champs silencieux a l'ecran (`ip_hash`, `waf_latency_ms`, `cf_ray`), valeurs nulles et valeurs neutres omises, flottants arrondis au centieme (une latence `3528.8813999999998 ms` est du bruit). Le format `json` garde tout, a la valeur exacte
+- [x] Colorisation decidee dans `New`, **seul endroit qui connait la destination reelle** : en aval le handler ne voit qu'un `io.Writer` (le tampon async), sur lequel « est-ce un terminal ? » n'a plus de reponse. Desactivee hors terminal et si `NO_COLOR` est defini
+- [x] Ecriture serialisee par mutex : une ligne sort d'un seul `Write`, sinon deux requetes concurrentes entrelacent leurs fragments
+- [x] Le format ne change ni le niveau, ni la destination, ni le caractere asynchrone de l'ecriture (NFR-16) : `New` construit le meme `asyncWriter` dans les deux cas
+- [x] `WithAttrs`/`WithGroup` implementes (le WAF n'emet pas de groupes, mais un attribut inconnu ne doit pas disparaitre)
+- [x] Tests : 11 cas (ligne lisible complete, aucune sequence ANSI hors terminal, colorisation par action en table sur les 6 actions, champs nuls et silencieux omis, contrat json intact et valide, filtrage par niveau, 50 ecritures concurrentes sans entrelacement, attributs inconnus et groupes conserves, table `colorsEnabled`, `isTerminal`) + 3 cas de validation `logging.format`
+- **Acceptance** : `format: pretty` produit une ligne console lisible, colorisee sur un terminal et sans ANSI quand la sortie est redirigee ; `format: json` produit exactement le meme JSON qu'avant ce sprint.
+- **Spec** : requirements.md FR-09 (v2.3.0) ; features/security-logging.feature ; schemas/config.schema.json ; ADR-014
+
+### T15.4 - `storage.backend: "redis"` sans effet (ADR-002, ADR-021)
+- [x] Constat : `cmd/waf/main.go` instanciait inconditionnellement `memory.New(...)` **sans jamais lire** `cfg.Storage.Backend`. `internal/storage/redis/` ne contenait qu'un `.gitkeep`. Les champs `storage.redis.*` etaient cables, mais seulement pour le Pub/Sub inter-noeuds (FR-20) — pas pour un store partage. CONFIG.md decrivait pourtant « stockage persistant partage entre instances »
+- [x] ADR-021 `accepted` : semantique d'execution du backend — trois options evaluees (Redis pur, cache de lecture a TTL, ecriture traversante + repli explicite), la troisieme retenue. `storage.Store` ne retourne aucune erreur : les echecs Redis sont donc traites dans le paquet, jamais remontes
+- [x] `internal/storage/redis/store.go` : cles `waf:visitor:` / `waf:bucket:`, valeurs JSON, TTL derive de `ExpiresAt` (expiration deleguee a Redis, pas de goroutine de nettoyage cote WAF)
+- [x] Ecriture traversante (Redis + store local) : un basculement en mode degrade herite d'un etat recent au lieu de repartir de zero
+- [x] Mode degrade : 3 erreurs consecutives -> service depuis l'etat local pendant 5 s, puis sonde. Une seule erreur pendant la sonde re-bascule aussitot, sinon chaque fenetre couterait 3 timeouts sur le chemin de requete. Une valeur illisible ne degrade **pas** (ce n'est pas un probleme de connectivite)
+- [x] Redis injoignable **au demarrage** = erreur de demarrage (`PING`, budget 5 s) : l'operateur a demande un etat partage, une adresse ou un mot de passe fautif doit se voir tout de suite. Demarrer en degrade reproduirait le defaut corrige ici
+- [x] `ListVisitors` (API admin) par `SCAN` + `MGET` borne a `trust.max_visitors` entrees — jamais de `KEYS` sur un Redis de production
+- [x] Dialogue avec Redis a travers une interface reduite aux 7 commandes reellement utilisees : le mode degrade, le calcul de TTL et la serialisation sont testables **sans Redis en CI** (ADR-002)
+- [x] Observabilite : jauge `waf_storage_degraded` (publiee sur transition uniquement) et compteur `waf_storage_errors_total{operation}`
+- [x] Difference de comportement assumee et documentee : `trust.max_visitors` ne borne que le store local ; cote Redis la borne memoire est la `maxmemory-policy` de l'instance. Le WAF ne tente pas d'emuler la LRU dans Redis (un compteur global conteste a chaque requete)
+- [x] Nouvelle cle `storage.redis.timeout` (defaut `100ms`) : budget par operation sur le chemin de requete. Un depassement compte comme une erreur plutot que de bloquer la requete
+- [x] `cmd/waf` : `newStore()` selectionne l'implementation ; `metrics` est construit avant le store pour lui servir d'observateur
+- [x] Tests : 19 cas (echec de demarrage sur Redis injoignable + client ferme, table de validation du timeout, aller-retour visiteur avec champs pointeurs et TTL, aller-retour bucket sous son propre prefixe, absence != panne, entree perimee lue comme absente, ecriture d'un etat deja perime -> DEL, suppression dans les deux stores, degradation apres 3 echecs avec etat local servi et plus aucun trafic Redis, ecritures locales en degrade, retour au nominal apres la fenetre, re-bascule immediate pendant la sonde, notification sur transition uniquement, SCAN+MGET borne, entrees perimees/illisibles ignorees, repli local sur echec de SCAN, valeur illisible non degradante, `Close`, conformite a `storage.Store`) + 3 cas sur `newStore`
+- [ ] Execution contre un Redis reel **non verifiee** : aucune instance disponible sur la machine de developpement (ni acces sortant pour en tirer une image). Le chemin d'echec au demarrage est verifie en execution reelle ; le chemin nominal l'est par les tests avec double
+- **Acceptance** : `storage.backend: redis` ouvre reellement le backend Redis et echoue au demarrage si Redis est injoignable ; une perte de Redis en exploitation bascule le noeud sur son etat local (`waf_storage_degraded = 1`) sans interrompre le service, et le retour de Redis le ramene au nominal.
+- **Spec** : ADR-002 (suivi 2026-09-02) ; ADR-021 ; requirements-advanced.md FR-20 ; features/storage-backend.feature ; schemas/config.schema.json
+
+- **Validation 2026-09-02** : `go build ./...`, `go vet ./...`, `go test ./...` (552 tests, 43 paquets), `gofmt -l` (copies normalisees LF), `golangci-lint run` (37 remontees, toutes `gofmt` sur les CRLF de la copie de travail Windows) passent ; schema JSON valide ; `config.example.yaml` et `deploy/config.docker.yaml` conformes au schema ; verifications en execution reelle du 429 `rate_limit_exceeded_minute`, du rendu `pretty` sans ANSI en sortie redirigee, du repli sur echec de rafraichissement Cloudflare et de l'echec de demarrage sur Redis injoignable. `go test -race` non executable localement (pas de toolchain C) — couvert par la CI. Detail dans validation.md.
+- **Statut** : implemente.

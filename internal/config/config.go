@@ -107,7 +107,10 @@ type UpstreamConfig struct {
 }
 
 type Cloudflare struct {
-	Trusted          bool   `yaml:"trusted"`
+	Trusted bool `yaml:"trusted"`
+	// AutoUpdateRanges déclenche le rafraîchissement des plages IP Cloudflare
+	// depuis les listes officielles au démarrage puis toutes les UpdateInterval
+	// (FR-02). Désactivé, seule la liste compilée dans le binaire est utilisée.
 	AutoUpdateRanges bool   `yaml:"auto_update_ranges"`
 	UpdateInterval   string `yaml:"update_interval"`
 }
@@ -116,8 +119,12 @@ type RateLimit struct {
 	Enabled           bool    `yaml:"enabled"`
 	RequestsPerSecond float64 `yaml:"requests_per_second"`
 	Burst             int     `yaml:"burst"`
-	RequestsPerMinute int     `yaml:"requests_per_minute"`
-	RequestsPerHour   int     `yaml:"requests_per_hour"`
+	// RequestsPerMinute et RequestsPerHour sont deux fenêtres supplémentaires
+	// (FR-03), chacune son propre Token Bucket : recharge = limite / durée de la
+	// fenêtre, capacité = la limite. Elles bornent le débit SOUTENU, là où
+	// RequestsPerSecond + Burst bornent la rafale. 0 désactive la fenêtre.
+	RequestsPerMinute int `yaml:"requests_per_minute"`
+	RequestsPerHour   int `yaml:"requests_per_hour"`
 }
 
 type AntiDDoS struct {
@@ -398,6 +405,10 @@ type RedisConfig struct {
 	Password string `yaml:"password"`
 	DB       int    `yaml:"db"`
 	TLS      bool   `yaml:"tls"`
+	// Timeout borne chaque opération Redis sur le chemin de requête (ADR-021).
+	// Un dépassement compte comme une erreur — donc rapproche la bascule en mode
+	// dégradé — au lieu de bloquer la requête. Vide = défaut du store (100ms).
+	Timeout string `yaml:"timeout"`
 }
 
 type Admin struct {
@@ -701,6 +712,17 @@ func (c *Config) Validate() error {
 	if c.RateLimit.Burst < 1 {
 		fields = append(fields, "rate_limit.burst must be >= 1")
 	}
+	if c.RateLimit.RequestsPerMinute < 0 {
+		fields = append(fields, "rate_limit.requests_per_minute must be >= 0 (0 disables the window)")
+	}
+	if c.RateLimit.RequestsPerHour < 0 {
+		fields = append(fields, "rate_limit.requests_per_hour must be >= 0 (0 disables the window)")
+	}
+	// Une limite horaire sous la limite par minute rend la fenêtre minute
+	// inatteignable : la configuration ne dit pas ce que l'opérateur croit.
+	if c.RateLimit.RequestsPerMinute > 0 && c.RateLimit.RequestsPerHour > 0 && c.RateLimit.RequestsPerHour < c.RateLimit.RequestsPerMinute {
+		fields = append(fields, "rate_limit.requests_per_hour must be >= rate_limit.requests_per_minute")
+	}
 	if c.AntiDDoS.GlobalRequestsPerSecond < 1 {
 		fields = append(fields, "antiddos.global_requests_per_second must be >= 1")
 	}
@@ -812,6 +834,7 @@ func (c *Config) Validate() error {
 	if c.Challenge.MaxElapsedMS <= c.Challenge.MinElapsedMS {
 		fields = append(fields, "challenge.max_elapsed_ms must be greater than challenge.min_elapsed_ms")
 	}
+	validateCloudflare(&fields, c.Cloudflare)
 	validateEnum(&fields, "logging.level", c.Logging.Level, "debug", "info", "warn", "error")
 	validateEnum(&fields, "logging.format", c.Logging.Format, "json", "pretty")
 	validateEnum(&fields, "logging.output", c.Logging.Output, "stdout", "stderr")
@@ -822,6 +845,9 @@ func (c *Config) Validate() error {
 		} else {
 			requireString(&fields, "storage.redis.address", c.Storage.Redis.Address)
 		}
+	}
+	if c.Storage.Redis != nil && c.Storage.Redis.Timeout != "" {
+		validateDuration(&fields, "storage.redis.timeout", c.Storage.Redis.Timeout)
 	}
 	if c.Admin.Enabled && len(c.Admin.Token) < 32 {
 		fields = append(fields, "admin.token is required and must be at least 32 characters; set WAF_ADMIN_TOKEN")
@@ -838,6 +864,32 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// minRangeUpdateInterval borne la fréquence de rafraîchissement des plages
+// Cloudflare (FR-02). Les listes officielles changent au mieux quelques fois par
+// an : un intervalle de quelques secondes ne rafraîchit rien, il martèle une
+// dépendance externe depuis chaque instance du WAF.
+const minRangeUpdateInterval = time.Minute
+
+// validateCloudflare valide le bloc cloudflare. Les plages IP ne servent qu'à
+// décider si CF-Connecting-IP peut être cru (FR-02) : demander leur
+// rafraîchissement sans faire confiance à Cloudflare est une contradiction, et
+// l'accepter en silence reproduit exactement le défaut que FR-02 v2.3.0 corrige.
+func validateCloudflare(fields *[]string, cfg Cloudflare) {
+	if !cfg.AutoUpdateRanges {
+		return
+	}
+	if !cfg.Trusted {
+		*fields = append(*fields, "cloudflare.auto_update_ranges requires cloudflare.trusted (the ranges are only used to validate CF-Connecting-IP)")
+	}
+	interval, err := time.ParseDuration(cfg.UpdateInterval)
+	if err != nil {
+		return // déjà signalé par validateDuration
+	}
+	if interval < minRangeUpdateInterval {
+		*fields = append(*fields, fmt.Sprintf("cloudflare.update_interval must be >= %s when auto_update_ranges is enabled", minRangeUpdateInterval))
+	}
 }
 
 // validateServerTLS valide la terminaison TLS par domaine (FR-33). Les

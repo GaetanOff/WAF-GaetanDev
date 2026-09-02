@@ -11,6 +11,13 @@ import (
 
 const cleanupInterval = 60 * time.Second
 
+// bucketsPerVisitor est le nombre de buckets de rate limiting qu'une même IP
+// peut occuper : une par fenêtre seconde / minute / heure (FR-03). La borne du
+// nombre de buckets en est le multiple — sans ce facteur, activer les fenêtres
+// diviserait par trois le nombre d'IP réellement suivies pour un même
+// trust.max_visitors.
+const bucketsPerVisitor = 3
+
 type Store struct {
 	maxVisitors int
 	now         func() time.Time
@@ -183,7 +190,8 @@ func (s *Store) CleanupExpired() {
 }
 
 // cleanupBuckets supprime les buckets expirés puis borne leur nombre à
-// maxVisitors en évinçant les moins récemment rafraîchis. Les buckets n'ont pas
+// maxVisitors * bucketsPerVisitor en évinçant les moins récemment rafraîchis.
+// Les buckets n'ont pas
 // d'éviction LRU propre (SetBucket est lock-free) : sans cette borne, la map
 // grossit indéfiniment avec le nombre d'IP vues.
 func (s *Store) cleanupBuckets(now time.Time) {
@@ -209,11 +217,12 @@ func (s *Store) cleanupBuckets(now time.Time) {
 		live = append(live, agedBucket{key: keyString, last: bucket.LastRefill})
 		return true
 	})
-	if len(live) <= s.maxVisitors {
+	maxBuckets := s.maxVisitors * bucketsPerVisitor
+	if len(live) <= maxBuckets {
 		return
 	}
 	sort.Slice(live, func(i, j int) bool { return live[i].last.Before(live[j].last) })
-	for _, b := range live[:len(live)-s.maxVisitors] {
+	for _, b := range live[:len(live)-maxBuckets] {
 		s.buckets.Delete(b.key)
 	}
 }

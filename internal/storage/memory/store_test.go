@@ -97,13 +97,15 @@ func TestCleanupExpiredRemovesExpiredKeepsLive(t *testing.T) {
 }
 
 func TestCleanupBoundsBucketCount(t *testing.T) {
-	store := New(2) // borne = 2 buckets
+	// Borne = maxVisitors * bucketsPerVisitor : une IP occupe jusqu'à trois
+	// buckets (fenêtres seconde / minute / heure, FR-03).
+	store := New(1) // borne = 3 buckets
 	t.Cleanup(store.Close)
 	base := time.Date(2026, 6, 11, 12, 0, 0, 0, time.UTC)
 	store.now = func() time.Time { return base }
 
-	// 4 buckets vivants, LastRefill croissant : old1 (le plus ancien) → new2.
-	order := []string{"old1", "old2", "new1", "new2"}
+	// 5 buckets vivants, LastRefill croissant : old1 (le plus ancien) → new3.
+	order := []string{"old1", "old2", "new1", "new2", "new3"}
 	for i, key := range order {
 		store.SetBucket(key, storage.RateBucket{
 			IPHash:     key,
@@ -114,7 +116,7 @@ func TestCleanupBoundsBucketCount(t *testing.T) {
 
 	store.CleanupExpired()
 
-	for _, key := range []string{"new1", "new2"} {
+	for _, key := range []string{"new1", "new2", "new3"} {
 		if _, ok := store.GetBucket(key); !ok {
 			t.Fatalf("recent bucket %q must survive the cap", key)
 		}
