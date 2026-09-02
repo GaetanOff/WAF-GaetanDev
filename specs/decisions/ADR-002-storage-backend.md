@@ -63,3 +63,16 @@ Architecture retenue :
 
 - [requirements.md](../requirements.md) NFR-01 (Performance), NFR-02 (Fiabilité)
 - [architecture.md](../architecture.md) — Data Model
+
+## Follow-up (2026-09-02)
+
+`internal/storage/redis/store.go` annoncé ci-dessus n'existait pas : le
+répertoire ne contenait qu'un `.gitkeep` et `cmd/waf/main.go` instanciait
+`memory.New(...)` sans jamais lire `storage.backend`. La sélection décrite dans
+« Consequences » était donc inopérante — `storage.backend: redis` valait
+`memory` en silence.
+
+Le backend est implémenté depuis le 2026-09-02. Sa sémantique d'exécution
+(écriture traversante, mode dégradé sur perte de Redis, TTL délégué à Redis,
+frontière d'éviction) n'était pas tranchée par cet ADR : elle fait l'objet de
+[ADR-021](ADR-021-redis-store-degraded-mode.md).
