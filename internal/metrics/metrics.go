@@ -38,6 +38,10 @@ type Metrics struct {
 	underAttackHits *prometheus.CounterVec
 	clusterEvents   *prometheus.CounterVec
 	tlsCertExpiry   *prometheus.GaugeVec
+	cfRanges        prometheus.Gauge
+	cfRangeUpdates  *prometheus.CounterVec
+	storageDegraded prometheus.Gauge
+	storageErrors   *prometheus.CounterVec
 	mu              sync.Mutex
 	visitors        map[string]string
 	now             func() time.Time
@@ -112,10 +116,29 @@ func New() *Metrics {
 			Name: "waf_under_attack_challenges_total",
 			Help: "Requests forced to challenge by under-attack mode, per domain (FR-39).",
 		}, []string{"domain"}),
+		cfRanges: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "waf_cloudflare_ranges",
+			Help: "Number of Cloudflare IP prefixes currently in force (FR-02).",
+		}),
+		cfRangeUpdates: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_cloudflare_ranges_update_total",
+			Help: "Cloudflare IP range refresh attempts by result (FR-02).",
+		}, []string{"result"}),
+		storageDegraded: prometheus.NewGauge(prometheus.GaugeOpts{
+			Name: "waf_storage_degraded",
+			Help: "Storage backend serving from the local fallback store (1) or nominal (0) (ADR-021).",
+		}),
+		storageErrors: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_storage_errors_total",
+			Help: "Storage backend errors by operation (ADR-021).",
+		}, []string{"operation"}),
 		visitors: make(map[string]string),
 		now:      time.Now,
 	}
-	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry)
+	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors)
+	// La liste compilée est en vigueur au démarrage : publier son cardinal tout
+	// de suite évite une jauge à 0 qui se lirait comme « aucune plage connue ».
+	m.cfRanges.Set(float64(len(cloudflare.Ranges())))
 	return m
 }
 
@@ -138,6 +161,36 @@ func (m *Metrics) SetUnderAttack(domain string, active bool) {
 		value = 1
 	}
 	m.underAttack.WithLabelValues(domain).Set(value)
+}
+
+// SetCloudflareRanges publie le nombre de plages IP Cloudflare en vigueur
+// (FR-02). Une chute de ce cardinal après un rafraîchissement est le signal
+// qu'une liste plus étroite a été adoptée.
+func (m *Metrics) SetCloudflareRanges(count int) {
+	m.cfRanges.Set(float64(count))
+}
+
+// IncCloudflareRangeUpdate compte une tentative de rafraîchissement des plages
+// Cloudflare par issue ("success" / "error"). Sans ce compteur, un
+// rafraîchissement qui échoue en boucle serait invisible : le WAF continue de
+// servir avec l'ancienne liste, donc rien ne se dégrade visiblement (FR-02).
+func (m *Metrics) IncCloudflareRangeUpdate(result string) {
+	m.cfRangeUpdates.WithLabelValues(result).Inc()
+}
+
+// SetStorageDegraded publie l'état du backend de stockage : 1 quand le nœud sert
+// son état local faute de Redis (ADR-021), 0 en nominal.
+func (m *Metrics) SetStorageDegraded(degraded bool) {
+	value := 0.0
+	if degraded {
+		value = 1
+	}
+	m.storageDegraded.Set(value)
+}
+
+// IncStorageError compte une erreur du backend de stockage par opération (ADR-021).
+func (m *Metrics) IncStorageError(operation string) {
+	m.storageErrors.WithLabelValues(operation).Inc()
 }
 
 // IncClusterSync compte un événement de synchronisation cluster appliqué (FR-20).

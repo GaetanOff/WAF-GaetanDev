@@ -43,7 +43,9 @@ import (
 	"github.com/gaetandev/waf/internal/selfprotect"
 	"github.com/gaetandev/waf/internal/slowloris"
 	"github.com/gaetandev/waf/internal/staticassets"
+	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/storage/memory"
+	redisstore "github.com/gaetandev/waf/internal/storage/redis"
 	"github.com/gaetandev/waf/internal/threatintel"
 	"github.com/gaetandev/waf/internal/tlsfp"
 	"github.com/gaetandev/waf/internal/tlsmgr"
@@ -54,6 +56,8 @@ import (
 const (
 	defaultConfigPath     = "configs/config.example.yaml"
 	defaultHealthCheckURL = "http://127.0.0.1:8080/waf/health"
+
+	storageBackendRedis = "redis"
 )
 
 func main() {
@@ -154,8 +158,37 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	store := memory.New(cfg.Trust.MaxVisitors)
+	metrics := wafmetrics.New()
+	store, err := newStore(*cfg, metrics)
+	if err != nil {
+		return err
+	}
 	defer store.Close()
+	// Rafraîchissement des plages IP Cloudflare (FR-02). Tâche de fond : le WAF
+	// sert immédiatement avec la liste compilée, et un échec de récupération
+	// laisse la liste en vigueur intacte plutôt que d'empêcher le démarrage.
+	if cfg.Cloudflare.Trusted && cfg.Cloudflare.AutoUpdateRanges {
+		rangeInterval, err := parseDuration("cloudflare.update_interval", cfg.Cloudflare.UpdateInterval)
+		if err != nil {
+			return err
+		}
+		updater := cloudflare.NewUpdater(rangeInterval, cloudflare.WithObservers(
+			func(count int) {
+				metrics.SetCloudflareRanges(count)
+				metrics.IncCloudflareRangeUpdate("success")
+				slog.Info("cloudflare ip ranges refreshed", "prefixes", count)
+			},
+			func(err error) {
+				metrics.IncCloudflareRangeUpdate("error")
+				// Warn et non Error : la liste précédente reste en vigueur, le WAF
+				// continue de valider CF-Connecting-IP correctement.
+				slog.Warn("cloudflare ip ranges refresh failed", "error", err)
+			},
+		))
+		rangeCtx, rangeCancel := context.WithCancel(context.Background())
+		defer rangeCancel()
+		updater.Start(rangeCtx)
+	}
 	scoreManager, err := trust.NewScoreManager(store, *cfg)
 	if err != nil {
 		return err
@@ -173,7 +206,6 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	metrics := wafmetrics.New()
 	// Détecteurs avancés : publient des contributions de signal consommées par le
 	// moteur de risque ; exécutés juste avant lui (Phase 8).
 	detectors := []func(http.Handler) http.Handler{
@@ -422,6 +454,25 @@ func run() error {
 	}
 
 	return <-errs
+}
+
+// newStore construit le backend de stockage désigné par `storage.backend`.
+//
+// Cette sélection n'existait pas avant la phase 15 : `redis` était accepté par
+// la validation de configuration puis ignoré — le WAF servait un état par nœud
+// alors que la configuration promettait un état partagé entre instances
+// (ADR-002, sémantique d'exécution dans ADR-021).
+func newStore(cfg config.Config, observer redisstore.Observer) (storage.Store, error) {
+	if cfg.Storage.Backend != storageBackendRedis {
+		return memory.New(cfg.Trust.MaxVisitors), nil
+	}
+	if cfg.Storage.Redis == nil {
+		// Déjà refusé par config.Validate ; la garde évite qu'un appel direct
+		// déréférence un pointeur nul.
+		return nil, errors.New("storage.backend is redis but storage.redis is missing")
+	}
+	slog.Info("using redis storage backend", "address", cfg.Storage.Redis.Address)
+	return redisstore.New(*cfg.Storage.Redis, cfg.Trust.MaxVisitors, redisstore.WithObserver(observer))
 }
 
 func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflogger.Logger, metrics *wafmetrics.Metrics, antiDDoS antiddos.Middleware, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, riskMiddleware *risk.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, detectors []func(http.Handler) http.Handler, proxyHandler http.Handler) http.Handler {
