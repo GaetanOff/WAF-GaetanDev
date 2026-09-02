@@ -245,6 +245,24 @@ last-reviewed: 2026-06-03
 | 2026-09-01 | T14.4 alignement ASCII | Contrôle programmatique de la largeur des bordures | pass | Toutes les lignes du bloc C4 niveau 2 à 71 colonnes (une ligne était décalée d'un caractère) |
 | 2026-09-01 | T14.4 non-régression | `go build ./... && go vet ./... && go test ./...` | pass | 447 tests, 42 paquets — document uniquement, aucun code touché |
 | 2026-09-01 | Spectral | `spectral lint specs/api/admin.openapi.yaml` | **non exécuté localement** | `.spectral.yaml` existe bien à la racine (ruleset `spectral:oas`, `operation-operationId` en `error`) ; le binaire est absent du poste. Aucune PR de cette passe ne touche l'OpenAPI. Une mention antérieure indiquant que le dépôt n'avait pas de config Spectral était fausse |
+| 2026-09-02 | Sprint 15 | `go build ./...` | pass | Sélection du backend de stockage + updater Cloudflare câblés dans `cmd/waf` |
+| 2026-09-02 | Sprint 15 | `go vet ./...` | pass | Aucune remontée |
+| 2026-09-02 | Sprint 15 | `go test ./...` | pass | 552 tests, 43 paquets (447 / 42 avant ce sprint) |
+| 2026-09-02 | Sprint 15 | `gofmt -l` sur copies normalisées LF | pass | 139 fichiers Go, sortie vide |
+| 2026-09-02 | Sprint 15 | `golangci-lint run` | pass | 37 remontées, **toutes** `gofmt` : artefact des CRLF de la copie de travail Windows (le contenu versionné est en LF). Aucune remontée d'un autre linter |
+| 2026-09-02 | Sprint 15 | `go test -race` | **non exécuté localement** | Le détecteur exige cgo et aucun compilateur C n'est installé sur le poste. Couvert par le job `test` de la CI (`-race -coverprofile`) |
+| 2026-09-02 | Sprint 15 | Validation JSON Schema | pass | `config.schema.json` se charge ; `configs/config.example.yaml` et `deploy/config.docker.yaml` valident contre le schéma mis à jour (nouvelle clé `storage.redis.timeout`, bornes `rate_limit`) |
+| 2026-09-02 | T15.1 fenêtres de rate limiting | Exécution réelle, `requests_per_minute: 2` | pass | 2 requêtes admises puis HTTP 429 `X-WAF-Reason: rate_limit_exceeded_minute` avec `Retry-After: 29` (recharge de la fenêtre minute) |
+| 2026-09-02 | T15.1 séparation recharge/prélèvement | Mutation (`Consume` inconditionnel dans `settle`) | pass | `TestDeniedWindowDoesNotSpendOtherWindowsTokens` échoue (jetons de la fenêtre seconde à 4 au lieu de 9) |
+| 2026-09-02 | T15.1 piège du plancher de débit | Revue + test | pass | `NewTokenBucket` ramenait tout débit `< 1` à `1/s`, ce qui rendait les fenêtres minute/heure inopérantes. Constaté par `TestRetryAfterAndReasonComeFromLongestDenyingWindow` (Retry-After 1 s au lieu de 3600 s) avant correction |
+| 2026-09-02 | T15.2 garde de largeur de préfixe | Mutation (suppression des bornes `/8` et `/19`) | pass | 3 tests échouent, dont `TestRejectedRefreshKeepsForgedHeaderRejected` — c'est la garde qui empêche une liste récupérée de rendre `CF-Connecting-IP` forgeable |
+| 2026-09-02 | T15.2 échec de rafraîchissement | Exécution réelle, `auto_update_ranges: true`, `update_interval: 1m` | pass | Poste sans accès sortant : `WARN cloudflare ip ranges refresh failed error=... context deadline exceeded`, `waf_cloudflare_ranges` reste à 22 (liste compilée), `waf_cloudflare_ranges_update_total{result="error"} 2`, le WAF continue de servir |
+| 2026-09-02 | T15.2 récupération réelle | Fetch depuis `www.cloudflare.com` | **non vérifiée** | Aucun accès sortant depuis le poste. Le chemin nominal est couvert par des tests contre un serveur local ; le format « un CIDR par ligne » vient de la documentation Cloudflare. À revérifier depuis un réseau ouvert avant d'activer l'option en production |
+| 2026-09-02 | T15.3 rendu `pretty` | Exécution réelle, sortie redirigée vers un fichier | pass | Lignes lisibles (`10:25:38.601 PASS 127.0.0.0 GET 127.0.0.1:18099/ 200 2.69ms reason=... score=89 ...`), **aucune séquence ANSI** — la règle « pas de couleur hors terminal » tient de bout en bout |
+| 2026-09-02 | T15.3 contrat d'audit `json` | `TestJSONFormatRemainsTheAuditContract` | pass | Sortie JSON valide et complète (`ip_hash`, `waf_latency_ms` inclus), sans ANSI — le format `json` est inchangé par ce sprint |
+| 2026-09-02 | T15.4 échec de démarrage Redis | Exécution réelle, `storage.backend: redis`, adresse injoignable | pass | `ERROR waf stopped error="redis storage backend at 127.0.0.1:6399: dial tcp ... refusée"`, code de sortie 1. Avant ce sprint, la même configuration démarrait **silencieusement** sur le store mémoire |
+| 2026-09-02 | T15.4 mode dégradé | Tests avec double de client Redis | pass | Bascule après 3 erreurs consécutives, état local servi sans trafic Redis, re-bascule immédiate sur échec de sonde, retour au nominal après la fenêtre, jauge publiée sur transition uniquement |
+| 2026-09-02 | T15.4 exécution contre un Redis réel | — | **non vérifiée** | Aucune instance Redis disponible sur le poste (ni accès sortant pour tirer une image). Seul le chemin d'échec au démarrage est vérifié en exécution réelle |
 
 ### Slice 12.1 — Notes & couverture du périmètre (FR-39)
 
@@ -283,6 +301,128 @@ last-reviewed: 2026-06-03
 - **Pourquoi c'est plus grave que les constats d'ADR-019** : `CF-*` n'est forgeable qu'en joignant le WAF hors Cloudflare. `X-Real-IP`, lui, **traverse Cloudflare sans être réécrit** — l'évasion d'une règle de blocage par IP est donc exploitable depuis n'importe quel client d'un déploiement pourtant correctement configuré.
 - **Non corrigé, et volontairement** : ADR-019 (en-têtes d'infrastructure) et ADR-020 (`Host`). Dans les deux cas, la correction n'est pas un bug à écraser mais un **arbitrage de politique d'accès** : les options ferment le trou en rejetant du trafic aujourd'hui accepté (health checks externes, accès de secours par IP, réutilisation de connexion HTTP/2 entre domaines partageant un certificat). Les deux ADR exposent les options et une recommandation, en statut `proposed`.
 - **Constat le plus important de l'audit, à ne pas perdre** : pour `CF-IPCountry` comme pour `ja3_header`, la **forge n'est qu'un cas particulier de l'omission**. Ces contrôles dégradent gracieusement quand l'en-tête est absent, donc un attaquant qui peut joindre le WAF hors Cloudflare les contourne en n'envoyant rien. Assainir les `CF-*` (option B d'ADR-019) réduit la surface mais ne rend pas FR-16 ni la blacklist JA3 contraignants — seule l'option D le ferait, et elle change la politique d'accès du WAF.
+
+### Sprint 15 — quatre options de configuration inertes : périmètre du correctif
+
+- **Le constat commun** : `cloudflare.auto_update_ranges` / `update_interval`,
+  `rate_limit.requests_per_minute` / `requests_per_hour`, `logging.format: pretty`
+  et `storage.backend: redis` étaient désérialisées, validées, dotées de défauts
+  et **documentées comme fonctionnelles** — sans aucun effet dans le code. Ce
+  n'est pas de la dette technique : la documentation décrivait un comportement
+  qui n'existait pas, et pour deux d'entre elles la promesse portait sur une
+  protection (débit soutenu borné, état partagé entre instances).
+- **Direction retenue** : implémenter ce qui était promis, plutôt que retirer les
+  clés ou les refuser au démarrage (décision d'opérateur du 2026-09-02). Deux des
+  quatre étaient d'ailleurs déjà exigées par une spec approuvée — FR-03 (« le WAF
+  DOIT supporter des limites distinctes pour req/seconde, req/minute, req/heure »)
+  et ADR-002 (`redis.Store` annoncé dans les conséquences) : là, c'était le code
+  qui était en retard, pas la documentation en avance.
+- **Hors périmètre, délibérément** : les surcharges `domains[]`
+  (`protected_paths`, `public_paths`, `rate_limit_override`, `trust_override`)
+  restent non câblées. Elles sont déjà documentées comme telles dans CONFIG.md et
+  suivies depuis T13.1 — leur implémentation demande ses propres specs (résolution
+  de chemin, interaction avec le bypass d'assets FR-24, seuils par domaine).
+
+### FR-03 — pourquoi trois buckets et non un compteur de fenêtre glissante
+
+- **Ce que la doc annonçait** : « limite cumulée sur une fenêtre glissante d'une
+  minute ». Une vraie fenêtre glissante demande de conserver les horodatages des
+  requêtes (ou un anneau de sous-compteurs) par IP et par fenêtre — au prix d'une
+  structure de taille non bornée sur le chemin chaud, pour une précision dont
+  aucune décision du WAF ne dépend.
+- **Ce qui est implémenté** : un Token Bucket par fenêtre, débit = limite ÷ durée,
+  capacité = limite. C'est l'algorithme que FR-03 impose déjà à la première ligne,
+  la structure est de taille fixe, et l'écart avec une fenêtre glissante porte sur
+  la répartition d'une rafale dans la fenêtre, pas sur le plafond de débit
+  soutenu. CONFIG.md ne parle donc plus de fenêtre glissante : il décrit la
+  mécanique réelle.
+- **Pourquoi le refus ne consomme rien** : sans séparation de la recharge et du
+  prélèvement, un client buté sur sa limite horaire voyait ses trois buckets se
+  vider à chaque tentative. À la réouverture de la fenêtre, il repartait avec un
+  burst à la seconde vide — punition cumulative que rien ne spécifie, et qui
+  frappe surtout un client légitime qui réessaie.
+- **Le piège trouvé en implémentant** : `NewTokenBucket` ramenait tout débit
+  inférieur à 1 jeton/seconde à `1/s`. Écrite pour la fenêtre seconde (où un débit
+  fractionnaire n'a pas de sens), cette borne rendait les nouvelles fenêtres
+  **inopérantes** : 600 req/min (10/s) et 3600 req/h (1/s) passaient, mais
+  60 req/h (1/60 s) devenait 3600 req/h. Le garde-fou ne porte plus que sur un
+  débit nul ou négatif, qui seul casse le calcul du `Retry-After`.
+- **Effet de déploiement assumé** : avec les défauts publiés depuis le début
+  (`50 req/s`, `1000 req/min`), le débit soutenu autorisé par IP passe de 3000 à
+  1000 req/min. C'est la valeur documentée, appliquée pour la première fois.
+  Signalée dans CONFIG.md et le changelog, avec la sortie de secours (`0` désactive
+  une fenêtre).
+
+### FR-02 — pourquoi une liste récupérée est validée avant d'être adoptée
+
+- **L'enjeu** : les plages Cloudflare décident quelles sources ont le droit de
+  poser `CF-Connecting-IP`, donc quelle IP le WAF croit ensuite pour **toutes** ses
+  décisions (score, rate limiting, blacklist, règles FR-17). Une liste récupérée
+  est une entrée externe qui pilote une frontière de confiance.
+- **Le pire cas concret** : un `0.0.0.0/0` adopté ferait passer n'importe quelle
+  source pour Cloudflare — `CF-Connecting-IP` deviendrait forgeable depuis
+  Internet, et l'attaquant choisirait l'IP sur laquelle le WAF applique ses
+  décisions. C'est pourquoi le rejet porte sur la **largeur** des préfixes, pas
+  seulement sur leur syntaxe.
+- **Pourquoi tout-ou-rien** : adopter la seule liste IPv4 quand la liste IPv6 est
+  illisible rétrécirait la couverture en silence — du trafic Cloudflare légitime
+  en IPv6 commencerait à recevoir des 400, sans qu'aucun signal ne pointe vers le
+  rafraîchissement.
+- **Pourquoi le repli et non l'échec** : FR-02 est un DEVRAIT. Un WAF qui refuse
+  de démarrer parce que `cloudflare.com` est momentanément injoignable serait une
+  panne auto-infligée, alors que la liste compilée est parfaitement valide.
+  L'échec est donc journalisé (`warn`) et compté, jamais fatal.
+- **Vérification manquante, assumée** : la récupération réelle n'a pas pu être
+  exercée depuis le poste de développement (aucun accès sortant). Le format « un
+  CIDR par ligne » vient de la documentation Cloudflare et est couvert par des
+  tests contre un serveur local — mais l'option ne devrait pas être activée en
+  production avant un essai depuis un réseau ouvert. Le défaut reste `false`.
+
+### FR-09 — pourquoi `pretty` est hors du contrat d'audit
+
+- Le format `json` est vérifié contre `security-event.schema.json` : c'est lui qui
+  porte la garantie d'audit. Faire de `pretty` un second format conforme au même
+  schéma aurait signifié afficher les 23 champs de chaque événement sur une ligne
+  de console — soit exactement l'illisibilité que le format cherche à corriger.
+- `pretty` est donc défini comme un **rendu**, pas comme un contrat : il promeut
+  neuf champs, en masque trois (`ip_hash`, `waf_latency_ms`, `cf_ray`), omet les
+  valeurs nulles et neutres, et arrondit les flottants. La spec (FR-09 v2.3.0) le
+  dit explicitement, CONFIG.md le répète, et la conformité de schéma ne porte que
+  sur `json`.
+- **Colorisation** : décidée dans `New`, seul endroit qui connaît la destination
+  réelle. En aval, le handler ne voit qu'un `io.Writer` — le tampon asynchrone —
+  sur lequel la question « est-ce un terminal ? » n'a plus de réponse. Vérifié en
+  exécution réelle : sortie redirigée vers un fichier, aucune séquence ANSI.
+- **Ce qui ne change pas** : niveau, destination et écriture asynchrone (NFR-16)
+  sont communs aux deux formats. Le choix du format ne touche que la sérialisation.
+
+### ADR-021 — pourquoi le backend Redis n'est pas un simple adaptateur
+
+- `storage.Store` ne retourne **aucune erreur** (`GetVisitor(key) (*VisitorState,
+  bool)`). Une implémentation réseau ne peut donc pas déléguer la décision à
+  l'appelant : elle doit choisir seule quoi faire d'un Redis muet. Trois options
+  ont été évaluées dans ADR-021 ; l'écriture traversante avec repli local explicite
+  est la seule qui satisfasse FR-20 (« chaque nœud DOIT continuer à fonctionner de
+  manière autonome ») sans créer de fenêtre d'incohérence invisible.
+- **Pourquoi un échec de démarrage sur Redis injoignable** : démarrer en mode
+  dégradé reproduirait exactement le défaut corrigé ici — un WAF qui sert un état
+  par nœud alors que la configuration promet un état partagé. L'opérateur a demandé
+  Redis ; une adresse ou un mot de passe fautif doit se voir au boot, pas se
+  découvrir six mois plus tard dans un incident.
+- **Pourquoi le mode dégradé est une métrique et pas seulement un log** : c'est un
+  état, pas un événement. `waf_storage_degraded` permet d'alerter sur sa durée ;
+  sans elle, la dégradation redeviendrait le genre d'état silencieux que ce sprint
+  élimine.
+- **Différence de comportement documentée entre backends** : `trust.max_visitors`
+  borne le nombre de visiteurs suivis en mémoire ; côté Redis, la borne est la
+  `maxmemory-policy` de l'instance. Émuler la LRU dans Redis demanderait un
+  compteur global contesté à chaque requête — un point de contention créé pour
+  imiter une garantie que Redis offre déjà à sa façon.
+- **Vérification manquante, assumée** : le chemin nominal n'a pas été exercé
+  contre un Redis réel (aucune instance disponible sur le poste). Les tests
+  utilisent un double de client réduit aux 7 commandes employées — ce qui valide
+  la sérialisation, les TTL, le bornage du `SCAN` et les transitions de mode, mais
+  pas le dialogue avec un vrai serveur.
 
 ## Security Scan Triage (Semgrep OSS)
 

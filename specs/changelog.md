@@ -6,7 +6,91 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added
+
+- **Quatre options de configuration qui ne faisaient rien font désormais ce que
+  la documentation annonçait** (phase 15). Elles étaient désérialisées, validées,
+  dotées de défauts et décrites dans `CONFIG.md` — sans aucun effet dans le code.
+  Deux d'entre elles étaient même exigées par une spec approuvée : c'était le code
+  qui était en retard.
+
+  - **`rate_limit.requests_per_minute` / `requests_per_hour` (FR-03)** — le
+    middleware n'implémentait qu'un token bucket sur `requests_per_second` /
+    `burst` : le débit **soutenu** n'était borné par rien. Chaque fenêtre a
+    maintenant son propre bucket par IP (recharge = limite ÷ durée de la fenêtre,
+    capacité = la limite). Une requête n'est admise que si les trois fenêtres
+    actives ont un jeton, un refus par une fenêtre **ne consomme pas** celui des
+    autres, le `Retry-After` est celui de la fenêtre qui rouvre le plus tard, et
+    le `reason` journalisé nomme la fenêtre (`rate_limit_exceeded`,
+    `rate_limit_exceeded_minute`, `rate_limit_exceeded_hour`). `0` désactive une
+    fenêtre ; `requests_per_hour` doit être ≥ `requests_per_minute`.
+  - **`cloudflare.auto_update_ranges` / `update_interval` (FR-02)** — les plages
+    Cloudflare étaient un slice codé en dur, sans aucun fetch ni ticker. Le
+    nouveau `internal/middleware/cloudflare/updater.go` récupère les deux listes
+    officielles en HTTPS au démarrage puis à l'intervalle configuré, et remplace la
+    liste en vigueur de façon atomique. La liste compilée reste le **repli
+    permanent** : l'adoption est tout-ou-rien, et une liste est rejetée en entier
+    si un préfixe n'est pas canonique, s'il est plus large que `/8` (IPv4) ou
+    `/19` (IPv6), si la famille ne correspond pas à sa source, si le nombre de
+    préfixes sort des bornes de plausibilité ou si le corps dépasse 64 KiB.
+    Nouvelles métriques : `waf_cloudflare_ranges` et
+    `waf_cloudflare_ranges_update_total{result}`.
+  - **`logging.format: "pretty"` (FR-09)** — `NewWithWriter` construisait toujours
+    un `JSONHandler` : `pretty` était accepté et produisait du JSON. Il produit
+    maintenant une ligne console lisible (horodatage court, action colorisée, IP,
+    méthode, hôte+chemin, statut, latence, raison, score, puis `clé=valeur`).
+    La colorisation est désactivée hors terminal et quand `NO_COLOR` est défini.
+    Ce format est **explicitement hors du contrat d'audit** : `json` reste le
+    format conforme à `security-event.schema.json`, et il est inchangé.
+  - **`storage.backend: "redis"` (ADR-002, ADR-021)** — `cmd/waf` instanciait
+    inconditionnellement `memory.New(...)` sans jamais lire `storage.backend`, et
+    `internal/storage/redis/` ne contenait qu'un `.gitkeep`. Le backend existe :
+    clés `waf:visitor:` / `waf:bucket:`, TTL délégué à Redis, écriture traversante
+    (Redis + store local), et mode dégradé sur perte de Redis — après 3 erreurs
+    consécutives le nœud sert son état local pendant 5 s puis re-sonde, sans
+    interrompre le service (FR-20). Nouvelles métriques `waf_storage_degraded` et
+    `waf_storage_errors_total{operation}`. Nouvelle clé `storage.redis.timeout`
+    (défaut `100ms`).
+
+- **ADR-021 — sémantique du backend Redis** : écriture traversante, mode dégradé,
+  expiration déléguée, frontière d'éviction. ADR-002 tranchait « Redis optionnel »
+  mais pas le comportement d'exécution, et `storage.Store` ne retourne aucune
+  erreur : l'implémentation devait décider seule quoi faire d'un Redis muet.
+
+- **Specs de comportement manquantes** : `features/rate-limiting.feature`,
+  `features/cloudflare-ip-ranges.feature`, `features/security-logging.feature`,
+  `features/storage-backend.feature`. Ces quatre comportements — dont deux
+  protections — n'avaient aucune spec Gherkin.
+
 ### Changed
+
+- **⚠ Débit soutenu par IP resserré aux valeurs déjà documentées** (phase 15,
+  FR-03). Avec les défauts (`50 req/s`, `1000 req/min`), le plafond effectif passe
+  de 3000 à **1000 requêtes par minute et par IP** — la valeur que `CONFIG.md`
+  annonçait depuis le début, appliquée pour la première fois. Relevez
+  `rate_limit.requests_per_minute` / `requests_per_hour`, ou passez-les à `0`, si
+  votre trafic légitime dépassait ce plafond.
+  - Corrigé au passage : `NewTokenBucket` ramenait tout débit inférieur à
+    1 jeton/seconde à `1/s`. Cette borne, écrite pour la fenêtre seconde, rendait
+    les fenêtres minute et heure inopérantes en dessous de 3600 req/h. Le
+    garde-fou ne porte plus que sur un débit nul ou négatif.
+  - `memory.Store` borne désormais le nombre de buckets à
+    `trust.max_visitors × 3` (une IP occupe une entrée par fenêtre) : sans ce
+    facteur, activer les fenêtres divisait par trois le nombre d'IP réellement
+    suivies.
+
+- **Nouveaux refus au démarrage** — trois combinaisons de configuration
+  contradictoires étaient acceptées en silence :
+  - `cloudflare.auto_update_ranges: true` sans `cloudflare.trusted` (les plages ne
+    servent qu'à valider `CF-Connecting-IP`) ;
+  - `cloudflare.update_interval` sous `1m` quand le rafraîchissement est actif ;
+  - `rate_limit.requests_per_hour` inférieur à `requests_per_minute` (la fenêtre
+    minute devient inatteignable).
+
+- **`storage.backend: redis` avec un Redis injoignable est maintenant une erreur
+  de démarrage** au lieu d'un démarrage silencieux sur le store mémoire. C'est le
+  point de la correction : la configuration promettait un état partagé entre
+  instances, le WAF en servait un par nœud.
 
 - **`architecture.md` (1.1.0 → 1.2.0) — remise à niveau sur le code réel.** Le
   `Request Processing Pipeline` décrivait 10 étapes de la v1 (`CF-IP → Whitelist →
