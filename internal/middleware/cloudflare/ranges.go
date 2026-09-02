@@ -1,10 +1,19 @@
 package cloudflare
 
-import "net/netip"
+import (
+	"net/netip"
+	"sync/atomic"
+)
 
-// Ranges from official Cloudflare IP lists, checked on 2026-06-04:
-// https://www.cloudflare.com/ips-v4 and https://www.cloudflare.com/ips-v6
-var cloudflareRanges = parsePrefixes([]string{
+// builtinRanges est la liste compilée dans le binaire, relevée sur les listes
+// officielles Cloudflare le 2026-06-04 :
+// https://www.cloudflare.com/ips-v4 et https://www.cloudflare.com/ips-v6
+//
+// Elle sert de valeur initiale ET de repli permanent : le rafraîchissement
+// automatique (FR-02, cloudflare.auto_update_ranges) ne la remplace que par une
+// liste complète et validée. Un échec de récupération laisse donc toujours une
+// liste sûre en vigueur — jamais de liste vide.
+var builtinRanges = parsePrefixes([]string{
 	"173.245.48.0/20",
 	"103.21.244.0/22",
 	"103.22.200.0/22",
@@ -28,6 +37,39 @@ var cloudflareRanges = parsePrefixes([]string{
 	"2a06:98c0::/29",
 	"2c0f:f248::/32",
 })
+
+// activeRanges porte la liste en vigueur ; nil signifie « liste compilée ».
+// Le remplacement est atomique parce que IsCloudflareIP est sur le chemin de
+// requête : un lecteur voit soit l'ancienne liste, soit la nouvelle, jamais un
+// état intermédiaire, et sans verrou à prendre par requête.
+var activeRanges atomic.Pointer[[]netip.Prefix]
+
+// Ranges retourne les plages en vigueur.
+func Ranges() []netip.Prefix {
+	if current := activeRanges.Load(); current != nil {
+		return *current
+	}
+	return builtinRanges
+}
+
+// BuiltinRanges retourne la liste compilée dans le binaire.
+func BuiltinRanges() []netip.Prefix {
+	return builtinRanges
+}
+
+// setRanges installe une liste récupérée. Réservé à l'updater : la validation
+// est faite en amont (validateFetchedRanges), poser la liste ici est
+// inconditionnel.
+func setRanges(prefixes []netip.Prefix) {
+	snapshot := make([]netip.Prefix, len(prefixes))
+	copy(snapshot, prefixes)
+	activeRanges.Store(&snapshot)
+}
+
+// resetRanges revient à la liste compilée.
+func resetRanges() {
+	activeRanges.Store(nil)
+}
 
 func parsePrefixes(values []string) []netip.Prefix {
 	prefixes := make([]netip.Prefix, 0, len(values))
