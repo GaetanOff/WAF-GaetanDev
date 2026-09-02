@@ -12,6 +12,10 @@ import (
 	"github.com/gaetandev/waf/internal/config"
 )
 
+// formatPretty est la valeur de logging.format qui sélectionne le rendu console
+// (FR-09). Toute autre valeur validée (`json`) produit le contrat d'audit JSON.
+const formatPretty = "pretty"
+
 // Logger émet les événements de sécurité en JSON structuré via la bibliothèque
 // standard log/slog. La sortie est conforme à security-event.schema.json :
 // les clés intégrées de slog (time, level, msg) sont retirées.
@@ -39,14 +43,18 @@ type Alerter interface {
 }
 
 func New(cfg config.Logging) Logger {
-	output := io.Writer(os.Stdout)
+	destination := os.Stdout
 	if cfg.Output == "stderr" {
-		output = os.Stderr
+		destination = os.Stderr
 	}
+	// La colorisation se décide ici, seul endroit qui connaît la destination
+	// RÉELLE : en aval, le handler ne voit qu'un io.Writer (le tampon async), sur
+	// lequel « est-ce un terminal ? » n'a plus de réponse.
+	colors := colorsEnabled(cfg.Format, destination)
 	// L'écriture vers stdout/stderr est rendue asynchrone : le chemin de requête
 	// ne doit jamais bloquer sur l'I/O de log (cf. asyncWriter, NFR-16).
-	async := newAsyncWriter(output, asyncBufferSize)
-	logger := NewWithWriter(cfg, async)
+	async := newAsyncWriter(io.Writer(destination), asyncBufferSize)
+	logger := newLogger(cfg, async, colors)
 	logger.async = async
 	return logger
 }
@@ -69,12 +77,29 @@ func (l Logger) Dropped() int64 {
 	return 0
 }
 
+// NewWithWriter construit un logger synchrone sur un writer arbitraire (tests).
+// La colorisation est désactivée : un writer arbitraire n'est pas un terminal.
 func NewWithWriter(cfg config.Logging, output io.Writer) Logger {
+	return newLogger(cfg, output, false)
+}
+
+// newLogger choisit le handler selon logging.format (FR-09) :
+//   - json : contrat d'audit, conforme à security-event.schema.json
+//   - pretty : rendu console pour le développement, hors contrat d'audit
+//
+// Le format ne change ni le niveau, ni la destination, ni le caractère
+// asynchrone de l'écriture — seulement la sérialisation.
+func newLogger(cfg config.Logging, output io.Writer, colors bool) Logger {
 	level := parseLevel(cfg.Level)
-	handler := slog.NewJSONHandler(output, &slog.HandlerOptions{
-		Level:       level,
-		ReplaceAttr: dropBuiltinKeys,
-	})
+	var handler slog.Handler
+	if cfg.Format == formatPretty {
+		handler = newPrettyHandler(output, level, colors)
+	} else {
+		handler = slog.NewJSONHandler(output, &slog.HandlerOptions{
+			Level:       level,
+			ReplaceAttr: dropBuiltinKeys,
+		})
+	}
 	return Logger{
 		logger: slog.New(handler),
 		level:  level,
