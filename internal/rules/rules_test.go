@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
@@ -228,5 +230,49 @@ func TestRuleIPCidrMatchesIPv4MappedAddress(t *testing.T) {
 	request.RemoteAddr = "[::ffff:10.1.2.3]:1234"
 	if len(ruleSet.Match(request)) == 0 {
 		t.Fatal("IPv4-mapped client address must match the IPv4 prefix")
+	}
+}
+
+// Une action que le middleware n'exécute pas était chargée puis ignorée : la
+// règle semblait active et ne protégeait rien.
+func TestLoadRejectsUnsupportedActions(t *testing.T) {
+	for _, actions := range [][]Action{
+		{{Type: "challenge"}},
+		{{Type: "rate_limit"}},
+		{{Type: "allow"}},
+		{{Type: "log"}, {Type: "redirect"}},
+		nil,
+	} {
+		rule := Rule{Name: "r", Enabled: true, Conditions: []Condition{{Field: "path", Operator: "equals", Value: "/x"}}, Actions: actions}
+		if err := NewRuleSet().Load([]Rule{rule}); err == nil {
+			t.Fatalf("Load(%v) error = nil, want the rule refused", actions)
+		}
+	}
+}
+
+// Une règle écrite selon une autre forme (`op:`, groupe OR) perdait en silence
+// les clés inconnues : le fichier doit être refusé.
+func TestLoadFileRejectsUnknownKeys(t *testing.T) {
+	for name, content := range map[string]string{
+		"op instead of operator": "rules:\n  - name: r\n    enabled: true\n    conditions:\n      - {field: path, op: equals, value: /x}\n    actions:\n      - {type: block}\n",
+		"condition group":        "rules:\n  - name: r\n    enabled: true\n    conditions:\n      operator: OR\n      items: []\n    actions:\n      - {type: block}\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "rules.yaml")
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatalf("write rules: %v", err)
+			}
+			if err := NewRuleSet().LoadFile(path); err == nil {
+				t.Fatal("LoadFile() error = nil, want the file refused")
+			}
+		})
+	}
+	path := filepath.Join(t.TempDir(), "rules.yaml")
+	valid := "rules:\n  - name: r\n    enabled: true\n    conditions:\n      - {field: path, operator: equals, value: /x}\n    actions:\n      - {type: block}\n"
+	if err := os.WriteFile(path, []byte(valid), 0o600); err != nil {
+		t.Fatalf("write rules: %v", err)
+	}
+	if err := NewRuleSet().LoadFile(path); err != nil {
+		t.Fatalf("LoadFile() valid file error = %v", err)
 	}
 }
