@@ -449,88 +449,107 @@ modification silencieuse, décisions tracées).
 
 ## Quality Gates Checklist
 
+> Exécution du **2026-09-24** (branche `fix/audit-2-remediation`, Windows,
+> Go 1.27.0). Chaque gate a sa cible `make` (même outil que la CI). Une case
+> ⬜ signifie **non exécuté**, jamais « supposé bon ». Jusqu'à cette date,
+> toutes les cases de cette section étaient restées vierges, et G3/G4
+> référençaient des tests (`-run TestAPI`, `-run TestBehavior`) qui n'existent
+> pas (audit du 2026-09-24, point 5.3).
+
 ### G1 — Spec Lint
 ```bash
-spectral lint specs/api/admin.openapi.yaml --ruleset .spectral.yaml
+make spec-lint
+# npx --yes @stoplight/spectral-cli@6 lint specs/api/admin.openapi.yaml specs/api/public.openapi.yaml --ruleset .spectral.yaml
 ```
 | Check | Status | Notes |
 |-------|--------|-------|
-| OpenAPI 3.1 valide | ⬜ | |
-| Tous les operationId uniques | ⬜ | |
-| Tous les schemas avec additionalProperties: false | ⬜ | |
-| Pas de $ref cassés | ⬜ | |
+| OpenAPI 3.1 valide (admin + public) | ✅ | spectral 6 : « No results with a severity of 'error' found! », 0 avertissement |
+| Tous les operationId uniques | ✅ | règle `operation-operationId-unique: error` ; complété par `TestEveryAdminRouteHasAnOpenAPIOperation` |
+| Tous les schemas avec additionalProperties: false | ⬜ | aucune règle du ruleset ne le vérifie (`spectral:oas` + operationId seulement) |
+| Pas de $ref cassés | ✅ | |
 
 ### G2 — Type Check
 ```bash
-go vet ./...
-golangci-lint run
+make typecheck   # go vet ./... && go build ./...
+make lint        # golangci-lint run ./...
 ```
 | Check | Status | Notes |
 |-------|--------|-------|
-| `go vet` sans erreur | ⬜ | |
-| `golangci-lint` sans erreur | ⬜ | |
-| Pas de `any` type non justifié | ⬜ | |
-| Pas de `panic` non récupéré | ⬜ | |
+| `go vet` sans erreur | ✅ | |
+| `go build ./...` | ✅ | |
+| `golangci-lint` sans erreur | ✅ | 0 issues — les 93 faux positifs `gofmt` des copies Windows (CRLF) sont corrigés par `*.go eol=lf` dans `.gitattributes` |
 
 ### G3 — API Conformance
 ```bash
-go test ./... -run TestAPI -v
+make conformance   # go test ./... -run 'Schema|Contract|OpenAPI|Conformance'
 ```
-| Endpoint | Status | Notes |
-|----------|--------|-------|
-| GET /waf/health | ⬜ | |
-| POST /waf/verify — success flow | ⬜ | |
-| POST /waf/verify — token expiré | ⬜ | |
-| POST /waf/verify — PoW invalide | ⬜ | |
-| POST /waf/admin/whitelist | ⬜ | |
-| DELETE /waf/admin/whitelist/{ip} | ⬜ | |
-| POST /waf/admin/blacklist | ⬜ | |
-| GET /waf/admin/visitors | ⬜ | |
-| GET /waf/admin/events | ⬜ | |
-| GET /waf/stats | ⬜ | |
-| Auth invalide → 401 | ⬜ | |
+| Contrat | Test | Status |
+|---------|------|--------|
+| Toute route admin servie a son `operationId` | `TestEveryAdminRouteHasAnOpenAPIOperation` | ✅ |
+| Endpoints publics (`/waf/health`, `/waf/verify`, `/waf/origin/verify`, `/waf/metrics`) | `TestPublicEndpointsConformToTheirContract` | ✅ |
+| `POST /waf/verify` — flux, token forgé, corps invalide, méthode | `TestConformance*` (challenge) | ✅ |
+| `audit-entry.schema.json` | `TestAuditEntriesMatchAuditEntrySchema` | ✅ |
+| `cluster-event.schema.json` | `TestPublishedEventsMatchClusterEventSchema` | ✅ |
+| `security-event.schema.json` | `TestSecurityEventJSONStaysWithinSchema` | ✅ |
+| `risk-assessment.schema.json` | `TestRiskAssessmentSerializesAccordingToSchema` | ✅ |
+| `visitor.schema.json` (valeur Redis) | `TestStoredVisitorMatchesVisitorSchema` | ✅ nouveau |
+| `alert.schema.json` (webhook générique) | `TestGenericPayloadMatchesAlertSchema` | ✅ nouveau |
+
+22 tests de conformance, tous verts. `rule.schema.json`, `upstream-pool.schema.json`
+et `config.schema.json` sont des contrats d'**entrée** : leur conformance est
+assurée par le décodage strict (`KnownFields`) et la validation au chargement.
+`behavioral-profile.schema.json` et `threat-intel-entry.schema.json` sont en
+statut draft (aucun producteur).
 
 ### G4 — Behavior Tests (Gherkin)
 ```bash
-go test ./... -run TestBehavior -v
+make behavior   # go test ./... -race
 ```
-| Feature | Scénarios | Passed | Status |
-|---------|-----------|--------|--------|
-| anti-ddos.feature | 7 | ⬜ | ⬜ |
-| anti-bot.feature | 10 | ⬜ | ⬜ |
-| js-challenge.feature | 13 | ⬜ | ⬜ |
-| whitelist-blacklist.feature | 11 | ⬜ | ⬜ |
-| trust-score.feature | 11 | ⬜ | ⬜ |
+Il n'existe **pas** de runner Gherkin : chaque scénario non `@deferred` est
+couvert par des tests Go nommés d'après son comportement (tests de chaîne dans
+`cmd/waf/main_test.go`, tests de paquet). Les scénarios `@deferred` sont hors
+critère d'acceptation.
+
+| Check | Status | Notes |
+|-------|--------|-------|
+| `go test ./...` | ✅ | 678 tests, 45 paquets |
+| `go test -race ./...` | ⬜ | non exécutable localement (pas de toolchain C sous Windows) — exécuté par la CI (`ci.yml`, job Test) |
+| Scénarios non implémentés isolés (`@deferred`) | ✅ | rules-engine, upstream-health, audit-trail, deception-layer, origin-protection, acme-tls, webhook-alerts |
 
 ### G5 — Security
 ```bash
-go list -json -m all | nancy sleuth
-govulncheck ./...
+make security   # govulncheck ./...
 ```
 | Check | Status | Notes |
 |-------|--------|-------|
-| Pas de CVE critiques dans les dépendances | ⬜ | |
-| Secrets non hardcodés (truffleHog / gitleaks) | ⬜ | |
-| Cookies signés HMAC (test de forge → rejet) | ⬜ | |
-| Headers sensibles absents des logs | ⬜ | |
-| API admin inaccessible sur port public | ⬜ | |
-| Inputs validés contre le JSON Schema | ⬜ | |
+| Pas de vulnérabilité atteignable (govulncheck) | ✅ | 0 vulnérabilité appelée par le code. 2 présentes dans des modules requis, non atteintes : GO-2026-5932 (`golang.org/x/crypto` v0.56.0, pas de correctif publié) et GO-2026-5841 (`github.com/klauspost/compress` v1.17.9, corrigé en v1.18.7 — montée de version à planifier) |
+| SAST | ⬜ | Semgrep (p/golang, p/security-audit, p/secrets) et Trivy tournent en CI ; non rejoués localement |
+| Cookies signés HMAC (test de forge → rejet) | ✅ | `TestConformanceForgedCookieServesChallengePage` |
+| API admin inaccessible sans token | ✅ | `TestAdminRejectsMissingBearerToken` |
+| En-têtes non prouvés supprimés (`X-WAF-*`, `CF-*`) | ✅ | ingress + ADR-019 option B |
 
 ### G6 — Performance
 ```bash
-# Benchmark Go
 go test -bench=. -benchmem ./internal/...
-
-# Load test (k6)
-k6 run tests/load/basic.js
+make perf       # k6 run tests/load/basic.js (WAF lancé localement)
 ```
+Le script `tests/load/basic.js` existe désormais (il était référencé sans
+exister) : scénario nominal, seuils P50 < 1 ms et P99 < 5 ms sur les réponses
+servies.
+
 | SLO | Target | Measured | Status |
 |-----|--------|----------|--------|
-| Latence P50 (visiteur connu) | < 1 ms | ⬜ ms | ⬜ |
-| Latence P99 (visiteur connu) | < 5 ms | ⬜ ms | ⬜ |
-| Débit (4 vCPU) | > 50 000 req/s | ⬜ req/s | ⬜ |
-| Mémoire (100K visiteurs) | < 512 MB | ⬜ MB | ⬜ |
-| Temps de démarrage | < 500 ms | ⬜ ms | ⬜ |
+| Latence P50 (visiteur connu) | < 1 ms | ⬜ ms | ⬜ non exécuté (k6 absent du poste) |
+| Latence P99 (visiteur connu) | < 5 ms | ⬜ ms | ⬜ non exécuté |
+| Débit (4 vCPU) | > 50 000 req/s | ⬜ req/s | ⬜ non exécuté |
+| Mémoire (100K visiteurs) | < 512 MB | ⬜ MB | ⬜ non exécuté |
+| Temps de démarrage | < 500 ms | ⬜ ms | ⬜ non exécuté |
+
+Micro-benchmarks relevés pendant la remédiation (non substituables à G6) :
+observation d'un visiteur par les métriques 49 ns/op et 0 allocation avec
+100 000 visiteurs suivis (auparavant O(N) sous verrou global) ; cycle du pool
+de tampons du proxy 0 allocation (auparavant 1) ; analyse d'intégrité
+2,4 µs/requête.
 
 ### G7 — PR Checklist (Human Review)
 - [ ] Spec gap protocol appliqué si découverte de gap pendant l'implémentation
