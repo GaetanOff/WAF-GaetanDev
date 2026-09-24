@@ -139,16 +139,19 @@ change: "FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non
   - Format : HTTP POST vers une URL configurée, body JSON (voir `schemas/alert.schema.json`)
   - Retry : 3 tentatives avec backoff exponentiel (1s, 5s, 25s)
   - Timeout par appel : 5s
-- **Triggers configurables** :
+- **Triggers émis** (enum `trigger` de `schemas/alert.schema.json`) :
   | Trigger | Description |
   |---------|-------------|
-  | `ddos_detected` | Taux de trafic > seuil configurable |
-  | `upstream_down` | Upstream passe indisponible |
-  | `circuit_breaker_open` | Circuit-breaker ouvert pour une IP |
-  | `honeypot_triggered` | Visite d'un chemin honeypot |
-  | `score_flood` | > N visiteurs en état BLOCKED en X secondes |
-  | `challenge_flood` | > N soumissions /waf/verify en X secondes |
-  | `rule_triggered` | Match d'une règle configurée comme alertante |
+  | `block` | Requête bloquée par une décision WAF (sévérité warning) |
+  | `circuit_breaker` | Circuit-breaker ouvert pour une IP |
+  | `honeypot` | Visite d'un chemin honeypot |
+  | `under_attack_start` / `under_attack_end` | Entrée / sortie du mode sous attaque (FR-39), hors cooldown |
+- Chaque alerte porte un `id` UUID v4 unique, qui permet au destinataire de
+  dédoublonner une alerte relivrée par le retry
+- **Triggers différés** — spécifiés, sans émetteur à ce jour : `ddos_detected`,
+  `upstream_down`, `upstream_recovered`, `score_flood`, `challenge_flood`,
+  `rule_triggered`, `tls_cert_expiring`. Ils rejoindront l'enum du schéma avec
+  leur émetteur
 - **Intégrations prêtes à l'emploi** :
   - Slack (format Slack Incoming Webhook)
   - Discord (format Discord Webhook)

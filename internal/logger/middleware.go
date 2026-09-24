@@ -79,11 +79,11 @@ func isAlertable(action string) bool {
 func alertTrigger(action string) string {
 	switch action {
 	case ActionCircuitBreak:
-		return "circuit_breaker"
+		return alert.TriggerCircuitBreaker
 	case ActionHoneypot:
-		return "honeypot"
+		return alert.TriggerHoneypot
 	default:
-		return "block"
+		return alert.TriggerBlock
 	}
 }
 

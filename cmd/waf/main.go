@@ -333,9 +333,9 @@ func run() error {
 			if notifier == nil {
 				return
 			}
-			trigger := "under_attack_end"
+			trigger := alert.TriggerUnderAttackEnd
 			if active {
-				trigger = "under_attack_start"
+				trigger = alert.TriggerUnderAttackStart
 			}
 			// Immediate: une transition est un événement discret (déjà débouncé par
 			// l'hystérésis du contrôleur) ; elle ne doit pas être avalée par le
