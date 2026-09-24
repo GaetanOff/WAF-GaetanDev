@@ -32,6 +32,19 @@ func TestEvaluateDetections(t *testing.T) {
 		{name: "quote or", target: "http://example.test/login?u=a'+or+'1'='1", wantMinCon: contribInjection, wantReason: ReasonInjection},
 		{name: "comment obfuscation", target: "http://example.test/list?q=1/**/union/**/select/**/1", wantMinCon: contribInjection, wantReason: ReasonInjection},
 		{name: "encoded union", target: "http://example.test/search?q=1%20UNION%20SELECT%20%2A%20FROM%20users", wantMinCon: contribInjection, wantReason: ReasonInjection},
+		// Contournements par espacement et encodage multiple (audit du
+		// 2026-09-24, point 4.5).
+		{name: "newline between keywords", target: "http://example.test/list?q=1%0aunion%0aselect%0a1", wantMinCon: contribInjection, wantReason: ReasonInjection},
+		{name: "tab and repeated spaces", target: "http://example.test/list?q=1%09union%20%20%20select%201", wantMinCon: contribInjection, wantReason: ReasonInjection},
+		{name: "comment between keywords", target: "http://example.test/list?q=1+union/*x*/select+1", wantMinCon: contribInjection, wantReason: ReasonInjection},
+		{name: "spaced event handler", target: "http://example.test/s?q=%3Cimg+src%3Dx+onerror+%3D+alert(1)%3E", wantMinCon: contribInjection, wantReason: ReasonInjection},
+		{name: "spaced tautology", target: "http://example.test/login?u=a%27%0aor%0a1+%3D+1", wantMinCon: contribInjection, wantReason: ReasonInjection},
+		{name: "double encoded traversal", target: "http://example.test/x?p=%252e%252e%252fetc", wantMinCon: contribTraversal, wantReason: ReasonPathTraversal},
+		{name: "triple encoded traversal", target: "http://example.test/x?p=%25252e%25252e%25252fetc", wantMinCon: contribTraversal, wantReason: ReasonPathTraversal},
+		{name: "double encoded null byte", target: "http://example.test/x?f=a%2500.php", wantMinCon: contribNullByte, wantReason: ReasonNullByte},
+		// La normalisation ne doit pas fabriquer de motif sur une URL légitime.
+		{name: "equals in plain query", target: "http://example.test/search?color1=1&sort=asc", wantMinCon: 0},
+		{name: "spaced words", target: "http://example.test/search?q=labour%0aunion%0amembers", wantMinCon: 0},
 		// Régression : URL légitimes pénalisées par les sous-chaînes "--",
 		// "select " et "/*".
 		{name: "double dash slug", target: "http://example.test/blog/my--first-post", wantMinCon: 0},
@@ -55,6 +68,30 @@ func TestEvaluateDetections(t *testing.T) {
 				t.Fatalf("clean request contribution = %d, want 0", result.Contribution)
 			}
 		})
+	}
+}
+
+func TestNormalizeForMatching(t *testing.T) {
+	tests := map[string]string{
+		"1\n\tunion   select 1": "1 union select 1",
+		"1/**/union/*x*/select": "1 union select",
+		"onload = alert(1)":     "onload=alert(1)",
+		"a' or 1 =\n1":          "a' or 1=1",
+		"/*unterminated":        "/*unterminated",
+	}
+	for input, want := range tests {
+		if got := normalizeForMatching(input); got != want {
+			t.Errorf("normalizeForMatching(%q) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func BenchmarkEvaluate(b *testing.B) {
+	analyzer := testAnalyzer()
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/articles/42?ref=news&page=2&sort=desc", nil)
+	b.ReportAllocs()
+	for b.Loop() {
+		analyzer.Evaluate(request)
 	}
 }
 
