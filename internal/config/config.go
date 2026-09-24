@@ -609,6 +609,19 @@ func Default() Config {
 			TarpitChunks:     20,
 			TarpitChunkDelay: "1s",
 		},
+		// Défauts documentés (CONFIG.md, config.schema.json) : absents d'ici,
+		// un pool activé sans health_check.interval refusait de démarrer
+		// (« is required ») et les seuils tombaient à 1.
+		UpstreamPool: UpstreamPool{
+			Strategy: "round_robin",
+			HealthCheck: UpstreamHealthCheck{
+				Path:               "/healthz",
+				Interval:           "10s",
+				Timeout:            "2s",
+				HealthyThreshold:   2,
+				UnhealthyThreshold: 3,
+			},
+		},
 		Audit: Audit{
 			Enabled:    true,
 			MaxEntries: 1000,

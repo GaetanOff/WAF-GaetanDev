@@ -209,3 +209,23 @@ func TestLoadRejectsRemovedDomainOverrides(t *testing.T) {
 		})
 	}
 }
+
+// FR-25 — un pool activé avec ses seuls upstreams reçoit les défauts de sonde
+// documentés, au lieu d'échouer au démarrage sur health_check.interval.
+func TestLoadAppliesDocumentedUpstreamPoolDefaults(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.yaml")
+	content := "version: \"1.0\"\nserver:\n  listen: \":8080\"\nupstream:\n  address: \"http://127.0.0.1:3000\"\nchallenge:\n  enabled: false\nadmin:\n  enabled: false\nupstream_pool:\n  enabled: true\n  upstreams:\n    - address: \"http://10.0.0.1:80\"\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+
+	want := UpstreamHealthCheck{Path: "/healthz", Interval: "10s", Timeout: "2s", HealthyThreshold: 2, UnhealthyThreshold: 3}
+	if cfg.UpstreamPool.HealthCheck != want || cfg.UpstreamPool.Strategy != "round_robin" {
+		t.Fatalf("upstream_pool = %+v, want the documented defaults %+v", cfg.UpstreamPool, want)
+	}
+}
