@@ -39,6 +39,9 @@ func (l Logger) Middleware(scores *trust.ScoreManager, next http.Handler) http.H
 		}
 		event := l.securityEvent(r, recorder, scores, requestID, startedAt, elapsed, wafLatency)
 		l.WriteSecurityEvent(event)
+		if l.Recorder != nil {
+			l.Recorder.RecordSecurityEvent(event)
+		}
 		if l.Alerter != nil && isAlertable(event.Action) {
 			l.Alerter.Notify(alert.Event{
 				Trigger:    alertTrigger(event.Action),

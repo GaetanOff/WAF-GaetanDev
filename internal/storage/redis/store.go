@@ -41,7 +41,38 @@ const (
 	// scanBatch borne un lot SCAN/MGET pour ListVisitors (API admin). Jamais de
 	// KEYS : la commande bloque Redis le temps de parcourir tout l'espace de clés.
 	scanBatch = 200
+
+	// maxBucketCASAttempts borne les recalculs de UpdateBuckets quand un autre
+	// nœud écrit les mêmes buckets entre la lecture et l'écriture.
+	maxBucketCASAttempts = 3
 )
+
+// bucketCASScript écrit les nouveaux buckets seulement si aucun n'a changé
+// depuis la lecture (compare-and-set) ; 0 signale un conflit, 1 l'écriture.
+// ARGV : n valeurs attendues ("" = clé absente), n nouvelles valeurs, n TTL en
+// millisecondes (0 = sans expiration). Les clés d'un appel sont celles d'une
+// même IP ; sur Redis Cluster elles devraient partager un hash tag, le backend
+// ne visant aujourd'hui qu'une instance (goredis.NewClient).
+const bucketCASScript = `
+local n = #KEYS
+for i = 1, n do
+  local current = redis.call('GET', KEYS[i])
+  if ARGV[i] == '' then
+    if current then return 0 end
+  elseif current ~= ARGV[i] then
+    return 0
+  end
+end
+for i = 1, n do
+  local ttl = tonumber(ARGV[2 * n + i])
+  if ttl > 0 then
+    redis.call('SET', KEYS[i], ARGV[n + i], 'PX', ttl)
+  else
+    redis.call('SET', KEYS[i], ARGV[n + i])
+  end
+end
+return 1
+`
 
 // commander est le sous-ensemble de l'API go-redis réellement utilisé. Passer
 // par une interface permet de tester le mode dégradé, le calcul de TTL et la
@@ -53,6 +84,7 @@ type commander interface {
 	Set(ctx context.Context, key string, value any, expiration time.Duration) *goredis.StatusCmd
 	Del(ctx context.Context, keys ...string) *goredis.IntCmd
 	Scan(ctx context.Context, cursor uint64, match string, count int64) *goredis.ScanCmd
+	Eval(ctx context.Context, script string, keys []string, args ...any) *goredis.Cmd
 	Ping(ctx context.Context) *goredis.StatusCmd
 	Close() error
 }
@@ -311,6 +343,121 @@ func (s *Store) SetBucket(key string, bucket storage.RateBucket) {
 	}
 	s.local.SetBucket(key, bucket)
 	s.write(bucketKeyPrefix+key, bucket, ttl, "set_bucket")
+}
+
+// UpdateBuckets lit les buckets en un MGET, calcule, puis écrit par un script
+// compare-and-set : deux allers-retours pour toutes les fenêtres, au lieu d'un
+// GET puis d'un SET par fenêtre (six pour seconde + minute + heure). Surtout,
+// un GetBucket suivi d'un SetBucket n'était pas atomique : deux instances
+// lisaient le même solde et écrasaient mutuellement leur prélèvement. Un
+// conflit relance le calcul sur l'état frais ; après maxBucketCASAttempts, le
+// dernier calcul est écrit sans condition plutôt que d'être perdu.
+func (s *Store) UpdateBuckets(keys []string, update func(current []*storage.RateBucket) []storage.RateBucket) {
+	if len(keys) == 0 {
+		return
+	}
+	if s.degraded() {
+		s.local.UpdateBuckets(keys, update)
+		return
+	}
+	redisKeys := make([]string, len(keys))
+	for i, key := range keys {
+		redisKeys[i] = bucketKeyPrefix + key
+	}
+
+	var next []storage.RateBucket
+	for attempt := 1; attempt <= maxBucketCASAttempts; attempt++ {
+		current, expected, err := s.readBuckets(redisKeys)
+		if err != nil {
+			s.failed("update_buckets")
+			s.local.UpdateBuckets(keys, update)
+			return
+		}
+		next = update(current)
+		if len(next) == 0 {
+			s.succeeded()
+			return
+		}
+		written, err := s.compareAndSetBuckets(redisKeys[:len(next)], expected[:len(next)], next)
+		if err != nil {
+			s.failed("update_buckets")
+			s.storeLocalBuckets(keys, next)
+			return
+		}
+		s.succeeded()
+		if written {
+			s.storeLocalBuckets(keys, next)
+			return
+		}
+		s.observeError("update_buckets_conflict")
+	}
+	for i := range next {
+		s.SetBucket(keys[i], next[i])
+	}
+}
+
+// readBuckets retourne les buckets décodés (nil si absent, illisible ou
+// périmé) et les valeurs brutes lues, attendues par le compare-and-set.
+func (s *Store) readBuckets(redisKeys []string) ([]*storage.RateBucket, []string, error) {
+	ctx, cancel := s.operationContext()
+	defer cancel()
+	values, err := s.client.MGet(ctx, redisKeys...).Result()
+	if err != nil {
+		return nil, nil, err
+	}
+	current := make([]*storage.RateBucket, len(redisKeys))
+	expected := make([]string, len(redisKeys))
+	for i, value := range values {
+		raw, ok := value.(string)
+		if !ok {
+			continue // clé absente
+		}
+		expected[i] = raw
+		var bucket storage.RateBucket
+		if err := json.Unmarshal([]byte(raw), &bucket); err != nil {
+			s.observeError("decode_bucket")
+			continue
+		}
+		if !s.expired(bucket.ExpiresAt) {
+			current[i] = &bucket
+		}
+	}
+	return current, expected, nil
+}
+
+func (s *Store) compareAndSetBuckets(redisKeys []string, expected []string, next []storage.RateBucket) (bool, error) {
+	args := make([]any, 0, 3*len(next))
+	for _, value := range expected {
+		args = append(args, value)
+	}
+	ttls := make([]any, 0, len(next))
+	for _, bucket := range next {
+		payload, err := json.Marshal(bucket)
+		if err != nil {
+			return false, err
+		}
+		args = append(args, string(payload))
+		ttl, expired := s.ttlFor(bucket.ExpiresAt)
+		if expired {
+			ttl = time.Millisecond // déjà périmé : l'état ne doit pas survivre
+		}
+		ttls = append(ttls, ttl.Milliseconds())
+	}
+	args = append(args, ttls...)
+
+	ctx, cancel := s.operationContext()
+	defer cancel()
+	result, err := s.client.Eval(ctx, bucketCASScript, redisKeys, args...).Int()
+	if err != nil {
+		return false, err
+	}
+	return result == 1, nil
+}
+
+func (s *Store) storeLocalBuckets(keys []string, next []storage.RateBucket) {
+	for i := range next {
+		s.local.SetBucket(keys[i], next[i])
+	}
 }
 
 func (s *Store) Close() {

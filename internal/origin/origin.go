@@ -111,6 +111,7 @@ func (s *Signer) VerifyHandler(w http.ResponseWriter, r *http.Request) {
 	if domain == "" {
 		domain = r.Host
 	}
+	w.Header().Set("Content-Type", "application/json")
 	if s.Verify(domain, inboundToken(r)) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte(`{"valid":true}`))

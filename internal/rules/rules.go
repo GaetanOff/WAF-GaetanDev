@@ -7,8 +7,9 @@ package rules
 
 import (
 	"fmt"
-	"net"
 	"net/http"
+	"net/netip"
+	"net/url"
 	"os"
 	"regexp"
 	"sort"
@@ -52,7 +53,33 @@ type compiledRule struct {
 	matchers []matcher
 }
 
-type matcher func(*http.Request) bool
+type matcher func(*requestView) bool
+
+// requestView expose à l'évaluation les champs dérivés d'une requête, calculés
+// au plus une fois par requête quel que soit le nombre de conditions qui les
+// lisent. r.URL.Query() réanalysait la query string (et allouait une map) à
+// chaque condition query_param de chaque règle.
+type requestView struct {
+	r        *http.Request
+	query    url.Values
+	parsed   bool
+	clientIP string
+	resolved bool
+}
+
+func (v *requestView) queryParam(name string) string {
+	if !v.parsed {
+		v.query, v.parsed = v.r.URL.Query(), true
+	}
+	return v.query.Get(name)
+}
+
+func (v *requestView) ip() string {
+	if !v.resolved {
+		v.clientIP, v.resolved = clientIP(v.r), true
+	}
+	return v.clientIP
+}
 
 // RuleSet contient les règles compilées, triées par priorité. Rechargeable à
 // chaud (atomic swap).
@@ -105,9 +132,10 @@ func (rs *RuleSet) LoadFile(path string) error {
 // matche, plus celles à `continue`). nil si aucune règle ne matche.
 func (rs *RuleSet) Match(r *http.Request) []Action {
 	compiled, _ := rs.compiled.Load().([]compiledRule)
+	view := &requestView{r: r}
 	var actions []Action
 	for _, cr := range compiled {
-		if !ruleMatches(cr, r) {
+		if !ruleMatches(cr, view) {
 			continue
 		}
 		actions = append(actions, cr.rule.Actions...)
@@ -118,12 +146,12 @@ func (rs *RuleSet) Match(r *http.Request) []Action {
 	return actions
 }
 
-func ruleMatches(cr compiledRule, r *http.Request) bool {
+func ruleMatches(cr compiledRule, view *requestView) bool {
 	if len(cr.matchers) == 0 {
 		return false
 	}
 	for _, m := range cr.matchers {
-		if !m(r) {
+		if !m(view) {
 			return false
 		}
 	}
@@ -147,19 +175,19 @@ func compileCondition(c Condition) (matcher, error) {
 	case "ip":
 		return compileIP(c)
 	case "user_agent":
-		return compileString(c, func(r *http.Request) string { return r.UserAgent() })
+		return compileString(c, func(v *requestView) string { return v.r.UserAgent() })
 	case "path":
-		return compileString(c, func(r *http.Request) string { return r.URL.Path })
+		return compileString(c, func(v *requestView) string { return v.r.URL.Path })
 	case "method":
-		return compileString(c, func(r *http.Request) string { return r.Method })
+		return compileString(c, func(v *requestView) string { return v.r.Method })
 	case "country":
-		return compileString(c, func(r *http.Request) string { return r.Header.Get("CF-IPCountry") })
+		return compileString(c, func(v *requestView) string { return v.r.Header.Get("CF-IPCountry") })
 	case "header":
 		name := c.Name
-		return compileString(c, func(r *http.Request) string { return r.Header.Get(name) })
+		return compileString(c, func(v *requestView) string { return v.r.Header.Get(name) })
 	case "query_param":
 		name := c.Name
-		return compileString(c, func(r *http.Request) string { return r.URL.Query().Get(name) })
+		return compileString(c, func(v *requestView) string { return v.queryParam(name) })
 	case "trust_score":
 		return compileTrustScore(c)
 	default:
@@ -176,13 +204,13 @@ func compileTrustScore(c Condition) (matcher, error) {
 	}
 	switch c.Operator {
 	case "lt":
-		return func(r *http.Request) bool { s := trustScore(r); return s >= 0 && s < threshold }, nil
+		return func(v *requestView) bool { s := trustScore(v.r); return s >= 0 && s < threshold }, nil
 	case "lte":
-		return func(r *http.Request) bool { s := trustScore(r); return s >= 0 && s <= threshold }, nil
+		return func(v *requestView) bool { s := trustScore(v.r); return s >= 0 && s <= threshold }, nil
 	case "gt":
-		return func(r *http.Request) bool { s := trustScore(r); return s >= 0 && s > threshold }, nil
+		return func(v *requestView) bool { s := trustScore(v.r); return s >= 0 && s > threshold }, nil
 	case "gte":
-		return func(r *http.Request) bool { s := trustScore(r); return s >= 0 && s >= threshold }, nil
+		return func(v *requestView) bool { s := trustScore(v.r); return s >= 0 && s >= threshold }, nil
 	default:
 		return nil, fmt.Errorf("unsupported trust_score operator %q", c.Operator)
 	}
@@ -191,26 +219,32 @@ func compileTrustScore(c Condition) (matcher, error) {
 func compileIP(c Condition) (matcher, error) {
 	switch c.Operator {
 	case "equals":
-		return func(r *http.Request) bool { return clientIP(r) == c.Value }, nil
+		return func(v *requestView) bool { return v.ip() == c.Value }, nil
 	case "in_list":
 		set := toSet(c.Values)
-		return func(r *http.Request) bool { _, ok := set[clientIP(r)]; return ok }, nil
+		return func(v *requestView) bool { _, ok := set[v.ip()]; return ok }, nil
 	case "in_cidr":
-		networks := make([]*net.IPNet, 0, len(c.Values)+1)
+		// net/netip : adresses et préfixes par valeur, Contains sans allocation
+		// (net.ParseIP allouait une slice par requête).
+		prefixes := make([]netip.Prefix, 0, len(c.Values)+1)
 		for _, raw := range append(c.Values, c.Value) {
 			if raw == "" {
 				continue
 			}
-			_, n, err := net.ParseCIDR(raw)
+			prefix, err := netip.ParsePrefix(raw)
 			if err != nil {
 				return nil, fmt.Errorf("invalid cidr %q: %w", raw, err)
 			}
-			networks = append(networks, n)
+			prefixes = append(prefixes, prefix.Masked())
 		}
-		return func(r *http.Request) bool {
-			ip := net.ParseIP(clientIP(r))
-			for _, n := range networks {
-				if n.Contains(ip) {
+		return func(v *requestView) bool {
+			addr, err := netip.ParseAddr(v.ip())
+			if err != nil {
+				return false
+			}
+			addr = addr.Unmap() // ::ffff:a.b.c.d correspond aux préfixes IPv4
+			for _, prefix := range prefixes {
+				if prefix.Contains(addr) {
 					return true
 				}
 			}
@@ -221,27 +255,27 @@ func compileIP(c Condition) (matcher, error) {
 	}
 }
 
-func compileString(c Condition, extract func(*http.Request) string) (matcher, error) {
+func compileString(c Condition, extract func(*requestView) string) (matcher, error) {
 	switch c.Operator {
 	case "equals":
-		return func(r *http.Request) bool { return extract(r) == c.Value }, nil
+		return func(v *requestView) bool { return extract(v) == c.Value }, nil
 	case "contains":
-		return func(r *http.Request) bool { return strings.Contains(extract(r), c.Value) }, nil
+		return func(v *requestView) bool { return strings.Contains(extract(v), c.Value) }, nil
 	case "starts_with":
-		return func(r *http.Request) bool { return strings.HasPrefix(extract(r), c.Value) }, nil
+		return func(v *requestView) bool { return strings.HasPrefix(extract(v), c.Value) }, nil
 	case "ends_with":
-		return func(r *http.Request) bool { return strings.HasSuffix(extract(r), c.Value) }, nil
+		return func(v *requestView) bool { return strings.HasSuffix(extract(v), c.Value) }, nil
 	case "exists":
-		return func(r *http.Request) bool { return extract(r) != "" }, nil
+		return func(v *requestView) bool { return extract(v) != "" }, nil
 	case "in_list":
 		set := toSet(c.Values)
-		return func(r *http.Request) bool { _, ok := set[extract(r)]; return ok }, nil
+		return func(v *requestView) bool { _, ok := set[extract(v)]; return ok }, nil
 	case "matches_regex":
 		re, err := regexp.Compile(c.Value)
 		if err != nil {
 			return nil, fmt.Errorf("invalid regex %q: %w", c.Value, err)
 		}
-		return func(r *http.Request) bool { return re.MatchString(extract(r)) }, nil
+		return func(v *requestView) bool { return re.MatchString(extract(v)) }, nil
 	default:
 		return nil, fmt.Errorf("unsupported operator %q for field %q", c.Operator, c.Field)
 	}

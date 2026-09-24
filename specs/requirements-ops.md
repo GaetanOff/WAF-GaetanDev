@@ -1,7 +1,7 @@
 ---
-status: approved
+status: implemented
 version: 3.3.0
-last-reviewed: 2026-09-01
+last-reviewed: 2026-09-24
 extends: requirements-advanced.md (v2.0.0)
 change: "FR-30 : principe général — aucune décision de sécurité ne DOIT reposer sur un en-tête dont le WAF ne peut pas prouver l'origine. Les en-têtes d'infrastructure (`CF-*`, `ja3_header`) et `Host` sont renvoyés à ADR-019 et ADR-020, tous deux proposed"
 ---

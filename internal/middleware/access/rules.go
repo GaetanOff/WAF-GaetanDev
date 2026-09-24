@@ -71,7 +71,9 @@ func (r *RuleSet) AddBlacklist(value string) error {
 	return nil
 }
 
-func (r *RuleSet) IsWhitelisted(ip string, userAgent string) (bool, string) {
+// IsWhitelisted indique si l'IP est en whitelist (bypass total des protections,
+// hors blacklist d'une autre entrée : la whitelist IP a priorité).
+func (r *RuleSet) IsWhitelisted(ip string) (bool, string) {
 	addr, err := netip.ParseAddr(ip)
 	if err != nil {
 		return false, ""
@@ -83,13 +85,22 @@ func (r *RuleSet) IsWhitelisted(ip string, userAgent string) (bool, string) {
 	if reason := r.whitelist.match(addr); reason != "" {
 		return true, "whitelist_" + reason
 	}
+	return false, ""
+}
+
+// MatchesUserAgent indique si le User-Agent correspond à whitelist_user_agents.
+// Contrairement à la whitelist IP, ce n'est PAS un bypass : un User-Agent se
+// forge, il n'exempte que du challenge JS proactif.
+func (r *RuleSet) MatchesUserAgent(userAgent string) bool {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+
 	for _, pattern := range r.userAgents {
 		if pattern.MatchString(userAgent) {
-			return true, "whitelist_user_agent"
+			return true
 		}
 	}
-
-	return false, ""
+	return false
 }
 
 func (r *RuleSet) IsBlacklisted(ip string) (bool, string) {

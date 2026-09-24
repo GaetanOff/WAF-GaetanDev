@@ -28,6 +28,17 @@ func TestEvaluateDetections(t *testing.T) {
 		{name: "encoded traversal", target: "http://example.test/x?p=..%2f..%2fetc", wantMinCon: contribTraversal, wantReason: ReasonPathTraversal},
 		{name: "sql injection", target: "http://example.test/list?q=1+union+select+1", wantMinCon: contribInjection, wantReason: ReasonInjection},
 		{name: "xss", target: "http://example.test/s?q=<script>alert(1)</script>", wantMinCon: contribInjection, wantReason: ReasonInjection},
+		{name: "quote comment", target: "http://example.test/item?id=1'--", wantMinCon: contribInjection, wantReason: ReasonInjection},
+		{name: "quote or", target: "http://example.test/login?u=a'+or+'1'='1", wantMinCon: contribInjection, wantReason: ReasonInjection},
+		{name: "comment obfuscation", target: "http://example.test/list?q=1/**/union/**/select/**/1", wantMinCon: contribInjection, wantReason: ReasonInjection},
+		{name: "encoded union", target: "http://example.test/search?q=1%20UNION%20SELECT%20%2A%20FROM%20users", wantMinCon: contribInjection, wantReason: ReasonInjection},
+		// Régression : URL légitimes pénalisées par les sous-chaînes "--",
+		// "select " et "/*".
+		{name: "double dash slug", target: "http://example.test/blog/my--first-post", wantMinCon: 0},
+		{name: "cli flag in query", target: "http://example.test/docs?flags=--verbose", wantMinCon: 0},
+		{name: "git range", target: "http://example.test/compare/abc123--def456", wantMinCon: 0},
+		{name: "select word", target: "http://example.test/search?q=please+select+your+size", wantMinCon: 0},
+		{name: "glob path", target: "http://example.test/files/*/list", wantMinCon: 0},
 	}
 
 	for _, tt := range tests {

@@ -47,8 +47,21 @@ Feature: Gestion Whitelist / Blacklist
   Scenario: User-Agent de bot légitime whitelisté
     Given le pattern "Googlebot" est dans la whitelist_user_agents
     When une requête arrive avec User-Agent "Mozilla/5.0 (compatible; Googlebot/2.1)"
-    Then la requête est transmise sans challenge
-    And aucun score n'est calculé
+    Then la requête est transmise sans challenge proactif
+    And elle n'est PAS marquée PASS : rate limit, anti-DDoS et moteur de risque s'appliquent
+
+  Scenario: User-Agent whitelisté forgé — pas de contournement
+    Given le pattern "Googlebot" est dans la whitelist_user_agents
+    And une IP qui n'appartient pas à Google envoie User-Agent "Googlebot"
+    When elle dépasse son rate limit
+    Then elle reçoit HTTP 429 comme tout visiteur
+    And la vérification reverse-DNS (risk_engine.verified_bots) la classe "spoofed"
+    # Régression : la whitelist UA posait X-WAF-Action=PASS et contournait toute la chaîne.
+
+  Scenario: User-Agent whitelisté depuis une IP blacklistée
+    Given l'IP "203.0.113.10" est dans la blacklist
+    When elle envoie une requête avec User-Agent "Googlebot"
+    Then la requête reçoit HTTP 403
 
   Scenario: API admin — ajout en blacklist
     Given l'API admin est authentifiée avec un token valide

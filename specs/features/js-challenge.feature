@@ -37,6 +37,21 @@ Feature: Challenge JavaScript
     When il envoie une requête GET "/page" avec Accept "text/html"
     Then le WAF sert la page de challenge
 
+  Scenario: Décision CHALLENGE du moteur de risque — page servie (FR-34)
+    Given un visiteur avec un cookie waf_session valide
+    And le moteur de risque (hors shadow) conclut à la décision "CHALLENGE"
+    When il envoie une requête GET "/page" avec Accept "text/html"
+    Then le WAF sert la page de challenge
+    And la requête n'est PAS transmise à l'upstream
+    # Régression : la décision posait X-WAF-Action=CHALLENGE puis transmettait la
+    # requête ; le challenge est désormais appliqué en aval du moteur de risque.
+
+  Scenario: Challenge réussi — la preuve humaine évite la boucle (FR-37)
+    Given un visiteur re-challengé sur décision "CHALLENGE" du moteur de risque
+    When il réussit le challenge JS
+    Then la preuve humaine (challenge réussi + fingerprint du cookie) est enregistrée
+    And sa requête suivante avec ce cookie reçoit la décision "ALLOW"
+
   Scenario: Appel API/XHR — challenge contourné (pas de navigation navigateur)
     Given un visiteur sans cookie sous le seuil de confiance
     When il envoie une requête GET "/api/v1/users" avec Accept "application/json"
@@ -178,6 +193,21 @@ Feature: Challenge JavaScript
     Given un visiteur sans cookie demande GET "/articles/mon-article?ref=newsletter"
     When il passe le challenge avec succès
     Then il est redirigé vers "/articles/mon-article?ref=newsletter" (URL originale complète)
+
+  Scenario: URL de retour hors origine neutralisée (open redirect)
+    Given une URL de retour "//evil.com/path" ou "/\evil.com" atteint le middleware challenge
+    When il passe le challenge avec succès
+    Then il est redirigé vers "/"
+    # Le navigateur lit ces formes comme une URL absolue vers un tiers. Le ServeMux
+    # nettoie déjà "//" en amont ; le middleware ne dépend plus de ce filtrage.
+
+  Scenario: Difficulté non multiple de 4 — le client exige exactement les bits demandés
+    Given la difficulté adaptative vaut 22 bits (base 16 + 6 en pression "high")
+    When le navigateur résout le proof-of-work de la page de challenge
+    Then il cherche 22 bits nuls de tête, la règle exacte du serveur
+    And le nonce trouvé est le premier que le serveur accepte
+    # Régression : le client arrondissait au chiffre hexadécimal supérieur (24 bits),
+    # soit 4× plus de hashes que demandé.
 
   Scenario: Page challenge — branding et chronomètre présents
     When le WAF sert la page de challenge

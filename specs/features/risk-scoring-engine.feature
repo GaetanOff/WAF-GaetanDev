@@ -74,6 +74,15 @@ Feature: Moteur de Scoring de Risque & Décision graduée
     And la décision n'est PAS "BLOCK"
     And une vérification reverse-DNS asynchrone est déclenchée
 
+  Scenario: File de vérification saturée — crawler déclaré évalué normalement
+    Given des milliers d'IP annoncent le user-agent "Googlebot" simultanément
+    And la file de vérification reverse-DNS est pleine
+    When le moteur calcule la décision pour une IP non planifiée
+    Then l'état de vérification est "unverified"
+    And la décision n'est PAS plafonnée à "OBSERVE"
+    And aucune goroutine de résolution supplémentaire n'est lancée (pool fixe, DNS borné à 2 s)
+    # Régression : une goroutine DNS par IP — le spoofing d'UA épuisait goroutines et sockets.
+
   Scenario: Faux Googlebot (UA spoofé sans reverse-DNS valide) est traité comme suspect
     Given une requête avec user-agent "Googlebot"
     And le reverse-DNS de l'IP ne correspond pas à un domaine Google

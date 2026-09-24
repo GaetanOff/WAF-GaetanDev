@@ -18,25 +18,23 @@ type IPEntry struct {
 }
 
 type State struct {
-	mu           sync.RWMutex
-	cfg          config.Config
-	accessRules  *access.RuleSet
-	whitelist    map[string]IPEntry
-	blacklist    map[string]IPEntry
-	userAgents   []string
-	recentEvents []SecurityEventSummary
-	now          func() time.Time
+	mu          sync.RWMutex
+	cfg         config.Config
+	accessRules *access.RuleSet
+	whitelist   map[string]IPEntry
+	blacklist   map[string]IPEntry
+	userAgents  []string
+	now         func() time.Time
 }
 
 func NewState(cfg config.Config, accessRules *access.RuleSet) (*State, error) {
 	state := &State{
-		cfg:          cfg,
-		accessRules:  accessRules,
-		whitelist:    make(map[string]IPEntry),
-		blacklist:    make(map[string]IPEntry),
-		userAgents:   append([]string(nil), cfg.WhitelistUserAgents...),
-		recentEvents: []SecurityEventSummary{},
-		now:          time.Now,
+		cfg:         cfg,
+		accessRules: accessRules,
+		whitelist:   make(map[string]IPEntry),
+		blacklist:   make(map[string]IPEntry),
+		userAgents:  append([]string(nil), cfg.WhitelistUserAgents...),
+		now:         time.Now,
 	}
 	for _, ip := range cfg.Whitelist {
 		normalized, err := normalizeIPRule(ip)
@@ -89,11 +87,19 @@ func (s *State) Config() config.Config {
 	return sanitizedConfig(s.cfg)
 }
 
-func (s *State) Events() []SecurityEventSummary {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	events := append([]SecurityEventSummary(nil), s.recentEvents...)
-	return events
+// ApplyConfigUpdate reporte update sur la configuration courante, valide la
+// configuration entière (mêmes règles qu'au démarrage) et, si elle l'est, la
+// retient. Retourne la configuration résultante et les champs modifiés.
+func (s *State) ApplyConfigUpdate(update ConfigUpdate) (config.Config, []string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.cfg
+	fields := update.applyTo(&next)
+	if err := next.Validate(); err != nil {
+		return config.Config{}, nil, err
+	}
+	s.cfg = next
+	return next, fields, nil
 }
 
 func (s *State) addEntry(target map[string]IPEntry, entry IPEntry, whitelist bool) (IPEntry, bool, error) {

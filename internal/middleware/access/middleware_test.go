@@ -86,7 +86,9 @@ func TestWhitelistHasPriorityOverBlacklist(t *testing.T) {
 	}
 }
 
-func TestWhitelistedUserAgentPassesThrough(t *testing.T) {
+// Un User-Agent se forge : la whitelist UA n'est pas un bypass. La requête est
+// seulement marquée (exemption du challenge proactif) et n'est pas PASS.
+func TestWhitelistedUserAgentIsMarkedNotPassed(t *testing.T) {
 	rules := newRules(t, nil, nil, []string{"Googlebot"})
 	request := requestFrom("203.0.113.10:1234")
 	request.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Googlebot/2.1)")
@@ -96,6 +98,25 @@ func TestWhitelistedUserAgentPassesThrough(t *testing.T) {
 
 	if response.Code != http.StatusNoContent {
 		t.Fatalf("status = %d, want 204", response.Code)
+	}
+	if got := request.Header.Get("X-WAF-Action"); got == "PASS" {
+		t.Fatal("whitelisted User-Agent must not bypass the pipeline with PASS")
+	}
+	if got := request.Header.Get(HeaderUserAgentWhitelisted); got != "true" {
+		t.Fatalf("%s = %q, want true", HeaderUserAgentWhitelisted, got)
+	}
+}
+
+func TestWhitelistedUserAgentDoesNotEscapeBlacklist(t *testing.T) {
+	rules := newRules(t, nil, []string{"203.0.113.10"}, []string{"Googlebot"})
+	request := requestFrom("203.0.113.10:1234")
+	request.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Googlebot/2.1)")
+	response := httptest.NewRecorder()
+
+	Middleware(rules, okHandler()).ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403: a blacklisted IP stays blocked whatever its User-Agent", response.Code)
 	}
 }
 

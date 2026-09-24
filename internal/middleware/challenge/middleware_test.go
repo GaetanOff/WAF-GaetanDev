@@ -109,7 +109,7 @@ func TestMiddlewareVerifySuccessIssuesCookieAndRedirect(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateForRedirect() error = %v", err)
 	}
-	nonce := solvePow(t, token, middleware.difficulty)
+	nonce := solvePow(t, token, middleware.staticDifficulty())
 	request := verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, nonce, 1200))
 	response := httptest.NewRecorder()
 
@@ -165,7 +165,7 @@ func TestMiddlewareVerifyInvalidPowDecrementsScore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateForRedirect() error = %v", err)
 	}
-	nonce := failPow(t, token, middleware.difficulty)
+	nonce := failPow(t, token, middleware.staticDifficulty())
 	request := verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, nonce, 1200))
 	response := httptest.NewRecorder()
 
@@ -190,7 +190,7 @@ func TestMiddlewareVerifyHeadlessWebGLDecrementsScore(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateForRedirect() error = %v", err)
 	}
-	nonce := solvePow(t, token, middleware.difficulty)
+	nonce := solvePow(t, token, middleware.staticDifficulty())
 	request := verifyRequest(t, "3.3.3.3:1234", submissionJSONWithRenderer(token, nonce, 1200, "Google SwiftShader"))
 	response := httptest.NewRecorder()
 
@@ -217,7 +217,7 @@ func TestMiddlewareVerifyAcceptsFastResolutionWhenFloorDisabled(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateForRedirect() error = %v", err)
 	}
-	nonce := solvePow(t, token, middleware.difficulty)
+	nonce := solvePow(t, token, middleware.staticDifficulty())
 	// elapsed_ms = 30 : résolution quasi instantanée d'un client rapide.
 	request := verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, nonce, 30))
 	response := httptest.NewRecorder()
@@ -240,7 +240,7 @@ func TestMiddlewareVerifyRejectsTimingErrors(t *testing.T) {
 	if err != nil {
 		t.Fatalf("GenerateForRedirect() error = %v", err)
 	}
-	nonce := solvePow(t, token, middleware.difficulty)
+	nonce := solvePow(t, token, middleware.staticDifficulty())
 
 	tests := []struct {
 		name      string

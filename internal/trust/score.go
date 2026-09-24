@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
@@ -24,6 +25,10 @@ const (
 	DeltaChallengeFailed = -20
 	DeltaHoneypot        = -50
 
+	// CriticalScore : sous ce score, un visiteur est « très dangereux » et son
+	// score est partagé avec les autres nœuds (FR-20).
+	CriticalScore = 5
+
 	// RateLimitPenaltyWindow borne DeltaRateLimit à une application par fenêtre
 	// (FR-05) : les sous-requêtes refusées d'un même chargement de page comptent
 	// pour UNE pénalité, pas une par 429.
@@ -33,10 +38,23 @@ const (
 type ScoreManager struct {
 	store              storage.Store
 	initialScore       int
-	challengeThreshold int
-	blockThreshold     int
+	challengeThreshold atomic.Int64 // modifiable à chaud (SetThresholds)
+	blockThreshold     atomic.Int64
 	scoreTTL           time.Duration
+	onCritical         func(storage.VisitorState)
 	now                func() time.Time
+}
+
+// WithCriticalObserver est notifié quand un score passe sous CriticalScore
+// (propagation cluster, FR-20).
+func (m *ScoreManager) WithCriticalObserver(observer func(storage.VisitorState)) {
+	m.onCritical = observer
+}
+
+func (m *ScoreManager) notifyCritical(before int, visitor storage.VisitorState) {
+	if m.onCritical != nil && before >= CriticalScore && visitor.Score < CriticalScore {
+		m.onCritical(visitor)
+	}
 }
 
 func NewScoreManager(store storage.Store, cfg config.Config) (*ScoreManager, error) {
@@ -45,14 +63,22 @@ func NewScoreManager(store storage.Store, cfg config.Config) (*ScoreManager, err
 		return nil, err
 	}
 
-	return &ScoreManager{
-		store:              store,
-		initialScore:       cfg.Trust.InitialScore,
-		challengeThreshold: cfg.Trust.ChallengeThreshold,
-		blockThreshold:     cfg.Trust.BlockThreshold,
-		scoreTTL:           scoreTTL,
-		now:                time.Now,
-	}, nil
+	manager := &ScoreManager{
+		store:        store,
+		initialScore: cfg.Trust.InitialScore,
+		scoreTTL:     scoreTTL,
+		now:          time.Now,
+	}
+	manager.SetThresholds(cfg.Trust.ChallengeThreshold, cfg.Trust.BlockThreshold)
+	return manager, nil
+}
+
+// SetThresholds applique à chaud les seuils de challenge et de blocage
+// (PATCH /waf/admin/config). La cohérence (block < challenge) est validée par
+// config.Validate en amont.
+func (m *ScoreManager) SetThresholds(challengeThreshold int, blockThreshold int) {
+	m.challengeThreshold.Store(int64(challengeThreshold))
+	m.blockThreshold.Store(int64(blockThreshold))
 }
 
 func (m *ScoreManager) Get(ip string, domain string) storage.VisitorState {
@@ -102,10 +128,12 @@ func (m *ScoreManager) Set(ip string, domain string, score int) storage.VisitorS
 
 func (m *ScoreManager) Apply(ip string, domain string, delta int) storage.VisitorState {
 	visitor := m.Get(ip, domain)
+	before := visitor.Score
 	visitor.Score = clamp(visitor.Score+delta, 0, 100)
 	visitor.LastSeen = m.now()
 	visitor.ExpiresAt = visitor.LastSeen.Add(m.scoreTTL)
 	m.store.SetVisitor(visitor.IPHash, visitor)
+	m.notifyCritical(before, visitor)
 	return visitor
 }
 
@@ -118,19 +146,21 @@ func (m *ScoreManager) PenalizeRateLimit(ip string, domain string) storage.Visit
 	if visitor.LastRateLimitPenalty != nil && now.Sub(*visitor.LastRateLimitPenalty) < RateLimitPenaltyWindow {
 		return visitor
 	}
+	before := visitor.Score
 	visitor.Score = clamp(visitor.Score+DeltaRateLimit, 0, 100)
 	visitor.LastSeen = now
 	visitor.ExpiresAt = now.Add(m.scoreTTL)
 	visitor.LastRateLimitPenalty = &now
 	m.store.SetVisitor(visitor.IPHash, visitor)
+	m.notifyCritical(before, visitor)
 	return visitor
 }
 
 func (m *ScoreManager) State(score int) string {
-	if score <= m.blockThreshold {
+	if int64(score) <= m.blockThreshold.Load() {
 		return StateBlocked
 	}
-	if score < m.challengeThreshold {
+	if int64(score) < m.challengeThreshold.Load() {
 		return StateChallenged
 	}
 	if score >= 70 {

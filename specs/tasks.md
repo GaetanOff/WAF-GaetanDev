@@ -1,7 +1,7 @@
 ---
-status: draft
-sprint: 5
-last-updated: 2026-06-09
+status: implemented
+sprint: 16
+last-updated: 2026-09-24
 ---
 
 # Tasks — WAF Anti-DDoS / Anti-Bot
@@ -769,3 +769,66 @@ last-updated: 2026-06-09
 
 - **Validation 2026-09-02** : `go build ./...`, `go vet ./...`, `go test ./...` (552 tests, 43 paquets), `gofmt -l` (copies normalisees LF), `golangci-lint run` (37 remontees, toutes `gofmt` sur les CRLF de la copie de travail Windows) passent ; schema JSON valide ; `config.example.yaml` et `deploy/config.docker.yaml` conformes au schema ; verifications en execution reelle du 429 `rate_limit_exceeded_minute`, du rendu `pretty` sans ANSI en sortie redirigee, du repli sur echec de rafraichissement Cloudflare et de l'echec de demarrage sur Redis injoignable. `go test -race` non executable localement (pas de toolchain C) — couvert par la CI. Detail dans validation.md.
 - **Statut** : implemente.
+
+## Sprint 16 - Remediation de l'audit du 2026-09-24 (Phase 16)
+
+> Audit externe du 2026-09-24 : chaque point a ete verifie contre le code avant
+> correction, sur la branche `fix/audit-remediation`, a raison d'un commit par
+> correction. Deux points se sont reveles inexacts ou deja mitiges (T16.20,
+> T16.21) ; deux attendent une decision d'operateur (T16.22, T16.23).
+
+### T16.1 - Bugs logiques et contournements
+- [x] `isAssetAbsent` : les assets marques PASS par FR-24 sont enregistres ; les signaux de navigation ne portent que sur les pages (behavioral-analysis.feature)
+- [x] Challenge fantome : `challenge.Enforcer` en aval du moteur de risque / trust score sert la page aux decisions CHALLENGE ; credit humain FR-37 enfin cable (`GrantChallengePass` sur verify, fingerprint du cookie transmis) pour eviter la boucle
+- [x] PoW client : bits nuls de tete exacts (22 bits != 24) ; test du solveur reel de la page sous Node
+- [x] `whitelist_user_agents` : exemption du challenge proactif seulement, plus un bypass PASS ; la blacklist s'applique
+- [x] Circuit breaker : une requete admise ne remet plus la serie a zero (fenetre de 60 s, `VisitorState.LastViolation`)
+- [x] Integrite : suppression des sous-chaines isolees (`select `, `--`, `/*`) ; motifs caracterises seulement
+- [x] Cluster : publication des blacklists admin, ouvertures de circuit et scores critiques ; echo ignore ; `circuit_open` ouvre reellement le circuit
+- [x] `PATCH /waf/admin/config` applique a chaud (valide avec les regles du demarrage, 503 sans applier)
+- [x] `GET /waf/admin/events` alimente par le logger (10 000 evenements, 24 h, mitigations seulement, filtre `since`)
+- [x] `GET /waf/stats` : compteurs par action ; page de challenge servie journalisee CHALLENGE (et non PASS)
+
+### T16.2 - Memoire et goroutines
+- [x] `internal/ttlcache` : map generique bornee (LRU + TTL, sans goroutine)
+- [x] Bornes appliquees a behavioral, tlsfp, selfprotect, threatintel, verifybot
+- [x] Pools fixes de workers : threatintel (16, file 1024), verifybot (8, file 256, DNS 2 s, etat `unverified` si file pleine)
+
+### T16.3 - Performance du chemin chaud
+- [x] `storage.Store.UpdateBuckets` : fenetres de rate limiting en 2 allers-retours Redis au lieu de 6, compare-and-set Lua (ADR-021 amende) ; race locale demontree puis corrigee (66 admissions pour un burst de 50 -> 50)
+- [x] `BufferPool` du reverse proxy (40,9 Ko -> 8,1 Ko alloues par requete)
+- [x] Routage proxy : pointeur de proxy par route, hotes exacts indexes (2 047 ns -> 61 ns pour 200 domaines)
+- [x] slowloris : 64 shards (300-1 200 ns/op -> ~50 ns/op sur 20 coeurs)
+- [x] Moteur de regles : query parsee une fois par requete, `net/netip` (4,5 us / 50 allocs -> 0,8 us / 6)
+- [x] PoW navigateur : SHA-256 synchrone avec midstate (32 k -> 1,2 M hash/s sous Node)
+
+### T16.4 - Securite applicative et deploiement
+- [x] Retour de challenge limite a un chemin de meme origine (voir T16.20)
+- [x] `web/challenge.html` embarque (`go:embed`) : demarrage hors de la racine du depot
+
+### T16.5 - Specs et conformite SDD
+- [x] `admin.openapi.yaml` 1.1.0 : `listAuditEntries`, `eraseVisitorData` ; test « toute route servie a son operation »
+- [x] `public.openapi.yaml` : `/waf/verify`, `/waf/origin/verify`, `/waf/metrics`, `/waf/health` ; test de conformance (a revele `/waf/origin/verify` en text/plain)
+- [x] `audit-entry.schema.json`, `cluster-event.schema.json` + tests de conformance
+- [x] `reverse-proxy.feature` (FR-01), `admin-api.feature` (FR-10) + tests WebSocket (proxy et chaine complete), pagination, verrouillage anti-brute-force
+- [x] Statuts : tasks/validation/requirements/requirements-ops -> implemented (pas validated : G6 jamais execute)
+- [x] mission.md 1.1.0 : non-goal SQLi/XSS reconcilie avec FR-18
+
+### T16.20 - Open redirect `/waf/verify` : non exploitable dans la chaine livree
+- [x] Verifie : le ServeMux redirige `//evil.com/path` vers `/evil.com/path` (meme origine) avant le challenge, et `\` arrive encode. Durcissement applique malgre tout (le middleware ne depend plus de ce filtrage)
+
+### T16.21 - Fuite de timers du tarpit : inexact
+- [x] Non applique : depuis Go 1.23 (module en go 1.27.0), un timer de `time.After` non reference est recuperable par le GC avant son echeance. `select` sur `time.After` + `ctx.Done()` ne fuit plus
+
+### T16.22 - Surcharges `domains[]` inertes (`protected_paths`, `public_paths`, `rate_limit_override`, `trust_override`)
+- [ ] Constat exact, mais hors perimetre par decision anterieure (Sprint 15) : les implementer demande leurs propres specs et gates. **Decision d'operateur attendue** : implementer ou rejeter ces cles a la validation
+
+### T16.23 - ADR-019 / ADR-020 toujours `proposed`
+- [ ] Les deux ADR reservent explicitement la decision a l'operateur. **Decision attendue**
+
+### Restes identifies en cours de sprint (non traites)
+- [ ] Allers-retours Redis de `VisitorState` (score, moteur de risque) toujours unitaires
+- [ ] `admin.State` reecrit la blacklist complete a chaque modification (`RuleSet.Update`) : une entree recue du cluster est perdue au prochain ajout admin local
+- [ ] audit-trail.feature decrit des filtres `since`/`until`/`action` et des noms d'action en majuscules que `GET /waf/admin/audit` n'implemente pas
+- [ ] FR-20 : publication du niveau de pression global / `degraded_mode` non implementee
+- **Statut** : implemente (hors T16.22, T16.23 et restes ci-dessus).

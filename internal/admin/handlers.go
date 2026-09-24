@@ -65,24 +65,47 @@ type WAFStats struct {
 	BlockedVisitors     int   `json:"blocked_visitors"`
 }
 
+// route associe une opération du contrat specs/api/admin.openapi.yaml
+// (specPath) à son motif ServeMux. Table unique : un test vérifie que chaque
+// route servie a son opération dans le contrat (invariant #2).
+type route struct {
+	method   string
+	pattern  string // chemin ServeMux (préfixe "/" final pour les paramètres)
+	specPath string
+	public   bool
+	handler  http.HandlerFunc
+}
+
+func (s *Server) routeTable() []route {
+	return []route{
+		{method: http.MethodGet, pattern: "/waf/health", specPath: "/waf/health", public: true, handler: s.health},
+		{method: http.MethodGet, pattern: "/waf/stats", specPath: "/waf/stats", handler: s.stats},
+		{method: http.MethodGet, pattern: "/waf/admin/config", specPath: "/waf/admin/config", handler: s.getConfig},
+		{method: http.MethodPatch, pattern: "/waf/admin/config", specPath: "/waf/admin/config", handler: s.patchConfig},
+		{method: http.MethodGet, pattern: "/waf/admin/whitelist", specPath: "/waf/admin/whitelist", handler: s.getWhitelist},
+		{method: http.MethodPost, pattern: "/waf/admin/whitelist", specPath: "/waf/admin/whitelist", handler: s.addWhitelist},
+		{method: http.MethodDelete, pattern: "/waf/admin/whitelist/", specPath: "/waf/admin/whitelist/{ip}", handler: s.deleteWhitelist},
+		{method: http.MethodGet, pattern: "/waf/admin/blacklist", specPath: "/waf/admin/blacklist", handler: s.getBlacklist},
+		{method: http.MethodPost, pattern: "/waf/admin/blacklist", specPath: "/waf/admin/blacklist", handler: s.addBlacklist},
+		{method: http.MethodDelete, pattern: "/waf/admin/blacklist/", specPath: "/waf/admin/blacklist/{ip}", handler: s.deleteBlacklist},
+		{method: http.MethodGet, pattern: "/waf/admin/visitors", specPath: "/waf/admin/visitors", handler: s.listVisitors},
+		{method: http.MethodGet, pattern: "/waf/admin/visitors/", specPath: "/waf/admin/visitors/{ip_hash}", handler: s.getVisitor},
+		{method: http.MethodDelete, pattern: "/waf/admin/visitors/", specPath: "/waf/admin/visitors/{ip_hash}", handler: s.deleteVisitor},
+		{method: http.MethodGet, pattern: "/waf/admin/events", specPath: "/waf/admin/events", handler: s.listEvents},
+		{method: http.MethodGet, pattern: "/waf/admin/audit", specPath: "/waf/admin/audit", handler: s.listAudit},
+		{method: http.MethodPost, pattern: "/waf/admin/gdpr/erase", specPath: "/waf/admin/gdpr/erase", handler: s.gdprErase},
+	}
+}
+
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /waf/health", s.health)
-	mux.Handle("GET /waf/stats", s.auth(http.HandlerFunc(s.stats)))
-	mux.Handle("GET /waf/admin/config", s.auth(http.HandlerFunc(s.getConfig)))
-	mux.Handle("PATCH /waf/admin/config", s.auth(http.HandlerFunc(s.patchConfig)))
-	mux.Handle("GET /waf/admin/whitelist", s.auth(http.HandlerFunc(s.getWhitelist)))
-	mux.Handle("POST /waf/admin/whitelist", s.auth(http.HandlerFunc(s.addWhitelist)))
-	mux.Handle("DELETE /waf/admin/whitelist/", s.auth(http.HandlerFunc(s.deleteWhitelist)))
-	mux.Handle("GET /waf/admin/blacklist", s.auth(http.HandlerFunc(s.getBlacklist)))
-	mux.Handle("POST /waf/admin/blacklist", s.auth(http.HandlerFunc(s.addBlacklist)))
-	mux.Handle("DELETE /waf/admin/blacklist/", s.auth(http.HandlerFunc(s.deleteBlacklist)))
-	mux.Handle("GET /waf/admin/visitors", s.auth(http.HandlerFunc(s.listVisitors)))
-	mux.Handle("GET /waf/admin/visitors/", s.auth(http.HandlerFunc(s.getVisitor)))
-	mux.Handle("DELETE /waf/admin/visitors/", s.auth(http.HandlerFunc(s.deleteVisitor)))
-	mux.Handle("GET /waf/admin/events", s.auth(http.HandlerFunc(s.listEvents)))
-	mux.Handle("GET /waf/admin/audit", s.auth(http.HandlerFunc(s.listAudit)))
-	mux.Handle("POST /waf/admin/gdpr/erase", s.auth(http.HandlerFunc(s.gdprErase)))
+	for _, r := range s.routeTable() {
+		var handler http.Handler = r.handler
+		if !r.public {
+			handler = s.auth(handler)
+		}
+		mux.Handle(r.method+" "+r.pattern, handler)
+	}
 	return mux
 }
 
@@ -161,6 +184,7 @@ func (s *Server) stats(w http.ResponseWriter, _ *http.Request) {
 		UptimeSeconds:  int64(time.Since(s.startedAt).Seconds()),
 		ActiveVisitors: len(visitors),
 	}
+	s.counters.fill(&stats)
 	for _, visitor := range visitors {
 		switch s.scores.State(visitor.Score) {
 		case "TRUSTED":
@@ -172,7 +196,6 @@ func (s *Server) stats(w http.ResponseWriter, _ *http.Request) {
 		case "BLOCKED":
 			stats.BlockedVisitors++
 		}
-		stats.TotalRequests += visitor.ReqCount
 	}
 	writeJSON(w, http.StatusOK, stats)
 }
@@ -181,23 +204,31 @@ func (s *Server) getConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.state.Config())
 }
 
+// patchConfig applique à chaud un sous-ensemble de la configuration.
+//
+// Le handler se contentait de vérifier le nom des sections et de journaliser
+// « applied » : aucune valeur n'atteignait le rate limiter, le score manager ni
+// le challenge.
 func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request) {
-	var payload map[string]any
-	if err := jsonstrict.Decode(r.Body, &payload); err != nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_config_update", Message: "Invalid JSON body"})
+	if s.applyConfig == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "hot_reload_unavailable", Message: "Runtime configuration cannot be updated on this instance"})
 		return
 	}
-	updated := make([]string, 0, len(payload))
-	for key := range payload {
-		switch key {
-		case "rate_limit", "trust", "challenge":
-			updated = append(updated, key)
-		default:
-			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_config_update", Message: "Unsupported config section"})
-			return
-		}
+	var update ConfigUpdate
+	if err := jsonstrict.Decode(r.Body, &update); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_config_update", Message: "Invalid JSON body or unsupported config field"})
+		return
 	}
-	sort.Strings(updated)
+	next, updated, err := s.state.ApplyConfigUpdate(update)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_config_update", Message: err.Error()})
+		return
+	}
+	if len(updated) == 0 {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_config_update", Message: "No supported field to update"})
+		return
+	}
+	s.applyConfig(next)
 	s.record("config_patch", strings.Join(updated, ","), "applied")
 	writeJSON(w, http.StatusOK, map[string]any{"updated_fields": updated})
 }
@@ -263,6 +294,8 @@ func (s *Server) addIPEntry(w http.ResponseWriter, r *http.Request, whitelist bo
 	action := "add_blacklist"
 	if whitelist {
 		action = "add_whitelist"
+	} else if s.onBlacklist != nil {
+		s.onBlacklist(created.IP)
 	}
 	s.record(action, entry.IP, "created")
 	writeJSON(w, http.StatusCreated, created)
@@ -307,8 +340,19 @@ func (s *Server) deleteVisitor(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// listEvents sert les événements de sécurité récents. Le flux était toujours
+// vide : rien n'écrivait dans le tampon d'événements.
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
-	events := s.state.Events()
+	var since time.Time
+	if raw := r.URL.Query().Get("since"); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_since", Message: "since must be an RFC 3339 date-time"})
+			return
+		}
+		since = parsed
+	}
+	events := s.events.Recent(since)
 	domain := r.URL.Query().Get("domain")
 	action := r.URL.Query().Get("action")
 	filtered := events[:0]

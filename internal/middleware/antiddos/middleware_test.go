@@ -165,7 +165,6 @@ func TestMiddlewareAllowsKnownVisitorWhenGlobalRateExceeded(t *testing.T) {
 	defer store.Close()
 	breaker := NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration)
 	breaker.RecordViolation("1.2.3.4")
-	breaker.Reset("1.2.3.4")
 	detector := NewGlobalRateDetector(1, time.Second, PressureConfig{})
 	middleware := New(breaker, detector, DefaultRetryAfterSeconds)
 	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

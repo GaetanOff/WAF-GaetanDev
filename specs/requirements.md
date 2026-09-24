@@ -1,7 +1,7 @@
 ---
-status: approved
+status: implemented
 version: 2.3.0
-last-reviewed: 2026-09-02
+last-reviewed: 2026-09-24
 reviewed-by: GaetanDev
 change: "FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
 ---

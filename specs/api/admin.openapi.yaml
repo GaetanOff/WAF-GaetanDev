@@ -6,7 +6,7 @@ info:
     API d'administration du WAF Anti-DDoS/Anti-Bot.
     Exposée sur un port séparé (défaut: 9090), protégée par Bearer token.
     Ne jamais exposer ce port publiquement.
-  version: 1.0.1
+  version: 1.1.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -118,19 +118,28 @@ components:
     WAFStats:
       type: object
       additionalProperties: false
+      description: |
+        Compteurs requests_* : requêtes traitées par ce nœud depuis son
+        démarrage, par action journalisée. Les compteurs *_visitors portent sur
+        les visiteurs suivis par le store.
       properties:
         uptime_seconds:
           type: integer
         total_requests:
           type: integer
+          description: Toutes les requêtes journalisées depuis le démarrage
         requests_passed:
           type: integer
+          description: Action PASS
         requests_challenged:
           type: integer
+          description: Action CHALLENGE (page de challenge servie)
         requests_blocked:
           type: integer
+          description: Actions BLOCK, CIRCUIT_BREAK et HONEYPOT
         requests_rate_limited:
           type: integer
+          description: Action RATE_LIMIT
         active_visitors:
           type: integer
         trusted_visitors:
@@ -145,31 +154,75 @@ components:
     ConfigUpdate:
       type: object
       additionalProperties: false
-      description: Champs de configuration modifiables à chaud (hot-reload partiel)
+      minProperties: 1
+      description: |
+        Champs de configuration modifiables à chaud (hot-reload partiel). Seules
+        les clés présentes sont modifiées ; la configuration résultante est
+        validée entière, avec les règles du démarrage (ex. block_threshold <
+        challenge_threshold), puis appliquée au rate limiter, au score manager et
+        au challenge sans redémarrage. Les surcharges domains[] ne sont pas
+        concernées.
       properties:
         rate_limit:
           type: object
+          additionalProperties: false
           properties:
             enabled:
               type: boolean
             requests_per_second:
               type: number
+              minimum: 1
             burst:
               type: integer
+              minimum: 1
         trust:
           type: object
+          additionalProperties: false
           properties:
             challenge_threshold:
               type: integer
+              minimum: 0
+              maximum: 100
             block_threshold:
               type: integer
+              minimum: 0
+              maximum: 100
         challenge:
           type: object
+          additionalProperties: false
           properties:
             enabled:
               type: boolean
             pow_difficulty:
               type: integer
+              minimum: 8
+              maximum: 24
+
+    AuditEntry:
+      $ref: "../schemas/audit-entry.schema.json"
+
+    GDPRErasureRequest:
+      type: object
+      additionalProperties: false
+      required: [ip]
+      properties:
+        ip:
+          type: string
+          description: Adresse IP en clair du visiteur ; elle est hachée pour retrouver son état et n'est pas conservée.
+          examples:
+            - "203.0.113.7"
+
+    GDPRErasureResult:
+      type: object
+      additionalProperties: false
+      required: [erased, ip_hash]
+      properties:
+        erased:
+          type: boolean
+          description: true si un état existait pour ce visiteur (il est supprimé dans tous les cas)
+        ip_hash:
+          type: string
+          pattern: "^[0-9a-f]{16}$"
 
   parameters:
     IP:
@@ -279,7 +332,7 @@ paths:
     patch:
       operationId: updateConfig
       summary: Mettre à jour des paramètres de configuration (hot-reload)
-      description: Applique à chaud un sous-ensemble de paramètres de configuration sans redémarrer le WAF. Retourne la liste des champs modifiés.
+      description: Applique à chaud un sous-ensemble de paramètres de configuration sans redémarrer le WAF. Retourne la liste des champs modifiés, en notation pointée (ex. "rate_limit.burst").
       tags: [Configuration]
       requestBody:
         required: true
@@ -300,14 +353,22 @@ paths:
                     type: array
                     items:
                       type: string
+                    examples:
+                      - ["rate_limit.burst", "trust.challenge_threshold"]
         "400":
-          description: Données invalides
+          description: Champ inconnu, aucune modification, ou configuration résultante invalide (rien n'est appliqué)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: Hot-reload indisponible sur cette instance (aucune modification appliquée)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /waf/admin/whitelist:
     get:
@@ -537,7 +598,12 @@ paths:
     get:
       operationId: listEvents
       summary: Lister les événements de sécurité récents
-      description: Retourne les événements de sécurité récents (max 24h en mémoire), filtrables par domaine, action et date.
+      description: |
+        Retourne les événements de sécurité récents, du plus récent au plus
+        ancien, filtrables par domaine, action et date. Le flux est alimenté par
+        le middleware de journalisation : seules les décisions de mitigation
+        sont retenues (PASS exclu), dans la limite de 10 000 événements et de
+        24 h. L'IP est anonymisée si gdpr.anonymize_ip est actif.
       tags: [Events]
       parameters:
         - $ref: "#/components/parameters/Page"
@@ -569,6 +635,76 @@ paths:
                       $ref: "#/components/schemas/SecurityEventSummary"
                   total:
                     type: integer
+        "400":
+          description: Paramètre since invalide (date-time RFC 3339 attendue)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /waf/admin/audit:
+    get:
+      operationId: listAuditEntries
+      summary: Consulter le journal d'audit des actions d'administration
+      description: |
+        Retourne le journal d'audit (FR-27), de la plus ancienne à la plus
+        récente entrée, borné à audit.max_entries (rotation FIFO). Liste vide
+        si audit.enabled est faux. Journal append-only : aucune méthode ne le
+        modifie (DELETE répond 405).
+      tags: [Audit]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Entrées d'audit
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditEntry"
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /waf/admin/gdpr/erase:
+    post:
+      operationId: eraseVisitorData
+      summary: Effacer les données d'un visiteur (droit à l'effacement)
+      description: |
+        Supprime l'état du visiteur identifié par son IP (RGPD article 17,
+        FR-28) et journalise l'action (gdpr_erase) dans l'audit.
+      tags: [GDPR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GDPRErasureRequest"
+      responses:
+        "200":
+          description: Données effacées (ou absentes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GDPRErasureResult"
+        "400":
+          description: Corps invalide ou IP manquante
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "invalid_request"
+                message: "ip is required"
         "401":
           $ref: "#/components/responses/Unauthorized"
 
@@ -583,3 +719,7 @@ tags:
     description: Consultation des visiteurs actifs et scores
   - name: Events
     description: Événements de sécurité récents
+  - name: Audit
+    description: Journal d'audit des actions d'administration (FR-27)
+  - name: GDPR
+    description: Droits des personnes (FR-28)

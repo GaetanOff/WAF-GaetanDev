@@ -1,0 +1,208 @@
+openapi: "3.1.0"
+
+info:
+  title: WAF Public Endpoints
+  description: |
+    Endpoints servis par le WAF lui-même sur le listener public
+    (server.listen), sur tous les domaines. Le préfixe /waf/ est réservé au
+    WAF : ces chemins ne sont jamais transmis à l'upstream. L'API
+    d'administration, sur son port privé, a son propre contrat
+    (admin.openapi.yaml).
+  version: 1.0.0
+  contact:
+    name: GaetanDev
+    url: https://firewall.gaetandev.fr
+
+servers:
+  - url: https://{domain}
+    description: Tout domaine protégé par le WAF
+    variables:
+      domain:
+        default: example.com
+
+security: []
+
+components:
+  schemas:
+    ChallengeSubmission:
+      $ref: "../schemas/challenge-submission.schema.json"
+
+    VerifySuccess:
+      type: object
+      additionalProperties: false
+      required: [redirect_url]
+      properties:
+        redirect_url:
+          type: string
+          description: Chemin de même origine où renvoyer le visiteur ("/" à défaut)
+          pattern: "^/(?![/\\\\])"
+
+    VerifyError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      properties:
+        error:
+          type: string
+          enum:
+            - invalid_submission
+            - invalid_token
+            - token_expired
+            - invalid_pow
+            - challenge_too_fast
+            - challenge_timeout
+            - headless_webgl_renderer
+            - cookie_issue_failed
+
+    OriginVerification:
+      type: object
+      additionalProperties: false
+      required: [valid]
+      properties:
+        valid:
+          type: boolean
+
+    Health:
+      type: object
+      additionalProperties: false
+      required: [status]
+      properties:
+        status:
+          type: string
+          enum: [ok]
+
+  headers:
+    RetryAfter:
+      description: Secondes avant de réessayer
+      schema:
+        type: integer
+
+paths:
+  /waf/verify:
+    post:
+      operationId: verifyChallenge
+      summary: Soumettre la solution du challenge JS
+      description: |
+        Valide le proof-of-work et le fingerprint soumis par la page de
+        challenge (FR-04). En cas de succès, émet le cookie de clearance signé
+        et retourne l'URL de retour. Servi dès qu'un hôte au moins peut être
+        challengé (challenge.enabled ou domains[].challenge_enabled). Borné par
+        IP (self_protection.verify_max_per_minute, FR-30). Réponses jamais
+        mises en cache (Cache-Control: no-store).
+      tags: [Challenge]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ChallengeSubmission"
+      responses:
+        "200":
+          description: Challenge réussi — cookie de clearance émis
+          headers:
+            Set-Cookie:
+              description: Cookie signé (challenge.cookie_name), HttpOnly, Secure, SameSite=Lax
+              schema:
+                type: string
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifySuccess"
+        "400":
+          description: Soumission rejetée (corps invalide, token invalide ou expiré, PoW faux, timing ou fingerprint refusé)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyError"
+        "405":
+          description: Méthode autre que POST
+        "429":
+          description: Trop de soumissions pour cette IP (auto-protection FR-30)
+          headers:
+            Retry-After:
+              $ref: "#/components/headers/RetryAfter"
+        "500":
+          description: Émission du cookie impossible
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/VerifyError"
+
+  /waf/origin/verify:
+    get:
+      operationId: verifyOriginToken
+      summary: Vérifier un token de protection d'origine
+      description: |
+        Appelé par l'upstream pour vérifier le X-WAF-Origin-Token qu'il a reçu
+        (FR-19). Servi seulement si origin_protection.enabled. Le token est
+        validé par HMAC pour le domaine demandé (query domain, sinon Host), avec
+        la tolérance de rotation horaire.
+      tags: [Origin]
+      parameters:
+        - name: X-WAF-Origin-Token
+          in: header
+          required: true
+          schema:
+            type: string
+        - name: domain
+          in: query
+          required: false
+          description: "Domaine du token (défaut : Host de la requête)"
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Token valide
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OriginVerification"
+              example:
+                valid: true
+        "401":
+          description: Token absent ou invalide
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OriginVerification"
+              example:
+                valid: false
+
+  /waf/metrics:
+    get:
+      operationId: getMetrics
+      summary: Métriques Prometheus
+      description: |
+        Exposition Prometheus des métriques du WAF (RED, décisions, pression,
+        stockage, cluster). Non authentifié : à restreindre au réseau de
+        supervision en amont.
+      tags: [Observability]
+      responses:
+        "200":
+          description: Métriques au format d'exposition texte Prometheus
+          content:
+            text/plain:
+              schema:
+                type: string
+
+  /waf/health:
+    get:
+      operationId: getPublicHealth
+      summary: Sonde de disponibilité
+      description: Utilisée par le HEALTHCHECK du conteneur (waf -healthcheck).
+      tags: [Observability]
+      responses:
+        "200":
+          description: WAF opérationnel
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+tags:
+  - name: Challenge
+    description: Challenge JavaScript proof-of-work (FR-04)
+  - name: Origin
+    description: Protection de l'origine (FR-19)
+  - name: Observability
+    description: Santé et métriques

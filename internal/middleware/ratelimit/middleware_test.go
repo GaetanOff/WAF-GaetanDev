@@ -3,6 +3,8 @@ package ratelimit
 import (
 	"net/http"
 	"net/http/httptest"
+	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -422,4 +424,67 @@ func countingHandler() http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})
+}
+
+// PATCH /waf/admin/config : burst et enabled s'appliquent sans redémarrage.
+func TestConfigureAppliesAtRuntime(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	cfg := testConfig(1, 1)
+	cfg.Trust.BlockThreshold = -1
+	middleware := newTestMiddlewareFromConfig(t, store, cfg)
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+	serve := func(ip string) int {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, requestFrom(ip+":1234"))
+		return response.Code
+	}
+
+	cfg.RateLimit.Burst = 3
+	middleware.Configure(cfg.RateLimit)
+	for i := range 3 {
+		if code := serve("1.1.1.1"); code != http.StatusNoContent {
+			t.Fatalf("request %d: status = %d, want 204 within the new burst", i, code)
+		}
+	}
+	if code := serve("1.1.1.1"); code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429 past the new burst", code)
+	}
+
+	cfg.RateLimit.Enabled = false
+	middleware.Configure(cfg.RateLimit)
+	if code := serve("1.1.1.1"); code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 once rate limiting is disabled", code)
+	}
+}
+
+// GetBucket puis SetBucket n'étaient pas atomiques : des requêtes concurrentes
+// d'une même IP lisaient le même solde et admettaient plus que le burst.
+func TestConcurrentRequestsNeverExceedBurst(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	cfg := testConfig(1, 50)
+	cfg.Trust.BlockThreshold = -1
+	middleware := newTestMiddlewareFromConfig(t, store, cfg)
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now } // aucune recharge pendant le test
+	var admitted atomic.Int64
+	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		admitted.Add(1)
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	var wg sync.WaitGroup
+	for range 400 {
+		wg.Go(func() {
+			handler.ServeHTTP(httptest.NewRecorder(), requestFrom("1.2.3.4:1234"))
+		})
+	}
+	wg.Wait()
+
+	if got := admitted.Load(); got != 50 {
+		t.Fatalf("admitted = %d, want exactly the burst of 50", got)
+	}
 }

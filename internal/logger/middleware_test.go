@@ -380,3 +380,30 @@ func newTestScoreManager(t *testing.T) (*trust.ScoreManager, *memory.Store) {
 	}
 	return manager, store
 }
+
+type capturingRecorder struct{ events []SecurityEvent }
+
+func (r *capturingRecorder) RecordSecurityEvent(event SecurityEvent) {
+	r.events = append(r.events, event)
+}
+
+// Le Recorder (API admin, GET /waf/admin/events) reçoit l'événement journalisé.
+func TestMiddlewareForwardsEventToRecorder(t *testing.T) {
+	log := NewWithWriter(config.Default().Logging, &bytes.Buffer{})
+	recorder := &capturingRecorder{}
+	log.Recorder = recorder
+	scores, store := newTestScoreManager(t)
+	defer store.Close()
+	handler := log.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-WAF-Action", ActionBlock)
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/admin", nil)
+	request.RemoteAddr = "1.2.3.4:1234"
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	if len(recorder.events) != 1 || recorder.events[0].Action != ActionBlock || recorder.events[0].Path != "/admin" {
+		t.Fatalf("recorded events = %+v, want the BLOCK on /admin", recorder.events)
+	}
+}

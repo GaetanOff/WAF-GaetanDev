@@ -9,6 +9,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/audit"
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/logger"
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/selfprotect"
 	"github.com/gaetandev/waf/internal/storage"
@@ -21,10 +22,34 @@ type Server struct {
 	scores      *trust.ScoreManager
 	accessRules *access.RuleSet
 	state       *State
+	events      *eventLog
+	counters    *trafficCounters
 	trail       *audit.Trail
 	brute       *selfprotect.Window
 	startedAt   time.Time
 	httpServer  *http.Server
+	onBlacklist func(value string)
+	applyConfig ConfigApplier
+}
+
+// EventRecorder retourne le puits d'événements de sécurité à brancher sur le
+// logger (logger.Logger.Recorder) : il alimente GET /waf/admin/events et les
+// compteurs de GET /waf/stats.
+func (s *Server) EventRecorder() logger.EventRecorder {
+	return eventRecorders{s.counters, s.events}
+}
+
+// WithConfigApplier branche l'application à chaud de PATCH /waf/admin/config
+// sur les composants runtime. Sans applier, l'endpoint répond 503 plutôt que de
+// prétendre avoir appliqué une modification.
+func (s *Server) WithConfigApplier(applier ConfigApplier) {
+	s.applyConfig = applier
+}
+
+// WithBlacklistObserver est notifié de chaque entrée ajoutée à la blacklist
+// (propagation cluster, FR-20).
+func (s *Server) WithBlacklistObserver(observer func(value string)) {
+	s.onBlacklist = observer
 }
 
 func NewServer(cfg config.Config, store storage.Store, scores *trust.ScoreManager, accessRules *access.RuleSet, startedAt time.Time) (*Server, error) {
@@ -56,6 +81,8 @@ func NewServer(cfg config.Config, store storage.Store, scores *trust.ScoreManage
 		scores:      scores,
 		accessRules: accessRules,
 		state:       state,
+		events:      newEventLog(),
+		counters:    &trafficCounters{},
 		trail:       trail,
 		brute:       brute,
 		startedAt:   startedAt,

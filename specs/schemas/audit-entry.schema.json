@@ -1,0 +1,38 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GaetanDev/WAF/schemas/audit-entry.schema.json",
+  "title": "AuditEntry",
+  "description": "Entrée du journal d'audit des actions d'administration (FR-27). Servie par GET /waf/admin/audit et exportée ligne à ligne (JSONL) dans audit.file.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["timestamp", "action", "target", "result"],
+  "properties": {
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Instant de l'action (UTC, RFC 3339)"
+    },
+    "action": {
+      "type": "string",
+      "enum": [
+        "add_whitelist",
+        "remove_whitelist",
+        "add_blacklist",
+        "remove_blacklist",
+        "reset_visitor",
+        "config_patch",
+        "gdpr_erase"
+      ],
+      "description": "Action d'administration journalisée"
+    },
+    "target": {
+      "type": "string",
+      "description": "Objet de l'action : IP ou CIDR, ip_hash, ou liste des champs modifiés (config_patch). Remplacé par \"***\" s'il ressemble à un secret (token, secret, password, api_key)."
+    },
+    "result": {
+      "type": "string",
+      "enum": ["created", "removed", "reset", "applied", "erased"],
+      "description": "Issue de l'action"
+    }
+  }
+}

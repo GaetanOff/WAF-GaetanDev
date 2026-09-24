@@ -51,6 +51,7 @@ import (
 	"github.com/gaetandev/waf/internal/tlsmgr"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/upstream"
+	"github.com/gaetandev/waf/web"
 )
 
 const (
@@ -231,7 +232,7 @@ func run() error {
 		})
 	}
 	if cfg.Behavioral.Enabled {
-		behavioralTracker := behavioral.New(cfg.Behavioral.MaxRecords)
+		behavioralTracker := behavioral.New(cfg.Behavioral.MaxRecords, cfg.Trust.MaxVisitors)
 		defer behavioralTracker.Close()
 		detectors = append(detectors, behavioralTracker.Handler)
 	}
@@ -258,7 +259,7 @@ func run() error {
 		detectors = append(detectors, geo.NewRules(cfg.Geo).Handler)
 	}
 	if cfg.TLSFingerprint.Enabled {
-		detectors = append(detectors, tlsfp.NewMiddleware(cfg.TLSFingerprint).Handler)
+		detectors = append(detectors, tlsfp.NewMiddleware(cfg.TLSFingerprint, cfg.Trust.MaxVisitors).Handler)
 	}
 	if cfg.Rules.Enabled {
 		ruleSet := rules.NewRuleSet()
@@ -267,16 +268,21 @@ func run() error {
 		}
 		detectors = append(detectors, rules.NewMiddleware(ruleSet, scoreManager).Handler)
 	}
-	challengeMiddleware, err := challenge.NewMiddleware(*cfg, scoreManager, "web/challenge.html")
+	// Page embarquée : le binaire démarre hors de la racine du dépôt (G7).
+	challengeMiddleware, err := challenge.NewMiddlewareFromSource(*cfg, scoreManager, web.ChallengePage)
 	if err != nil {
 		return err
 	}
 	if adaptiveController != nil {
 		challengeMiddleware = challengeMiddleware.WithDifficultyProvider(adaptiveController.Difficulty)
 	}
-	// Synchronisation multi-nœuds (FR-20) : applique les événements entrants
-	// (blacklist, scores critiques) à l'état local. Fallback autonome si Redis
-	// est indisponible.
+	if cfg.RiskEngine.Enabled {
+		challengeMiddleware = challengeMiddleware.WithHumanCredit(riskMiddleware.GrantChallengePass)
+	}
+	// Synchronisation multi-nœuds (FR-20) : publie les décisions locales
+	// (blacklist admin, ouverture de circuit, score critique) et applique celles
+	// des autres nœuds. Fallback autonome si Redis est indisponible.
+	var syncer *cluster.Syncer
 	if cfg.Cluster.Enabled && cfg.Storage.Redis != nil {
 		channel := cfg.Cluster.Channel
 		if channel == "" {
@@ -284,15 +290,19 @@ func run() error {
 		}
 		bus := cluster.NewRedisBus(*cfg.Storage.Redis, channel)
 		defer func() { _ = bus.Close() }()
-		syncer := cluster.NewSyncer(bus, store, accessRules)
+		syncer = cluster.NewSyncer(bus, store, accessRules)
 		clusterCtx, clusterCancel := context.WithCancel(context.Background())
 		defer clusterCancel()
 		if err := bus.Subscribe(clusterCtx, func(event cluster.Event) {
-			syncer.Apply(event)
-			metrics.IncClusterSync(event.Type)
+			if syncer.Apply(event) {
+				metrics.IncClusterSync(event.Type)
+			}
 		}); err != nil {
 			return err
 		}
+		go syncer.RunPublisher(clusterCtx)
+		antiDDoS = antiDDoS.WithCircuitOpenObserver(syncer.PublishCircuitOpen)
+		scoreManager.WithCriticalObserver(syncer.PublishScoreCritical)
 	}
 	securityLogger := waflogger.New(cfg.Logging)
 	defer func() { _ = securityLogger.Close() }()     // vide le writer async à l'arrêt
@@ -332,6 +342,31 @@ func run() error {
 		})
 	}
 
+	// L'API admin est construite avant la chaîne publique : son flux
+	// d'événements (GET /waf/admin/events) est alimenté par le logger.
+	var adminServer *admin.Server
+	if cfg.Admin.Enabled {
+		adminServer, err = admin.NewServer(*cfg, store, scoreManager, accessRules, startedAt)
+		if err != nil {
+			return err
+		}
+		securityLogger.Recorder = adminServer.EventRecorder()
+		if syncer != nil {
+			adminServer.WithBlacklistObserver(syncer.PublishBlacklistAdd)
+		}
+		// PATCH /waf/admin/config (hot-reload) : la configuration validée est
+		// poussée aux composants qui la lisent par requête.
+		adminServer.WithConfigApplier(func(next config.Config) {
+			rateLimiter.Configure(next.RateLimit)
+			scoreManager.SetThresholds(next.Trust.ChallengeThreshold, next.Trust.BlockThreshold)
+			challengeMiddleware.Configure(next.Challenge)
+			if adaptiveController != nil {
+				adaptiveController.SetBaseDifficulty(next.Challenge.PowDifficulty)
+			}
+			slog.Info("runtime configuration updated")
+		})
+	}
+
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           routes(*cfg, accessRules, securityLogger, metrics, antiDDoS, rateLimiter, antiBot, riskMiddleware, challengeMiddleware, scoreManager, detectors, originHandler),
@@ -367,13 +402,6 @@ func run() error {
 		}
 	}
 	tlsEnabled := acmeManager != nil || tlsManager != nil
-	var adminServer *admin.Server
-	if cfg.Admin.Enabled {
-		adminServer, err = admin.NewServer(*cfg, store, scoreManager, accessRules, startedAt)
-		if err != nil {
-			return err
-		}
-	}
 
 	errs := make(chan error, 1)
 	go func() {
@@ -486,6 +514,9 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 		mux.HandleFunc("/waf/origin/verify", signer.VerifyHandler)
 		proxyHandler = signer.Injector(proxyHandler)
 	}
+	// FR-34 / FR-04 : une décision CHALLENGE du moteur de risque ou du trust score
+	// sert la page de challenge. Monté en aval de ces décisions, donc ici.
+	proxyHandler = challengeMiddleware.Enforcer(proxyHandler)
 	if cfg.RiskEngine.Enabled && riskMiddleware != nil {
 		proxyHandler = riskMiddleware.Handler(proxyHandler)
 	} else {
@@ -497,15 +528,12 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 		proxyHandler = detector(proxyHandler)
 	}
 	proxyHandler = antiBot.Handler(proxyHandler)
-	if cfg.RateLimit.Enabled {
-		proxyHandler = rateLimiter.Handler(proxyHandler)
-	}
-	// FR-06 : monté dès qu'au moins un hôte peut être challengé — soit
-	// challenge.enabled, soit un domains[].challenge_enabled à true. La décision
-	// par requête est prise dans le middleware, qui connaît l'hôte.
-	if challenge.Enabled(cfg) {
-		proxyHandler = challengeMiddleware.Handler(proxyHandler)
-	}
+	// Rate limit et challenge sont montés en permanence : rate_limit.enabled et
+	// challenge.enabled sont modifiables à chaud (PATCH /waf/admin/config), et
+	// chaque middleware lit son réglage courant par requête. La décision de
+	// challenge par hôte (FR-06) est prise dans le middleware.
+	proxyHandler = rateLimiter.Handler(proxyHandler)
+	proxyHandler = challengeMiddleware.Handler(proxyHandler)
 	proxyHandler = antiDDoS.Handler(proxyHandler)
 	proxyHandler = access.Middleware(accessRules, proxyHandler)
 	if cfg.Cloudflare.Trusted {

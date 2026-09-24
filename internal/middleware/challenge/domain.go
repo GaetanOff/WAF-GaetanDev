@@ -3,6 +3,7 @@ package challenge
 import (
 	"net"
 	"strings"
+	"sync/atomic"
 
 	"github.com/gaetandev/waf/internal/config"
 )
@@ -22,7 +23,9 @@ import (
 // ignorée, port retiré, exacte ou wildcard `*.example.com` (qui couvre aussi
 // l'apex `example.com`), première entrée correspondante gagnante.
 type domainGate struct {
-	global    bool
+	// global est partagé par les copies du Middleware (type valeur) et
+	// modifiable à chaud (challenge.enabled, PATCH /waf/admin/config).
+	global    *atomic.Bool
 	overrides []domainOverride
 }
 
@@ -33,7 +36,8 @@ type domainOverride struct {
 }
 
 func newDomainGate(cfg config.Config) domainGate {
-	gate := domainGate{global: cfg.Challenge.Enabled}
+	gate := domainGate{global: new(atomic.Bool)}
+	gate.global.Store(cfg.Challenge.Enabled)
 	for _, domain := range cfg.Domains {
 		if domain.ChallengeEnabled == nil {
 			continue // clé absente : le domaine hérite du global
@@ -56,13 +60,13 @@ func (g domainGate) enabledFor(host string) bool {
 			return override.enabled
 		}
 	}
-	return g.global
+	return g.global.Load()
 }
 
 // anyEnabled indique si au moins un hôte peut recevoir un challenge : le global
 // est actif, ou un domaine l'active explicitement alors que le global est éteint.
 func (g domainGate) anyEnabled() bool {
-	if g.global {
+	if g.global.Load() {
 		return true
 	}
 	for _, override := range g.overrides {
@@ -88,11 +92,4 @@ func normalizeHost(host string) string {
 		return hostname
 	}
 	return host
-}
-
-// Enabled indique si le middleware de challenge doit être monté dans la chaîne :
-// soit `challenge.enabled` est vrai, soit au moins un `domains[]` l'active
-// explicitement alors que le global est éteint (FR-06).
-func Enabled(cfg config.Config) bool {
-	return newDomainGate(cfg).anyEnabled()
 }

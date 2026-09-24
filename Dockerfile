@@ -25,7 +25,6 @@ FROM gcr.io/distroless/static-debian12:nonroot
 WORKDIR /app
 
 COPY --from=builder /out/waf /app/waf
-COPY --from=builder /src/web/challenge.html /app/web/challenge.html
 COPY --from=builder /src/configs/config.example.yaml /app/configs/config.example.yaml
 
 EXPOSE 8080

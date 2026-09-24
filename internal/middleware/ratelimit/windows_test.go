@@ -167,8 +167,8 @@ func TestZeroDisablesWindows(t *testing.T) {
 	now := time.Date(2026, 9, 2, 12, 0, 0, 0, time.UTC)
 	middleware.now = func() time.Time { return now }
 
-	if len(middleware.windows) != 1 {
-		t.Fatalf("windows = %d, want 1 (second only)", len(middleware.windows))
+	if windows := *middleware.windows.Load(); len(windows) != 1 {
+		t.Fatalf("windows = %d, want 1 (second only)", len(windows))
 	}
 
 	handler := middleware.Handler(countingHandler())

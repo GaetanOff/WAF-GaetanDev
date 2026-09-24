@@ -82,7 +82,7 @@ func TestComputeAnomalyHumanLikeIsLow(t *testing.T) {
 }
 
 func TestHandlerPublishesBehavioralScoreFromPreviousRequests(t *testing.T) {
-	tracker := New(50)
+	tracker := New(50, 100)
 	defer tracker.Close()
 
 	ipHash := trust.HashIP("1.2.3.4")
@@ -109,7 +109,7 @@ func TestHandlerPublishesBehavioralScoreFromPreviousRequests(t *testing.T) {
 }
 
 func TestHandlerSkipsWhenPassMarked(t *testing.T) {
-	tracker := New(50)
+	tracker := New(50, 100)
 	defer tracker.Close()
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/x", nil)
 	request.RemoteAddr = "1.2.3.4:1234"
@@ -121,4 +121,68 @@ func TestHandlerSkipsWhenPassMarked(t *testing.T) {
 		}
 		w.WriteHeader(http.StatusNoContent)
 	})).ServeHTTP(httptest.NewRecorder(), request)
+}
+
+// Régression : le bypass FR-24 marque les assets PASS en amont. Ils doivent
+// quand même compter pour le signal d'absence d'assets, sinon tout humain qui
+// visite 5 pages est classé headless.
+func TestHandlerRecordsStaticAssetsMarkedPass(t *testing.T) {
+	tracker := New(50, 100)
+	defer tracker.Close()
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	handler := tracker.Handler(next)
+
+	serve := func(path string, staticAsset bool) {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test"+path, nil)
+		request.RemoteAddr = "1.2.3.4:1234"
+		if staticAsset {
+			request.Header.Set("X-WAF-Action", "PASS")
+			request.Header.Set("X-WAF-Reason", "static_asset")
+		}
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+	}
+	for i := range 6 {
+		serve(fmt.Sprintf("/page-%d", i), false)
+		serve(fmt.Sprintf("/assets/app-%d.webp", i), true) // extension hors isAssetPath
+	}
+
+	ipHash := trust.HashIP("1.2.3.4")
+	deadline := time.Now().Add(2 * time.Second)
+	for len(tracker.records(ipHash)) < 12 && time.Now().Before(deadline) {
+		time.Sleep(5 * time.Millisecond)
+	}
+	buffer := tracker.records(ipHash)
+	if isAssetAbsent(buffer) {
+		t.Fatalf("assets marked PASS were not recorded (buffer=%d records)", len(buffer))
+	}
+}
+
+func TestComputeAnomalyIgnoresAssetBurstsForNavigationSignals(t *testing.T) {
+	base := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
+	var records []record
+	pageTimes := []time.Duration{0, 7 * time.Second, 19 * time.Second, 26 * time.Second, 41 * time.Second, 53 * time.Second}
+	for i, at := range pageTimes {
+		records = append(records, record{path: fmt.Sprintf("/articles/%d", 10-i), at: base.Add(at)})
+		// Rafale de 20 sous-requêtes en quelques millisecondes : un chargement de page.
+		for j := range 20 {
+			records = append(records, record{path: fmt.Sprintf("/static/%c%d", 'a'+j, i), at: base.Add(at + time.Duration(j)*time.Millisecond), asset: true})
+		}
+	}
+	if got := computeAnomaly(records); got != 0 {
+		t.Fatalf("anomaly = %d, want 0 for a human loading pages with their assets", got)
+	}
+}
+
+// Régression : les profils vivaient dans des maps jamais purgées. Le nombre de
+// visiteurs suivis est désormais borné.
+func TestTrackerBoundsTrackedVisitors(t *testing.T) {
+	tracker := New(50, 10)
+	defer tracker.Close()
+	base := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 1000 {
+		tracker.ingest(event{ipHash: fmt.Sprintf("ip-%d", i), path: "/", at: base})
+	}
+	if got := tracker.profiles.Len(); got != 10 {
+		t.Fatalf("tracked visitors = %d, want 10", got)
+	}
 }

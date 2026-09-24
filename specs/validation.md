@@ -1,7 +1,7 @@
 ---
-status: draft
+status: implemented
 version: 1.0.0
-last-reviewed: 2026-06-03
+last-reviewed: 2026-09-24
 ---
 
 # Validation Report — WAF Anti-DDoS / Anti-Bot
@@ -263,6 +263,16 @@ last-reviewed: 2026-06-03
 | 2026-09-02 | T15.4 échec de démarrage Redis | Exécution réelle, `storage.backend: redis`, adresse injoignable | pass | `ERROR waf stopped error="redis storage backend at 127.0.0.1:6399: dial tcp ... refusée"`, code de sortie 1. Avant ce sprint, la même configuration démarrait **silencieusement** sur le store mémoire |
 | 2026-09-02 | T15.4 mode dégradé | Tests avec double de client Redis | pass | Bascule après 3 erreurs consécutives, état local servi sans trafic Redis, re-bascule immédiate sur échec de sonde, retour au nominal après la fenêtre, jauge publiée sur transition uniquement |
 | 2026-09-02 | T15.4 exécution contre un Redis réel | — | **non vérifiée** | Aucune instance Redis disponible sur le poste (ni accès sortant pour tirer une image). Seul le chemin d'échec au démarrage est vérifié en exécution réelle |
+| 2026-09-24 | Sprint 16 (audit) | `go build ./...` / `go vet ./...` | pass | Aucune remontée |
+| 2026-09-24 | Sprint 16 (audit) | `go test -count=1 ./...` | pass | 629 tests, 45 paquets (552 / 43 avant ce sprint) |
+| 2026-09-24 | Sprint 16 (audit) | `gofmt -l` sur copies normalisées LF | pass | Sortie vide (un alignement corrigé dans `admin/state.go`) |
+| 2026-09-24 | Sprint 16 (audit) | `golangci-lint run` | pass | Remontées `gofmt` = CRLF de la copie Windows ; 2 `bodyclose` (tests WebSocket) corrigées |
+| 2026-09-24 | Sprint 16 (audit) | `spectral lint` admin + public | pass | Aucune erreur ; le job CI lint désormais les deux contrats |
+| 2026-09-24 | Sprint 16 (audit) | `go test -race` | **non exécuté localement** | cgo indisponible sur le poste ; couvert par la CI |
+| 2026-09-24 | Rate limit — atomicité | Test de concurrence (400 requêtes, burst 50) | pass | 66 admissions avant correctif, exactement 50 après |
+| 2026-09-24 | PoW client | Solveur de la page exécuté sous Node | pass | Premier nonce accepté par le serveur pour 0/1/5/10/13 bits ; hash égal à SHA-256 pour les préfixes de 0 à 200 octets |
+| 2026-09-24 | Binaire autonome | Exécution réelle hors du dépôt | pass | Démarre depuis un répertoire temporaire (échouait sur `read challenge template`) |
+| 2026-09-24 | Open redirect | Sonde sur `routes()` | non exploitable | `//evil.com/path` → 307 `/evil.com/path` par le ServeMux ; durcissement appliqué |
 
 ### Slice 12.1 — Notes & couverture du périmètre (FR-39)
 

@@ -2,6 +2,7 @@ package memory
 
 import (
 	"container/list"
+	"hash/maphash"
 	"sort"
 	"sync"
 	"time"
@@ -18,6 +19,10 @@ const cleanupInterval = 60 * time.Second
 // trust.max_visitors.
 const bucketsPerVisitor = 3
 
+// bucketLockStripes répartit les verrous de UpdateBuckets : les mises à jour
+// d'IP différentes ne se sérialisent pas entre elles.
+const bucketLockStripes = 64
+
 type Store struct {
 	maxVisitors int
 	now         func() time.Time
@@ -28,6 +33,9 @@ type Store struct {
 	lru      *list.List
 	lruIndex map[string]*list.Element
 	count    int
+
+	bucketSeed  maphash.Seed
+	bucketLocks [bucketLockStripes]sync.Mutex
 
 	done chan struct{}
 }
@@ -58,6 +66,7 @@ func New(maxVisitors int, opts ...Option) *Store {
 		now:         time.Now,
 		lru:         list.New(),
 		lruIndex:    make(map[string]*list.Element),
+		bucketSeed:  maphash.MakeSeed(),
 		done:        make(chan struct{}),
 	}
 	for _, opt := range opts {
@@ -153,6 +162,28 @@ func (s *Store) GetBucket(key string) (*storage.RateBucket, bool) {
 
 func (s *Store) SetBucket(key string, bucket storage.RateBucket) {
 	s.buckets.Store(key, bucket)
+}
+
+// UpdateBuckets verrouille le groupe de clés le temps de lire, calculer et
+// écrire. Le verrou est choisi par la première clé : les clés d'un même appel
+// sont celles d'une même IP (fenêtres seconde, minute, heure), et tout appel
+// portant sur cette IP prend le même verrou.
+func (s *Store) UpdateBuckets(keys []string, update func(current []*storage.RateBucket) []storage.RateBucket) {
+	if len(keys) == 0 {
+		return
+	}
+	lock := &s.bucketLocks[maphash.String(s.bucketSeed, keys[0])%bucketLockStripes]
+	lock.Lock()
+	defer lock.Unlock()
+
+	current := make([]*storage.RateBucket, len(keys))
+	for i, key := range keys {
+		current[i], _ = s.GetBucket(key)
+	}
+	next := update(current)
+	for i := range next {
+		s.SetBucket(keys[i], next[i])
+	}
 }
 
 // CleanupExpired purge les entrées expirées et borne le nombre de buckets.
@@ -295,6 +326,10 @@ func cloneVisitor(visitor storage.VisitorState) *storage.VisitorState {
 	if visitor.CircuitOpenUntil != nil {
 		circuitOpenUntil := *visitor.CircuitOpenUntil
 		visitor.CircuitOpenUntil = &circuitOpenUntil
+	}
+	if visitor.LastViolation != nil {
+		lastViolation := *visitor.LastViolation
+		visitor.LastViolation = &lastViolation
 	}
 	return &visitor
 }

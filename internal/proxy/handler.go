@@ -18,10 +18,19 @@ import (
 
 const defaultWAFScore = "50"
 
+// sharedBuffers est partagé par tous les reverse proxies du process.
+var sharedBuffers = newBufferPool()
+
 type Handler struct {
 	defaultUpstream *url.URL
+	defaultProxy    *httputil.ReverseProxy
 	domains         []domainRoute
-	proxies         map[string]*httputil.ReverseProxy
+	// exactHosts indexe les routes exactes : host normalisé → index de la
+	// première entrée domains[] pour cet hôte. Les wildcards restent parcourus
+	// dans l'ordre de config (wildcardRoutes).
+	exactHosts     map[string]int
+	wildcardRoutes []int
+	proxies        map[string]*httputil.ReverseProxy
 
 	pool        *upstream.Pool
 	poolProxies map[string]*httputil.ReverseProxy
@@ -53,6 +62,7 @@ func (h *Handler) WithPool(pool *upstream.Pool, tlsVerify bool, maxIdleConns int
 type domainRoute struct {
 	host     string
 	upstream *url.URL
+	proxy    *httputil.ReverseProxy
 	wildcard bool
 }
 
@@ -69,9 +79,11 @@ func NewHandler(cfg config.Config) (*Handler, error) {
 
 	handler := &Handler{
 		defaultUpstream: defaultUpstream,
+		exactHosts:      make(map[string]int),
 		proxies:         make(map[string]*httputil.ReverseProxy),
 	}
-	handler.proxies[defaultUpstream.String()] = newReverseProxy(defaultUpstream, cfg.Upstream.TLSVerify, cfg.Upstream.MaxIdleConns, timeout, cfg.Upstream.PreserveHost)
+	handler.defaultProxy = newReverseProxy(defaultUpstream, cfg.Upstream.TLSVerify, cfg.Upstream.MaxIdleConns, timeout, cfg.Upstream.PreserveHost)
+	handler.proxies[defaultUpstream.String()] = handler.defaultProxy
 
 	for _, domain := range cfg.Domains {
 		upstream, err := url.Parse(domain.Upstream)
@@ -87,11 +99,19 @@ func NewHandler(cfg config.Config) (*Handler, error) {
 		if route.wildcard {
 			route.host = strings.TrimPrefix(route.host, "*.")
 		}
-		handler.domains = append(handler.domains, route)
 
 		key := upstream.String()
 		if _, exists := handler.proxies[key]; !exists {
 			handler.proxies[key] = newReverseProxy(upstream, cfg.Upstream.TLSVerify, cfg.Upstream.MaxIdleConns, timeout, cfg.Upstream.PreserveHost)
+		}
+		route.proxy = handler.proxies[key]
+
+		index := len(handler.domains)
+		handler.domains = append(handler.domains, route)
+		if route.wildcard {
+			handler.wildcardRoutes = append(handler.wildcardRoutes, index)
+		} else if _, exists := handler.exactHosts[route.host]; !exists {
+			handler.exactHosts[route.host] = index // première entrée gagnante
 		}
 	}
 
@@ -117,22 +137,41 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	target := h.resolveUpstream(r.Host)
-	proxy := h.proxies[target.String()]
+	proxy := h.resolveProxy(r.Host)
 	started := time.Now()
 	proxy.ServeHTTP(w, r)
 	recorder.Add(time.Since(started))
 }
 
-func (h *Handler) resolveUpstream(host string) *url.URL {
-	requestHost := normalizeHost(host)
-	for _, route := range h.domains {
-		if route.matches(requestHost) {
-			return route.upstream
+// resolveProxy retourne le proxy de la première entrée domains[] qui
+// correspond à l'hôte, sinon celui de l'upstream par défaut.
+//
+// Le proxy était retrouvé par h.proxies[target.String()] — une URL
+// resérialisée à chaque requête — après un parcours linéaire de toutes les
+// routes. Les hôtes exacts sont désormais indexés ; seuls les wildcards
+// antérieurs à la correspondance exacte sont encore parcourus, ce qui préserve
+// la règle « première entrée gagnante ».
+func (h *Handler) resolveProxy(host string) *httputil.ReverseProxy {
+	if index := h.routeIndex(normalizeHost(host)); index >= 0 {
+		return h.domains[index].proxy
+	}
+	return h.defaultProxy
+}
+
+func (h *Handler) routeIndex(host string) int {
+	best, exact := h.exactHosts[host]
+	if !exact {
+		best = -1
+	}
+	for _, index := range h.wildcardRoutes {
+		if exact && index > best {
+			break
+		}
+		if h.domains[index].matches(host) {
+			return index
 		}
 	}
-
-	return h.defaultUpstream
+	return best
 }
 
 func (r domainRoute) matches(host string) bool {
@@ -144,7 +183,7 @@ func (r domainRoute) matches(host string) bool {
 }
 
 func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout time.Duration, preserveHost bool) *httputil.ReverseProxy {
-	proxy := &httputil.ReverseProxy{}
+	proxy := &httputil.ReverseProxy{BufferPool: sharedBuffers}
 	// Rewrite remplace Director (déprécié depuis Go 1.26). SetURL route vers
 	// l'upstream (scheme/host/path) et fixe l'hôte sortant ; SetXForwarded
 	// préserve les en-têtes X-Forwarded-* que l'ancien director ajoutait.
@@ -203,9 +242,12 @@ func realIP(r *http.Request) string {
 }
 
 func normalizeHost(host string) string {
-	hostname, _, err := net.SplitHostPort(host)
-	if err == nil {
-		return strings.ToLower(hostname)
+	// SplitHostPort alloue une erreur quand il n'y a pas de port : le cas
+	// courant (Host sans port) l'évite.
+	if strings.IndexByte(host, ':') >= 0 {
+		if hostname, _, err := net.SplitHostPort(host); err == nil {
+			return strings.ToLower(hostname)
+		}
 	}
 	return strings.ToLower(host)
 }

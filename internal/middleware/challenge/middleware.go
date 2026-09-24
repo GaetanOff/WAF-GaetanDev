@@ -8,16 +8,27 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
 	browserfp "github.com/gaetandev/waf/internal/fingerprint"
 	"github.com/gaetandev/waf/internal/jsonstrict"
+	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 )
 
-const verifyPath = "/waf/verify"
+const (
+	verifyPath = "/waf/verify"
+
+	headerAction    = "X-WAF-Action"
+	actionPass      = "PASS"
+	actionChallenge = "CHALLENGE"
+	// headerFingerprintHash transmet au moteur de risque le fingerprint lié au
+	// cookie de clearance (preuve « fingerprint stable », FR-37).
+	headerFingerprintHash = "X-WAF-Fingerprint-Hash"
+)
 
 type Middleware struct {
 	tokenIssuer  TokenIssuer
@@ -26,10 +37,19 @@ type Middleware struct {
 	template     *template.Template
 	domains      domainGate
 	cookieTTL    time.Duration
-	difficulty   int
+	difficulty   *atomic.Int64 // challenge.pow_difficulty, modifiable à chaud
 	difficultyFn func() int
 	minElapsedMS int
 	maxElapsedMS int
+	humanCredit  func(ip string, domain string, fpHash string)
+}
+
+// WithHumanCredit branche l'enregistrement de la preuve humaine (FR-37) sur un
+// challenge réussi. Sans elle, le moteur de risque ne voit jamais la preuve et
+// un humain challengé par lui le serait de nouveau après avoir réussi.
+func (m Middleware) WithHumanCredit(fn func(ip string, domain string, fpHash string)) Middleware {
+	m.humanCredit = fn
+	return m
 }
 
 // WithDifficultyProvider branche un fournisseur de difficulté adaptative
@@ -47,7 +67,19 @@ func (m Middleware) currentDifficulty() int {
 			return d
 		}
 	}
-	return m.difficulty
+	return m.staticDifficulty()
+}
+
+func (m Middleware) staticDifficulty() int {
+	return int(m.difficulty.Load())
+}
+
+// Configure applique à chaud challenge.enabled et challenge.pow_difficulty
+// (PATCH /waf/admin/config) ; les copies du Middleware partagent ces réglages.
+// Les surcharges domains[].challenge_enabled restent celles du démarrage.
+func (m Middleware) Configure(cfg config.Challenge) {
+	m.domains.global.Store(cfg.Enabled)
+	m.difficulty.Store(int64(cfg.PowDifficulty))
 }
 
 type PageData struct {
@@ -71,7 +103,27 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
+// NewMiddleware charge le template depuis un fichier. Le binaire utilise
+// NewMiddlewareFromSource avec la page embarquée (package web) ; ce
+// constructeur sert à éprouver un template alternatif.
 func NewMiddleware(cfg config.Config, scores *trust.ScoreManager, templatePath string) (Middleware, error) {
+	content, err := os.ReadFile(templatePath)
+	if err != nil {
+		return Middleware{}, fmt.Errorf("read challenge template: %w", err)
+	}
+	return NewMiddlewareFromSource(cfg, scores, string(content))
+}
+
+// NewMiddlewareFromSource construit le middleware depuis le texte du template.
+func NewMiddlewareFromSource(cfg config.Config, scores *trust.ScoreManager, source string) (Middleware, error) {
+	pageTemplate, err := template.New("challenge").Parse(source)
+	if err != nil {
+		return Middleware{}, fmt.Errorf("parse challenge template: %w", err)
+	}
+	return NewMiddlewareFromTemplate(cfg, scores, pageTemplate)
+}
+
+func NewMiddlewareFromTemplate(cfg config.Config, scores *trust.ScoreManager, pageTemplate *template.Template) (Middleware, error) {
 	tokenTTL, err := time.ParseDuration(cfg.Challenge.TokenTTL)
 	if err != nil {
 		return Middleware{}, fmt.Errorf("parse challenge.token_ttl: %w", err)
@@ -80,54 +132,27 @@ func NewMiddleware(cfg config.Config, scores *trust.ScoreManager, templatePath s
 	if err != nil {
 		return Middleware{}, fmt.Errorf("parse challenge.cookie_ttl: %w", err)
 	}
-
-	content, err := os.ReadFile(templatePath)
-	if err != nil {
-		return Middleware{}, fmt.Errorf("read challenge template: %w", err)
-	}
-	pageTemplate, err := template.New("challenge").Parse(string(content))
-	if err != nil {
-		return Middleware{}, fmt.Errorf("parse challenge template: %w", err)
-	}
-
-	return Middleware{
+	middleware := Middleware{
 		tokenIssuer:  NewTokenIssuer(cfg.Challenge.SecretKey, tokenTTL),
 		cookieIssuer: NewCookieIssuer(cfg.Challenge.CookieName, cfg.Challenge.SecretKey),
 		scores:       scores,
 		template:     pageTemplate,
 		domains:      newDomainGate(cfg),
 		cookieTTL:    cookieTTL,
-		difficulty:   cfg.Challenge.PowDifficulty,
+		difficulty:   new(atomic.Int64),
 		minElapsedMS: cfg.Challenge.MinElapsedMS,
 		maxElapsedMS: cfg.Challenge.MaxElapsedMS,
-	}, nil
-}
-
-func NewMiddlewareFromTemplate(cfg config.Config, scores *trust.ScoreManager, pageTemplate *template.Template) (Middleware, error) {
-	tokenTTL, err := time.ParseDuration(cfg.Challenge.TokenTTL)
-	if err != nil {
-		return Middleware{}, err
 	}
-	cookieTTL, err := time.ParseDuration(cfg.Challenge.CookieTTL)
-	if err != nil {
-		return Middleware{}, err
-	}
-	return Middleware{
-		tokenIssuer:  NewTokenIssuer(cfg.Challenge.SecretKey, tokenTTL),
-		cookieIssuer: NewCookieIssuer(cfg.Challenge.CookieName, cfg.Challenge.SecretKey),
-		scores:       scores,
-		template:     pageTemplate,
-		domains:      newDomainGate(cfg),
-		cookieTTL:    cookieTTL,
-		difficulty:   cfg.Challenge.PowDifficulty,
-		minElapsedMS: cfg.Challenge.MinElapsedMS,
-		maxElapsedMS: cfg.Challenge.MaxElapsedMS,
-	}, nil
+	middleware.difficulty.Store(int64(cfg.Challenge.PowDifficulty))
+	return middleware, nil
 }
 
 func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == verifyPath {
+		// Monté en permanence (challenge.enabled est modifiable à chaud) :
+		// /waf/verify n'est servi que si un hôte au moins peut être challengé,
+		// comme lorsque le middleware n'était monté que dans ce cas.
+		if r.URL.Path == verifyPath && m.domains.anyEnabled() {
 			m.verify(w, r)
 			return
 		}
@@ -138,11 +163,19 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.Header.Get("X-WAF-Action") == "PASS" {
+		if r.Header.Get(headerAction) == actionPass {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if m.hasValidCookie(r) {
+		if clearance, ok := m.clearance(r); ok {
+			r.Header.Set(headerFingerprintHash, clearance.FPHash)
+			next.ServeHTTP(w, r)
+			return
+		}
+		// whitelist_user_agents exempte du seul challenge proactif : un crawler
+		// n'exécute pas le JS. Une décision CHALLENGE du moteur de risque (faux
+		// crawler démasqué par reverse-DNS) reste appliquée par l'Enforcer.
+		if r.Header.Get(access.HeaderUserAgentWhitelisted) == "true" {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -150,6 +183,34 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		// HTML de premier niveau). Les appels API/XHR (fetch, axios, mobile…) ne
 		// peuvent pas exécuter le JS : on ne les challenge pas, sinon ils cassent.
 		// Ils restent couverts par le reste de la chaîne (rate-limit, risk engine…).
+		underAttack := r.Header.Get("X-WAF-Under-Attack-Enforce") == "true"
+		if !shouldChallenge(r, underAttack) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		m.servePage(w, r)
+	})
+}
+
+// Enforcer sert la page de challenge aux requêtes que le moteur de risque
+// (FR-34) ou le trust score (FR-04) ont classées CHALLENGE. Il se monte en aval
+// de ces décisions, juste avant l'origine : Handler, lui, s'exécute avant elles
+// et ne peut challenger que sur l'absence de clearance.
+//
+// Sans lui, une décision CHALLENGE n'était qu'un en-tête posé sur une requête
+// transmise à l'upstream. Le visiteur sans clearance est déjà challengé par
+// Handler : l'Enforcer vise donc le porteur d'un cookie valide que le moteur
+// de risque ou le trust score jugent de nouveau suspect. Il est re-vérifié ;
+// son succès alimente le crédit humain (WithHumanCredit), qui ramène la
+// décision suivante à ALLOW et évite la boucle challenge → redirection →
+// challenge. Comme devant Handler, un appel API/XHR n'est pas challengé : il
+// ne peut pas exécuter le JS.
+func (m Middleware) Enforcer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(headerAction) != actionChallenge || !m.domains.enabledFor(r.Host) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		underAttack := r.Header.Get("X-WAF-Under-Attack-Enforce") == "true"
 		if !shouldChallenge(r, underAttack) {
 			next.ServeHTTP(w, r)
@@ -183,7 +244,7 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	}
 	powDifficulty := payload.Difficulty
 	if powDifficulty <= 0 {
-		powDifficulty = m.difficulty
+		powDifficulty = m.staticDifficulty()
 	}
 	if !ValidatePow(submission.Token, submission.Nonce, powDifficulty) {
 		m.scores.Apply(ip, r.Host, trust.DeltaChallengeFailed)
@@ -211,33 +272,39 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	visitor := m.scores.Apply(ip, r.Host, trust.DeltaChallengePassed)
-	cookie, err := m.cookieIssuer.Issue(ip, r.Host, browserfp.Hash(parsedFingerprint), visitor.Score, m.cookieTTL)
+	fpHash := fingerprintHash(browserfp.Hash(parsedFingerprint))
+	cookie, err := m.cookieIssuer.Issue(ip, r.Host, fpHash, visitor.Score, m.cookieTTL)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cookie_issue_failed")
 		return
 	}
 	http.SetCookie(w, &cookie)
-	redirectURL := payload.RedirectURL
-	if redirectURL == "" {
-		redirectURL = "/"
+	if m.humanCredit != nil {
+		m.humanCredit(ip, r.Host, fpHash)
 	}
+	redirectURL := sameOriginPath(payload.RedirectURL)
 	w.Header().Set("Content-Type", "application/json")
 	setNoStore(w)
 	w.WriteHeader(http.StatusOK)
 	_ = json.NewEncoder(w).Encode(verifyResponse{RedirectURL: redirectURL})
 }
 
-func (m Middleware) hasValidCookie(r *http.Request) bool {
+// clearance retourne le cookie de clearance de la requête s'il est valide
+// (HMAC, TTL, IP, domaine).
+func (m Middleware) clearance(r *http.Request) (*Payload, bool) {
 	cookie, err := r.Cookie(m.cookieIssuer.Name)
 	if err != nil {
-		return false
+		return nil, false
 	}
-	_, err = m.cookieIssuer.Validate(cookie.Value, cloudflare.RealIP(r), r.Host)
-	return err == nil
+	payload, err := m.cookieIssuer.Validate(cookie.Value, cloudflare.RealIP(r), r.Host)
+	if err != nil {
+		return nil, false
+	}
+	return payload, true
 }
 
 func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
-	redirectURL := r.URL.RequestURI()
+	redirectURL := sameOriginPath(r.URL.RequestURI())
 	difficulty := m.currentDifficulty()
 	token, err := m.tokenIssuer.GenerateForRedirectWithDifficulty(cloudflare.RealIP(r), r.Host, redirectURL, difficulty)
 	if err != nil {
@@ -245,6 +312,9 @@ func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Action journalisée et comptée (logs, métriques, GET /waf/stats) : sans
+	// cet en-tête, une page de challenge servie était enregistrée comme PASS.
+	w.Header().Set(headerAction, actionChallenge)
 	// Jamais mettre en cache : la page porte un token à durée de vie courte, lié
 	// à l'IP. Un cache CDN (ex: règle Cloudflare "Cache Everything") figerait un
 	// token expiré pour tous les visiteurs -> verify en échec -> boucle infinie.
@@ -255,6 +325,24 @@ func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
 		Difficulty:  difficulty,
 		RedirectURL: redirectURL,
 	})
+}
+
+// sameOriginPath ramène l'URL de retour du challenge à un chemin de même
+// origine, "/" à défaut. La page l'affecte à window.location : "//evil.com" ou
+// "/\evil.com" y valent une URL absolue vers un tiers (open redirect).
+// Aujourd'hui le ServeMux nettoie "//" en amont ; le middleware ne dépend plus
+// de ce filtrage externe.
+func sameOriginPath(target string) string {
+	if !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") {
+		return "/"
+	}
+	for _, char := range target {
+		// Les navigateurs lisent '\' comme '/' et suppriment tab/CR/LF des URL.
+		if char == '\\' || char < ' ' || char == 0x7f {
+			return "/"
+		}
+	}
+	return target
 }
 
 // shouldChallenge décide si une requête sans clearance doit recevoir un challenge.
