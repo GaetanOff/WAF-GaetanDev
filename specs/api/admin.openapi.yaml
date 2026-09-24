@@ -6,7 +6,7 @@ info:
     API d'administration du WAF Anti-DDoS/Anti-Bot.
     Exposée sur un port séparé (défaut: 9090), protégée par Bearer token.
     Ne jamais exposer ce port publiquement.
-  version: 1.0.1
+  version: 1.1.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -145,31 +145,49 @@ components:
     ConfigUpdate:
       type: object
       additionalProperties: false
-      description: Champs de configuration modifiables à chaud (hot-reload partiel)
+      minProperties: 1
+      description: |
+        Champs de configuration modifiables à chaud (hot-reload partiel). Seules
+        les clés présentes sont modifiées ; la configuration résultante est
+        validée entière, avec les règles du démarrage (ex. block_threshold <
+        challenge_threshold), puis appliquée au rate limiter, au score manager et
+        au challenge sans redémarrage. Les surcharges domains[] ne sont pas
+        concernées.
       properties:
         rate_limit:
           type: object
+          additionalProperties: false
           properties:
             enabled:
               type: boolean
             requests_per_second:
               type: number
+              minimum: 1
             burst:
               type: integer
+              minimum: 1
         trust:
           type: object
+          additionalProperties: false
           properties:
             challenge_threshold:
               type: integer
+              minimum: 0
+              maximum: 100
             block_threshold:
               type: integer
+              minimum: 0
+              maximum: 100
         challenge:
           type: object
+          additionalProperties: false
           properties:
             enabled:
               type: boolean
             pow_difficulty:
               type: integer
+              minimum: 8
+              maximum: 24
 
   parameters:
     IP:
@@ -279,7 +297,7 @@ paths:
     patch:
       operationId: updateConfig
       summary: Mettre à jour des paramètres de configuration (hot-reload)
-      description: Applique à chaud un sous-ensemble de paramètres de configuration sans redémarrer le WAF. Retourne la liste des champs modifiés.
+      description: Applique à chaud un sous-ensemble de paramètres de configuration sans redémarrer le WAF. Retourne la liste des champs modifiés, en notation pointée (ex. "rate_limit.burst").
       tags: [Configuration]
       requestBody:
         required: true
@@ -300,14 +318,22 @@ paths:
                     type: array
                     items:
                       type: string
+                    examples:
+                      - ["rate_limit.burst", "trust.challenge_threshold"]
         "400":
-          description: Données invalides
+          description: Champ inconnu, aucune modification, ou configuration résultante invalide (rien n'est appliqué)
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "503":
+          description: Hot-reload indisponible sur cette instance (aucune modification appliquée)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
 
   /waf/admin/whitelist:
     get:

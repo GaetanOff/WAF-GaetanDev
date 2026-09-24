@@ -191,3 +191,18 @@ func TestScoreManagerNotifiesCriticalCrossingOnce(t *testing.T) {
 		t.Fatalf("critical notifications = %v, want [2]", notified)
 	}
 }
+
+func TestScoreManagerSetThresholdsAppliesAtRuntime(t *testing.T) {
+	manager, store, _ := newTestManager(t)
+	defer store.Close()
+	if state := manager.State(35); state != StateChallenged {
+		t.Fatalf("state(35) = %s, want CHALLENGED with the default thresholds", state)
+	}
+	manager.SetThresholds(30, 20)
+	if state := manager.State(35); state != StateMonitored {
+		t.Fatalf("state(35) = %s, want MONITORED after lowering the challenge threshold", state)
+	}
+	if state := manager.State(20); state != StateBlocked {
+		t.Fatalf("state(20) = %s, want BLOCKED with block_threshold = 20", state)
+	}
+}

@@ -26,6 +26,14 @@ type Server struct {
 	startedAt   time.Time
 	httpServer  *http.Server
 	onBlacklist func(value string)
+	applyConfig ConfigApplier
+}
+
+// WithConfigApplier branche l'application à chaud de PATCH /waf/admin/config
+// sur les composants runtime. Sans applier, l'endpoint répond 503 plutôt que de
+// prétendre avoir appliqué une modification.
+func (s *Server) WithConfigApplier(applier ConfigApplier) {
+	s.applyConfig = applier
 }
 
 // WithBlacklistObserver est notifié de chaque entrée ajoutée à la blacklist

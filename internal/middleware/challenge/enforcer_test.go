@@ -6,6 +6,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/gaetandev/waf/internal/config"
 )
 
 func enforcerRequest(action string, accept string) *http.Request {
@@ -71,7 +73,7 @@ func TestEnforcerRechallengesClearanceHolderFlaggedChallenge(t *testing.T) {
 
 func TestEnforcerRespectsDisabledDomain(t *testing.T) {
 	middleware, _ := newTestChallengeMiddleware(t)
-	middleware.domains = domainGate{global: false}
+	middleware.domains.global.Store(false)
 	called := false
 	middleware.Enforcer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
@@ -119,7 +121,7 @@ func TestVerifySuccessGrantsHumanCredit(t *testing.T) {
 		t.Fatalf("GenerateForRedirect() error = %v", err)
 	}
 	response := httptest.NewRecorder()
-	middleware.Handler(http.NotFoundHandler()).ServeHTTP(response, verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, solvePow(t, token, middleware.difficulty), 1200)))
+	middleware.Handler(http.NotFoundHandler()).ServeHTTP(response, verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, solvePow(t, token, middleware.staticDifficulty()), 1200)))
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status = %d body = %s, want 200", response.Code, response.Body.String())
@@ -147,5 +149,26 @@ func TestEnforcerDoesNotChallengeAPICalls(t *testing.T) {
 
 	if !called {
 		t.Fatal("API call must not receive the challenge page")
+	}
+}
+
+// PATCH /waf/admin/config : challenge.enabled s'applique à chaud, à toutes les
+// copies du middleware (type valeur).
+func TestConfigureTogglesChallengeAtRuntime(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+	copyInChain := middleware
+	middleware.Configure(config.Challenge{Enabled: false, PowDifficulty: 12})
+
+	called := false
+	copyInChain.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		called = true
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(httptest.NewRecorder(), enforcerRequest("", "text/html"))
+
+	if !called {
+		t.Fatal("challenge disabled at runtime must no longer serve the page")
+	}
+	if got := copyInChain.staticDifficulty(); got != 12 {
+		t.Fatalf("pow difficulty = %d, want 12", got)
 	}
 }

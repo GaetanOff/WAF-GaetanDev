@@ -53,6 +53,18 @@ func NewController(baseDifficulty int, maxDifficulty int, tau time.Duration) *Co
 	}
 }
 
+// SetBaseDifficulty applique à chaud la difficulté de base
+// (challenge.pow_difficulty, PATCH /waf/admin/config). Le plafond suit si la
+// nouvelle base le dépasse.
+func (c *Controller) SetBaseDifficulty(base int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.baseDifficulty = base
+	if c.maxDifficulty < base {
+		c.maxDifficulty = base
+	}
+}
+
 // Observe enregistre une requête dans la fenêtre glissante courante.
 func (c *Controller) Observe() {
 	c.mu.Lock()

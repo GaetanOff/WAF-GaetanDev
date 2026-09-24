@@ -181,23 +181,31 @@ func (s *Server) getConfig(w http.ResponseWriter, _ *http.Request) {
 	writeJSON(w, http.StatusOK, s.state.Config())
 }
 
+// patchConfig applique à chaud un sous-ensemble de la configuration.
+//
+// Le handler se contentait de vérifier le nom des sections et de journaliser
+// « applied » : aucune valeur n'atteignait le rate limiter, le score manager ni
+// le challenge.
 func (s *Server) patchConfig(w http.ResponseWriter, r *http.Request) {
-	var payload map[string]any
-	if err := jsonstrict.Decode(r.Body, &payload); err != nil {
-		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_config_update", Message: "Invalid JSON body"})
+	if s.applyConfig == nil {
+		writeJSON(w, http.StatusServiceUnavailable, errorResponse{Error: "hot_reload_unavailable", Message: "Runtime configuration cannot be updated on this instance"})
 		return
 	}
-	updated := make([]string, 0, len(payload))
-	for key := range payload {
-		switch key {
-		case "rate_limit", "trust", "challenge":
-			updated = append(updated, key)
-		default:
-			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_config_update", Message: "Unsupported config section"})
-			return
-		}
+	var update ConfigUpdate
+	if err := jsonstrict.Decode(r.Body, &update); err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_config_update", Message: "Invalid JSON body or unsupported config field"})
+		return
 	}
-	sort.Strings(updated)
+	next, updated, err := s.state.ApplyConfigUpdate(update)
+	if err != nil {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_config_update", Message: err.Error()})
+		return
+	}
+	if len(updated) == 0 {
+		writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_config_update", Message: "No supported field to update"})
+		return
+	}
+	s.applyConfig(next)
 	s.record("config_patch", strings.Join(updated, ","), "applied")
 	writeJSON(w, http.StatusOK, map[string]any{"updated_fields": updated})
 }

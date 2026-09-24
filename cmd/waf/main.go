@@ -386,6 +386,17 @@ func run() error {
 		if syncer != nil {
 			adminServer.WithBlacklistObserver(syncer.PublishBlacklistAdd)
 		}
+		// PATCH /waf/admin/config (hot-reload) : la configuration validée est
+		// poussée aux composants qui la lisent par requête.
+		adminServer.WithConfigApplier(func(next config.Config) {
+			rateLimiter.Configure(next.RateLimit)
+			scoreManager.SetThresholds(next.Trust.ChallengeThreshold, next.Trust.BlockThreshold)
+			challengeMiddleware.Configure(next.Challenge)
+			if adaptiveController != nil {
+				adaptiveController.SetBaseDifficulty(next.Challenge.PowDifficulty)
+			}
+			slog.Info("runtime configuration updated")
+		})
 	}
 
 	errs := make(chan error, 1)
@@ -501,9 +512,7 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	}
 	// FR-34 / FR-04 : une décision CHALLENGE du moteur de risque ou du trust score
 	// sert la page de challenge. Monté en aval de ces décisions, donc ici.
-	if challenge.Enabled(cfg) {
-		proxyHandler = challengeMiddleware.Enforcer(proxyHandler)
-	}
+	proxyHandler = challengeMiddleware.Enforcer(proxyHandler)
 	if cfg.RiskEngine.Enabled && riskMiddleware != nil {
 		proxyHandler = riskMiddleware.Handler(proxyHandler)
 	} else {
@@ -515,15 +524,12 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 		proxyHandler = detector(proxyHandler)
 	}
 	proxyHandler = antiBot.Handler(proxyHandler)
-	if cfg.RateLimit.Enabled {
-		proxyHandler = rateLimiter.Handler(proxyHandler)
-	}
-	// FR-06 : monté dès qu'au moins un hôte peut être challengé — soit
-	// challenge.enabled, soit un domains[].challenge_enabled à true. La décision
-	// par requête est prise dans le middleware, qui connaît l'hôte.
-	if challenge.Enabled(cfg) {
-		proxyHandler = challengeMiddleware.Handler(proxyHandler)
-	}
+	// Rate limit et challenge sont montés en permanence : rate_limit.enabled et
+	// challenge.enabled sont modifiables à chaud (PATCH /waf/admin/config), et
+	// chaque middleware lit son réglage courant par requête. La décision de
+	// challenge par hôte (FR-06) est prise dans le middleware.
+	proxyHandler = rateLimiter.Handler(proxyHandler)
+	proxyHandler = challengeMiddleware.Handler(proxyHandler)
 	proxyHandler = antiDDoS.Handler(proxyHandler)
 	proxyHandler = access.Middleware(accessRules, proxyHandler)
 	if cfg.Cloudflare.Trusted {

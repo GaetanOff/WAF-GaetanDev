@@ -89,6 +89,21 @@ func (s *State) Config() config.Config {
 	return sanitizedConfig(s.cfg)
 }
 
+// ApplyConfigUpdate reporte update sur la configuration courante, valide la
+// configuration entière (mêmes règles qu'au démarrage) et, si elle l'est, la
+// retient. Retourne la configuration résultante et les champs modifiés.
+func (s *State) ApplyConfigUpdate(update ConfigUpdate) (config.Config, []string, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	next := s.cfg
+	fields := update.applyTo(&next)
+	if err := next.Validate(); err != nil {
+		return config.Config{}, nil, err
+	}
+	s.cfg = next
+	return next, fields, nil
+}
+
 func (s *State) Events() []SecurityEventSummary {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

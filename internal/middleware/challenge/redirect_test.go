@@ -53,7 +53,7 @@ func TestVerifyNeverReturnsProtocolRelativeRedirect(t *testing.T) {
 		t.Fatalf("GenerateForRedirect() error = %v", err)
 	}
 	response := httptest.NewRecorder()
-	middleware.Handler(http.NotFoundHandler()).ServeHTTP(response, verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, solvePow(t, token, middleware.difficulty), 1200)))
+	middleware.Handler(http.NotFoundHandler()).ServeHTTP(response, verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, solvePow(t, token, middleware.staticDifficulty()), 1200)))
 
 	var payload verifyResponse
 	if err := json.NewDecoder(response.Body).Decode(&payload); err != nil {

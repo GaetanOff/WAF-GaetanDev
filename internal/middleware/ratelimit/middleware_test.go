@@ -423,3 +423,37 @@ func countingHandler() http.Handler {
 		w.WriteHeader(http.StatusNoContent)
 	})
 }
+
+// PATCH /waf/admin/config : burst et enabled s'appliquent sans redémarrage.
+func TestConfigureAppliesAtRuntime(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	cfg := testConfig(1, 1)
+	cfg.Trust.BlockThreshold = -1
+	middleware := newTestMiddlewareFromConfig(t, store, cfg)
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+	serve := func(ip string) int {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, requestFrom(ip+":1234"))
+		return response.Code
+	}
+
+	cfg.RateLimit.Burst = 3
+	middleware.Configure(cfg.RateLimit)
+	for i := range 3 {
+		if code := serve("1.1.1.1"); code != http.StatusNoContent {
+			t.Fatalf("request %d: status = %d, want 204 within the new burst", i, code)
+		}
+	}
+	if code := serve("1.1.1.1"); code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429 past the new burst", code)
+	}
+
+	cfg.RateLimit.Enabled = false
+	middleware.Configure(cfg.RateLimit)
+	if code := serve("1.1.1.1"); code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204 once rate limiting is disabled", code)
+	}
+}

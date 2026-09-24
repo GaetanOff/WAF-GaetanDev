@@ -116,9 +116,9 @@ func TestDomainGateResolvesOverridePerHost(t *testing.T) {
 	}
 }
 
-// Enabled décide du montage du middleware dans la chaîne : un domaine qui active
-// explicitement le challenge doit le faire monter même si le global est éteint.
-func TestEnabledDecidesMounting(t *testing.T) {
+// anyEnabled décide si /waf/verify est servi : un domaine qui active
+// explicitement le challenge le rend actif même si le global est éteint.
+func TestAnyEnabledDecidesVerifyEndpoint(t *testing.T) {
 	tests := []struct {
 		name    string
 		global  bool
@@ -152,8 +152,8 @@ func TestEnabledDecidesMounting(t *testing.T) {
 			cfg := config.Default()
 			cfg.Challenge.Enabled = tt.global
 			cfg.Domains = tt.domains
-			if got := Enabled(cfg); got != tt.want {
-				t.Fatalf("Enabled() = %v, want %v", got, tt.want)
+			if got := newDomainGate(cfg).anyEnabled(); got != tt.want {
+				t.Fatalf("anyEnabled() = %v, want %v", got, tt.want)
 			}
 		})
 	}

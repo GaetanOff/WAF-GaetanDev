@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
@@ -36,7 +37,7 @@ type Middleware struct {
 	template     *template.Template
 	domains      domainGate
 	cookieTTL    time.Duration
-	difficulty   int
+	difficulty   *atomic.Int64 // challenge.pow_difficulty, modifiable à chaud
 	difficultyFn func() int
 	minElapsedMS int
 	maxElapsedMS int
@@ -66,7 +67,19 @@ func (m Middleware) currentDifficulty() int {
 			return d
 		}
 	}
-	return m.difficulty
+	return m.staticDifficulty()
+}
+
+func (m Middleware) staticDifficulty() int {
+	return int(m.difficulty.Load())
+}
+
+// Configure applique à chaud challenge.enabled et challenge.pow_difficulty
+// (PATCH /waf/admin/config) ; les copies du Middleware partagent ces réglages.
+// Les surcharges domains[].challenge_enabled restent celles du démarrage.
+func (m Middleware) Configure(cfg config.Challenge) {
+	m.domains.global.Store(cfg.Enabled)
+	m.difficulty.Store(int64(cfg.PowDifficulty))
 }
 
 type PageData struct {
@@ -119,22 +132,27 @@ func NewMiddlewareFromTemplate(cfg config.Config, scores *trust.ScoreManager, pa
 	if err != nil {
 		return Middleware{}, fmt.Errorf("parse challenge.cookie_ttl: %w", err)
 	}
-	return Middleware{
+	middleware := Middleware{
 		tokenIssuer:  NewTokenIssuer(cfg.Challenge.SecretKey, tokenTTL),
 		cookieIssuer: NewCookieIssuer(cfg.Challenge.CookieName, cfg.Challenge.SecretKey),
 		scores:       scores,
 		template:     pageTemplate,
 		domains:      newDomainGate(cfg),
 		cookieTTL:    cookieTTL,
-		difficulty:   cfg.Challenge.PowDifficulty,
+		difficulty:   new(atomic.Int64),
 		minElapsedMS: cfg.Challenge.MinElapsedMS,
 		maxElapsedMS: cfg.Challenge.MaxElapsedMS,
-	}, nil
+	}
+	middleware.difficulty.Store(int64(cfg.Challenge.PowDifficulty))
+	return middleware, nil
 }
 
 func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == verifyPath {
+		// Monté en permanence (challenge.enabled est modifiable à chaud) :
+		// /waf/verify n'est servi que si un hôte au moins peut être challengé,
+		// comme lorsque le middleware n'était monté que dans ce cas.
+		if r.URL.Path == verifyPath && m.domains.anyEnabled() {
 			m.verify(w, r)
 			return
 		}
@@ -226,7 +244,7 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	}
 	powDifficulty := payload.Difficulty
 	if powDifficulty <= 0 {
-		powDifficulty = m.difficulty
+		powDifficulty = m.staticDifficulty()
 	}
 	if !ValidatePow(submission.Token, submission.Nonce, powDifficulty) {
 		m.scores.Apply(ip, r.Host, trust.DeltaChallengeFailed)

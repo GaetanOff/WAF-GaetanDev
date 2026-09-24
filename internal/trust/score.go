@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strconv"
+	"sync/atomic"
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
@@ -37,8 +38,8 @@ const (
 type ScoreManager struct {
 	store              storage.Store
 	initialScore       int
-	challengeThreshold int
-	blockThreshold     int
+	challengeThreshold atomic.Int64 // modifiable à chaud (SetThresholds)
+	blockThreshold     atomic.Int64
 	scoreTTL           time.Duration
 	onCritical         func(storage.VisitorState)
 	now                func() time.Time
@@ -62,14 +63,22 @@ func NewScoreManager(store storage.Store, cfg config.Config) (*ScoreManager, err
 		return nil, err
 	}
 
-	return &ScoreManager{
-		store:              store,
-		initialScore:       cfg.Trust.InitialScore,
-		challengeThreshold: cfg.Trust.ChallengeThreshold,
-		blockThreshold:     cfg.Trust.BlockThreshold,
-		scoreTTL:           scoreTTL,
-		now:                time.Now,
-	}, nil
+	manager := &ScoreManager{
+		store:        store,
+		initialScore: cfg.Trust.InitialScore,
+		scoreTTL:     scoreTTL,
+		now:          time.Now,
+	}
+	manager.SetThresholds(cfg.Trust.ChallengeThreshold, cfg.Trust.BlockThreshold)
+	return manager, nil
+}
+
+// SetThresholds applique à chaud les seuils de challenge et de blocage
+// (PATCH /waf/admin/config). La cohérence (block < challenge) est validée par
+// config.Validate en amont.
+func (m *ScoreManager) SetThresholds(challengeThreshold int, blockThreshold int) {
+	m.challengeThreshold.Store(int64(challengeThreshold))
+	m.blockThreshold.Store(int64(blockThreshold))
 }
 
 func (m *ScoreManager) Get(ip string, domain string) storage.VisitorState {
@@ -148,10 +157,10 @@ func (m *ScoreManager) PenalizeRateLimit(ip string, domain string) storage.Visit
 }
 
 func (m *ScoreManager) State(score int) string {
-	if score <= m.blockThreshold {
+	if int64(score) <= m.blockThreshold.Load() {
 		return StateBlocked
 	}
-	if score < m.challengeThreshold {
+	if int64(score) < m.challengeThreshold.Load() {
 		return StateChallenged
 	}
 	if score >= 70 {
