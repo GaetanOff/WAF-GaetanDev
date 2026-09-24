@@ -1,7 +1,7 @@
 ---
 status: implemented
-version: 1.2.0
-last-reviewed: 2026-06-19
+version: 1.3.0
+last-reviewed: 2026-09-24
 reviewed-by: GaetanDev
 extends: requirements-advanced.md (v2.1.0), requirements-ops.md
 change: "Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
@@ -150,7 +150,7 @@ explicites (issus de la revue de spec) :
 - Un crawler **vérifié** DOIT être placé en `ALLOW` et NE DOIT JAMAIS être bloqué
   ni challengé par une décision **heuristique** (il reste soumis au rate limiting
   global et aux blacklists explicites).
-- Trois états de vérification DOIVENT être distingués pour un user-agent de
+- Quatre états de vérification DOIVENT être distingués pour un user-agent de
   crawler déclaré :
   - **`verified`** (rDNS forward-confirm OK) → `ALLOW`.
   - **`pending`** (vérification non encore résolue, cache miss) → la décision DOIT
@@ -159,6 +159,10 @@ explicites (issus de la revue de spec) :
     vrai crawler n'exécute pas JavaScript, le challenger reviendrait à le bloquer
     (faux positif). La décision est révisée à la requête suivante une fois la
     vérification résolue.
+  - **`unverified`** (vérification non planifiée : file de vérification pleine) →
+    visiteur évalué normalement, **sans** le plafond OBSERVE de `pending` — sinon
+    saturer la file exempterait un faux crawler. Les vérifications tournent sur un
+    pool fixe (8 workers, 256 en attente, DNS borné à 2 s).
   - **`spoofed`** (rDNS résolu mais **ne correspond pas** à un domaine officiel du
     crawler) → traité comme suspect : contribution `reputation` augmentée. Ceci
     neutralise le spoofing de `Googlebot`.

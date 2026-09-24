@@ -186,7 +186,7 @@ REQUÊTE ENTRANTE
       │ /                    → chaîne de protection ci-dessous
       │
       │ Les trois chemins /waf/* ci-dessus sont servis directement :
-      │ ils ne traversent PAS les étapes [6] à [20].
+      │ ils ne traversent PAS les étapes [6] à [21].
       ▼
 ── Chaîne de protection (chemin "/" uniquement) ─────────────────────────────────
       │
@@ -208,24 +208,31 @@ REQUÊTE ENTRANTE
       │ Compteurs et histogrammes Prometheus (RED).
       ▼
 [10] logger.Middleware                    toujours
-      │ Événement de sécurité JSON structuré (FR-09).
+      │ Événement de sécurité JSON structuré (FR-09). Alimente aussi
+      │ GET /waf/admin/events et les compteurs de GET /waf/stats.
       ▼
 [11] access.Middleware                    toujours
-      │ Whitelist IP/CIDR/UA → X-WAF-Action=PASS.
+      │ Whitelist IP/CIDR    → X-WAF-Action=PASS (bypass total).
       │ Blacklist IP/CIDR    → 403 (FR-04).
+      │ whitelist_user_agents → X-WAF-UA-Whitelisted : exemption du
+      │ seul challenge proactif [13], PAS un bypass (un UA se forge).
       ▼
 [12] antiddos.Handler                     toujours
       │ Pression globale ou par domaine, circuit breaker,
       │ mode « sous attaque » → X-WAF-Under-Attack-Enforce (FR-08/FR-39).
       ▼
-[13] challenge.Handler                    si challenge.Enabled(cfg)
-      │ Monté dès qu'un hôte peut être challengé — global ou
-      │ domains[].challenge_enabled. Décision par hôte dans le
-      │ middleware. Sert la page PoW, traite POST /waf/verify,
-      │ émet le cookie signé (FR-06).
+[13] challenge.Handler                    toujours (réglages lus par requête)
+      │ Décision par hôte (global ou domains[].challenge_enabled,
+      │ FR-06) ; challenge.enabled est modifiable à chaud. Challenge
+      │ proactif des visiteurs sans clearance, POST /waf/verify
+      │ (servi si un hôte au moins est challengeable), cookie signé.
+      │ Un cookie valide transmet son fingerprint au moteur de risque
+      │ (X-WAF-Fingerprint-Hash, preuve humaine FR-37).
       ▼
-[14] ratelimit.Handler                    si rate_limit.enabled
-      │ Token bucket par IP, throttle piloté par la pression (FR-03).
+[14] ratelimit.Handler                    toujours (rate_limit.enabled lu par requête)
+      │ Token buckets par IP (seconde/minute/heure), throttle piloté
+      │ par la pression (FR-03). Mise à jour atomique des fenêtres
+      │ (storage.UpdateBuckets, ADR-021 amendé).
       ▼
 [15] antibot.Handler                      toujours
       │ Heuristiques User-Agent et en-têtes, honeypots (FR-07).
@@ -249,17 +256,23 @@ REQUÊTE ENTRANTE
       │ sinon                  → trust.ScoreManager.Middleware
       │     Score de confiance seul : BLOCK ou CHALLENGE au seuil (FR-05)
       ▼
-[18] origin.Injector                      si origin_protection.enabled
+[18] challenge.Enforcer                   toujours
+      │ Une décision CHALLENGE de [17] sert la page de challenge,
+      │ cookie de clearance ou non (FR-34) ; sans lui la requête
+      │ atteignait l'upstream. Appels API/XHR non challengés.
+      ▼
+[19] origin.Injector                      si origin_protection.enabled
       │ Pose X-WAF-Origin-Token = HMAC(secret, hôte + heure) sur la
       │ requête ; le proxy le transmet à l'upstream (FR-19).
       ▼
-[19] deception.Tarpit.Dispatch            si deception.enabled
+[20] deception.Tarpit.Dispatch            si deception.enabled
       │ Intercepte les requêtes classées TARPIT en [17] et sert une
       │ réponse volontairement lente et fragmentée (FR-15).
       │ Les autres passent au proxy.
       ▼
-[20] proxy.Handler
-      │ Routage par Host vers domains[].upstream, repli sur
+[21] proxy.Handler
+      │ Routage par Host vers domains[].upstream (hôtes exacts indexés,
+      │ première entrée gagnante), repli sur
       │ upstream.address (⚠ cf. ADR-020). Pool avec health checks et
       │ load balancing si configuré (FR-25/FR-26).
       │ Pose X-Forwarded-*, X-Real-IP et X-WAF-Score vers l'upstream.
