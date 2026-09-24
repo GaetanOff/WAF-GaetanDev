@@ -20,7 +20,8 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 
 # --- Runtime stage ---------------------------------------------------------
 # distroless/static: ~2 MB, ships CA certificates + tzdata, runs as nonroot.
-FROM gcr.io/distroless/static-debian12:nonroot
+# Debian 13: debian12 still ships tzdata 2026b (DLA-4792-1, fixed in 2026c).
+FROM gcr.io/distroless/static-debian13:nonroot
 
 WORKDIR /app
 
