@@ -12,7 +12,7 @@ import (
 )
 
 func TestMiddlewareRecordsRequestCountersHistogramAndVisitorGauges(t *testing.T) {
-	metrics := New()
+	metrics := New().WithDomains([]string{"example.test"})
 	scores, store := newTestScoreManager(t)
 	defer store.Close()
 	handler := metrics.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -35,7 +35,7 @@ func TestMiddlewareRecordsRequestCountersHistogramAndVisitorGauges(t *testing.T)
 }
 
 func TestMiddlewareRecordsBlockedCounter(t *testing.T) {
-	metrics := New()
+	metrics := New().WithDomains([]string{"example.test"})
 	scores, store := newTestScoreManager(t)
 	defer store.Close()
 	handler := metrics.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -129,4 +129,31 @@ func newTestScoreManager(t *testing.T) (*trust.ScoreManager, *memory.Store) {
 		t.Fatalf("trust.NewScoreManager() error = %v", err)
 	}
 	return manager, store
+}
+
+// Sans server.strict_host, le Host est libre : un label domain par Host
+// inventé faisait croître la mémoire sans borne. Seuls les hôtes de domains[]
+// portent leur propre label.
+func TestMiddlewareBoundsTheDomainLabelToDeclaredDomains(t *testing.T) {
+	metrics := New().WithDomains([]string{"shop.example.com", "*.example.org"})
+	handler := metrics.Middleware(nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-WAF-Action", actionBlock)
+		w.Header().Set("X-WAF-Reason", "blacklist_exact")
+		w.WriteHeader(http.StatusForbidden)
+	}))
+
+	for _, host := range []string{"Shop.Example.com:443", "api.example.org", "example.org", "attack-1.test", "attack-2.test"} {
+		request := httptest.NewRequest(http.MethodGet, "http://placeholder/", nil)
+		request.Host = host
+		request.RemoteAddr = "1.2.3.4:1234"
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+	}
+
+	body := scrape(t, metrics)
+	assertMetricContains(t, body, `waf_requests_total{action="BLOCK",domain="shop.example.com"} 1`)
+	assertMetricContains(t, body, `waf_requests_total{action="BLOCK",domain="*.example.org"} 2`)
+	assertMetricContains(t, body, `waf_blocked_total{domain="_undeclared",reason="blacklist_exact"} 2`)
+	if strings.Contains(body, "attack-") {
+		t.Fatalf("an undeclared Host became a label value:\n%s", body)
+	}
 }

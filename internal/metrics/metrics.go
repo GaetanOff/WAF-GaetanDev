@@ -42,6 +42,7 @@ type Metrics struct {
 	storageDegraded prometheus.Gauge
 	storageErrors   *prometheus.CounterVec
 	visitors        *visitorTracker
+	domains         domainLabels
 	now             func() time.Time
 }
 
@@ -148,6 +149,13 @@ func (m *Metrics) WithVisitorBounds(window time.Duration, maxVisitors int) *Metr
 	return m
 }
 
+// WithDomains déclare les hôtes de domains[] : seuls eux portent leur propre
+// label domain, les autres sont comptés sous undeclaredDomain.
+func (m *Metrics) WithDomains(hosts []string) *Metrics {
+	m.domains = newDomainLabels(hosts)
+	return m
+}
+
 // SetTLSCertExpiry publie l'instant d'expiration (NotAfter) du certificat d'un
 // domaine en timestamp Unix (FR-33). L'alerte calcule le delta avec time().
 func (m *Metrics) SetTLSCertExpiry(domain string, notAfter time.Time) {
@@ -165,6 +173,9 @@ func (m *Metrics) SetUnderAttack(domain string, active bool) {
 	value := 0.0
 	if active {
 		value = 1
+	}
+	if domain != globalScope {
+		domain = m.domains.label(domain)
 	}
 	m.underAttack.WithLabelValues(domain).Set(value)
 }
@@ -217,18 +228,19 @@ func (m *Metrics) Middleware(scores *trust.ScoreManager, next http.Handler) http
 
 		action := normalizedAction(r, recorder)
 		reason := wafReason(r, recorder)
-		m.requests.WithLabelValues(action, r.Host).Inc()
+		domain := m.domains.label(r.Host)
+		m.requests.WithLabelValues(action, domain).Inc()
 		m.duration.WithLabelValues(action).Observe(m.now().Sub(startedAt).Seconds())
 		if action == actionChallenge {
-			m.challenged.WithLabelValues(r.Host, reason).Inc()
+			m.challenged.WithLabelValues(domain, reason).Inc()
 		}
 		if isBlockedAction(action) {
-			m.blocked.WithLabelValues(r.Host, reason).Inc()
+			m.blocked.WithLabelValues(domain, reason).Inc()
 		}
 		m.observeRisk(r, recorder)
 		m.observeVisitor(r, scores)
 		m.observeGlobalPressure(r)
-		m.observeUnderAttack(r, action)
+		m.observeUnderAttack(r, action, domain)
 	})
 }
 
@@ -276,15 +288,15 @@ func (m *Metrics) observeGlobalPressure(r *http.Request) {
 
 // observeUnderAttack publie l'état du mode sous attaque par domaine (FR-39) et
 // compte les requêtes forcées au challenge par ce mode.
-func (m *Metrics) observeUnderAttack(r *http.Request, action string) {
+func (m *Metrics) observeUnderAttack(r *http.Request, action string, domain string) {
 	active := r.Header.Get("X-WAF-Under-Attack") == "true"
 	value := 0.0
 	if active {
 		value = 1
 	}
-	m.underAttack.WithLabelValues(r.Host).Set(value)
+	m.underAttack.WithLabelValues(domain).Set(value)
 	if active && action == actionChallenge {
-		m.underAttackHits.WithLabelValues(r.Host).Inc()
+		m.underAttackHits.WithLabelValues(domain).Inc()
 	}
 }
 

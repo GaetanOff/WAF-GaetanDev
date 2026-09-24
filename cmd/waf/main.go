@@ -160,7 +160,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
-	metrics := wafmetrics.New()
+	metrics := wafmetrics.New().WithDomains(domainHosts(cfg.Domains))
 	store, err := newStore(*cfg, metrics)
 	if err != nil {
 		return err
@@ -501,6 +501,15 @@ func warnUntrustedInfrastructureHeaders(cfg config.Config) {
 	if cfg.TLSFingerprint.Enabled && strings.HasPrefix(strings.ToUpper(cfg.TLSFingerprint.JA3Header), "CF-") {
 		slog.Warn("tls_fingerprint.ja3_header is stripped while cloudflare.trusted is false", "header", cfg.TLSFingerprint.JA3Header, "adr", "ADR-019")
 	}
+}
+
+// domainHosts retourne les hôtes déclarés dans domains[].
+func domainHosts(domains []config.DomainConfig) []string {
+	hosts := make([]string, 0, len(domains))
+	for _, domain := range domains {
+		hosts = append(hosts, domain.Host)
+	}
+	return hosts
 }
 
 // newStore construit le backend de stockage désigné par `storage.backend`.
