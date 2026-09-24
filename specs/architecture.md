@@ -420,7 +420,8 @@ waf/
 │       └── main_test.go         # Tests e2e sur routes()
 ├── internal/                    # 42 paquets — cf. C4 Level 3
 ├── web/
-│   └── challenge.html           # Template HTML/CSS/JS du challenge PoW
+│   ├── challenge.html           # Template HTML/CSS/JS du challenge PoW
+│   └── embed.go                 # go:embed : la page est dans le binaire (G7)
 ├── configs/
 │   └── config.example.yaml      # Exemple de configuration complète
 ├── specs/                       # Specs SDD — source de vérité

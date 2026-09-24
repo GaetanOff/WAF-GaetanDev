@@ -51,6 +51,7 @@ import (
 	"github.com/gaetandev/waf/internal/tlsmgr"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/upstream"
+	"github.com/gaetandev/waf/web"
 )
 
 const (
@@ -267,7 +268,8 @@ func run() error {
 		}
 		detectors = append(detectors, rules.NewMiddleware(ruleSet, scoreManager).Handler)
 	}
-	challengeMiddleware, err := challenge.NewMiddleware(*cfg, scoreManager, "web/challenge.html")
+	// Page embarquée : le binaire démarre hors de la racine du dépôt (G7).
+	challengeMiddleware, err := challenge.NewMiddlewareFromSource(*cfg, scoreManager, web.ChallengePage)
 	if err != nil {
 		return err
 	}

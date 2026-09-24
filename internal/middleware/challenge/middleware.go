@@ -89,7 +89,27 @@ type errorResponse struct {
 	Error string `json:"error"`
 }
 
+// NewMiddleware charge le template depuis un fichier. Le binaire utilise
+// NewMiddlewareFromSource avec la page embarquée (package web) ; ce
+// constructeur sert à éprouver un template alternatif.
 func NewMiddleware(cfg config.Config, scores *trust.ScoreManager, templatePath string) (Middleware, error) {
+	content, err := os.ReadFile(templatePath)
+	if err != nil {
+		return Middleware{}, fmt.Errorf("read challenge template: %w", err)
+	}
+	return NewMiddlewareFromSource(cfg, scores, string(content))
+}
+
+// NewMiddlewareFromSource construit le middleware depuis le texte du template.
+func NewMiddlewareFromSource(cfg config.Config, scores *trust.ScoreManager, source string) (Middleware, error) {
+	pageTemplate, err := template.New("challenge").Parse(source)
+	if err != nil {
+		return Middleware{}, fmt.Errorf("parse challenge template: %w", err)
+	}
+	return NewMiddlewareFromTemplate(cfg, scores, pageTemplate)
+}
+
+func NewMiddlewareFromTemplate(cfg config.Config, scores *trust.ScoreManager, pageTemplate *template.Template) (Middleware, error) {
 	tokenTTL, err := time.ParseDuration(cfg.Challenge.TokenTTL)
 	if err != nil {
 		return Middleware{}, fmt.Errorf("parse challenge.token_ttl: %w", err)
@@ -97,38 +117,6 @@ func NewMiddleware(cfg config.Config, scores *trust.ScoreManager, templatePath s
 	cookieTTL, err := time.ParseDuration(cfg.Challenge.CookieTTL)
 	if err != nil {
 		return Middleware{}, fmt.Errorf("parse challenge.cookie_ttl: %w", err)
-	}
-
-	content, err := os.ReadFile(templatePath)
-	if err != nil {
-		return Middleware{}, fmt.Errorf("read challenge template: %w", err)
-	}
-	pageTemplate, err := template.New("challenge").Parse(string(content))
-	if err != nil {
-		return Middleware{}, fmt.Errorf("parse challenge template: %w", err)
-	}
-
-	return Middleware{
-		tokenIssuer:  NewTokenIssuer(cfg.Challenge.SecretKey, tokenTTL),
-		cookieIssuer: NewCookieIssuer(cfg.Challenge.CookieName, cfg.Challenge.SecretKey),
-		scores:       scores,
-		template:     pageTemplate,
-		domains:      newDomainGate(cfg),
-		cookieTTL:    cookieTTL,
-		difficulty:   cfg.Challenge.PowDifficulty,
-		minElapsedMS: cfg.Challenge.MinElapsedMS,
-		maxElapsedMS: cfg.Challenge.MaxElapsedMS,
-	}, nil
-}
-
-func NewMiddlewareFromTemplate(cfg config.Config, scores *trust.ScoreManager, pageTemplate *template.Template) (Middleware, error) {
-	tokenTTL, err := time.ParseDuration(cfg.Challenge.TokenTTL)
-	if err != nil {
-		return Middleware{}, err
-	}
-	cookieTTL, err := time.ParseDuration(cfg.Challenge.CookieTTL)
-	if err != nil {
-		return Middleware{}, err
 	}
 	return Middleware{
 		tokenIssuer:  NewTokenIssuer(cfg.Challenge.SecretKey, tokenTTL),

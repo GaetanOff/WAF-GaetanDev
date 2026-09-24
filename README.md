@@ -214,7 +214,7 @@ internal/
   logger/            logs structurés (log/slog, stdlib)
   metrics/           métriques Prometheus
   admin/             API d'administration REST
-web/challenge.html   page de challenge (branding "Protected by GaetanDev.fr")
+web/challenge.html   page de challenge (branding "Protected by GaetanDev.fr"), embarquée dans le binaire (go:embed)
 configs/             configuration d'exemple
 deploy/              config + nginx pour docker-compose
 specs/               spécifications (source de vérité, SDD)
