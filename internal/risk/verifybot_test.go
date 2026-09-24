@@ -3,6 +3,8 @@ package risk
 import (
 	"errors"
 	"fmt"
+	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -187,5 +189,65 @@ func TestBotVerifierCacheIsBounded(t *testing.T) {
 	}
 	if got := verifier.cache.Len(); got != maxBotVerifications {
 		t.Fatalf("cached verifications = %d, want %d", got, maxBotVerifications)
+	}
+}
+
+type blockingBotResolver struct {
+	release chan struct{}
+	active  *atomic.Int64
+	peak    *atomic.Int64
+}
+
+func (r blockingBotResolver) LookupAddr(string) ([]string, error) {
+	current := r.active.Add(1)
+	for {
+		peak := r.peak.Load()
+		if current <= peak || r.peak.CompareAndSwap(peak, current) {
+			break
+		}
+	}
+	<-r.release
+	r.active.Add(-1)
+	return nil, errors.New("not found")
+}
+
+func (blockingBotResolver) LookupHost(string) ([]string, error) {
+	return nil, errors.New("not found")
+}
+
+// Régression : chaque IP annonçant un User-Agent crawler lançait sa goroutine
+// de résolution DNS. Les vérifications sont bornées ; au-delà de la file,
+// l'IP est « unverified » — évaluée normalement, jamais exemptée.
+func TestBotVerifierBoundsConcurrentVerifications(t *testing.T) {
+	resolver := blockingBotResolver{release: make(chan struct{}), active: new(atomic.Int64), peak: new(atomic.Int64)}
+	verifier := NewBotVerifier(BotVerifierConfig{Enabled: true, Crawlers: []string{"googlebot"}}, resolver)
+	defer verifier.Close()
+	before := runtime.NumGoroutine()
+
+	unverified := 0
+	for i := range 3000 {
+		if verifier.Check(fmt.Sprintf("10.0.%d.%d", i>>8, i&0xff), "Googlebot").State == BotVerificationUnverified {
+			unverified++
+		}
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	if grown := runtime.NumGoroutine() - before; grown > 0 {
+		t.Fatalf("goroutines grew by %d for 3000 spoofed crawlers, want none beyond the fixed pool", grown)
+	}
+	if peak := resolver.peak.Load(); peak > verifyWorkers {
+		t.Fatalf("concurrent DNS verifications = %d, want <= %d", peak, verifyWorkers)
+	}
+	if unverified == 0 {
+		t.Fatal("a saturated queue must answer unverified, not pending")
+	}
+	close(resolver.release)
+}
+
+func TestApplyBotVerificationDoesNotCapUnverifiedCrawler(t *testing.T) {
+	assessment := RiskAssessment{RiskScore: 90, Confidence: 0.9, Decision: DecisionBlock, DecisionBasis: DecisionBasisHeuristic}
+	updated := ApplyBotVerification(assessment, BotVerification{Bot: "googlebot", State: BotVerificationUnverified})
+	if updated.Decision != DecisionBlock {
+		t.Fatalf("Decision = %s, want BLOCK unchanged for an unverified crawler", updated.Decision)
 	}
 }

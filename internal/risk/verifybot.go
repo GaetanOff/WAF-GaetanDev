@@ -1,6 +1,7 @@
 package risk
 
 import (
+	"context"
 	"net"
 	"slices"
 	"strings"
@@ -15,6 +16,11 @@ const (
 	crawlerSpoofContribution = 60
 	// maxBotVerifications borne le cache des vérifications reverse-DNS.
 	maxBotVerifications = 100000
+	// verifyWorkers borne les vérifications DNS simultanées, verifyQueueSize
+	// celles en attente ; dnsTimeout borne chaque résolution.
+	verifyWorkers   = 8
+	verifyQueueSize = 256
+	dnsTimeout      = 2 * time.Second
 )
 
 type BotVerificationState string
@@ -24,6 +30,11 @@ const (
 	BotVerificationPending    BotVerificationState = "pending"
 	BotVerificationVerified   BotVerificationState = "verified"
 	BotVerificationSpoofed    BotVerificationState = "spoofed"
+	// BotVerificationUnverified : crawler déclaré dont la vérification n'a pas
+	// pu être planifiée (file saturée). Évalué comme un visiteur ordinaire,
+	// sans le plafond OBSERVE de l'état pending : sinon saturer la file
+	// suffirait à exempter un faux crawler de toute mitigation.
+	BotVerificationUnverified BotVerificationState = "unverified"
 )
 
 type BotVerification struct {
@@ -39,11 +50,15 @@ type BotResolver interface {
 type netBotResolver struct{}
 
 func (netBotResolver) LookupAddr(addr string) ([]string, error) {
-	return net.LookupAddr(addr)
+	ctx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
+	defer cancel()
+	return net.DefaultResolver.LookupAddr(ctx, addr)
 }
 
 func (netBotResolver) LookupHost(host string) ([]string, error) {
-	return net.LookupHost(host)
+	ctx, cancel := context.WithTimeout(context.Background(), dnsTimeout)
+	defer cancel()
+	return net.DefaultResolver.LookupHost(ctx, host)
 }
 
 type BotVerifierConfig struct {
@@ -62,9 +77,19 @@ type BotVerifier struct {
 	cfg      BotVerifierConfig
 	now      func() time.Time
 	cache    *ttlcache.Cache[string, BotVerification]
+	// jobs alimente un pool fixe de verifyWorkers goroutines. Une goroutine
+	// par IP était lancée auparavant : un spoofing d'User-Agent crawler depuis
+	// des milliers d'IP épuisait goroutines et sockets en résolutions DNS.
+	jobs chan verifyJob
 
 	mu       sync.Mutex
 	inFlight map[string]bool
+}
+
+type verifyJob struct {
+	key string
+	ip  string
+	bot string
 }
 
 func DefaultBotVerifierConfig() BotVerifierConfig {
@@ -108,6 +133,10 @@ func NewBotVerifier(cfg BotVerifierConfig, resolver BotResolver) *BotVerifier {
 		cfg:      cfg,
 		now:      time.Now,
 		inFlight: make(map[string]bool),
+		jobs:     make(chan verifyJob, verifyQueueSize),
+	}
+	for range verifyWorkers {
+		go verifier.worker()
 	}
 	verifier.cache = ttlcache.New[string, BotVerification](maxBotVerifications, cfg.FailureCacheTTL).WithClock(func() time.Time { return verifier.now() })
 	return verifier
@@ -128,13 +157,28 @@ func (v *BotVerifier) Check(ip string, userAgent string) BotVerification {
 		return verification
 	}
 	v.mu.Lock()
-	if !v.inFlight[key] {
-		v.inFlight[key] = true
-		go v.verify(key, ip, bot)
+	defer v.mu.Unlock()
+	if v.inFlight[key] {
+		return BotVerification{Bot: bot, State: BotVerificationPending}
 	}
-	v.mu.Unlock()
+	select {
+	case v.jobs <- verifyJob{key: key, ip: ip, bot: bot}:
+		v.inFlight[key] = true
+		return BotVerification{Bot: bot, State: BotVerificationPending}
+	default:
+		return BotVerification{Bot: bot, State: BotVerificationUnverified}
+	}
+}
 
-	return BotVerification{Bot: bot, State: BotVerificationPending}
+// Close arrête les workers de vérification.
+func (v *BotVerifier) Close() {
+	close(v.jobs)
+}
+
+func (v *BotVerifier) worker() {
+	for job := range v.jobs {
+		v.verify(job.key, job.ip, job.bot)
+	}
 }
 
 func (v *BotVerifier) verify(key string, ip string, bot string) {
