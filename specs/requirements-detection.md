@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 1.3.0
+version: 1.3.1
 last-reviewed: 2026-09-24
 reviewed-by: GaetanDev
 extends: requirements-advanced.md (v2.1.0), requirements-ops.md
-change: "Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
+change: "FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
 ---
 
 # Requirements Detection — Moteur de Risque & Décision (v4)
@@ -140,6 +140,11 @@ explicites (issus de la revue de spec) :
   - **Circuit breaker** ouvert pour l'IP (FR-08)
 - À confiance insuffisante (`confidence < block_min_confidence`), la décision DOIT
   être plafonnée à `CHALLENGE` même si le risk score est élevé.
+- Sans moteur de risque (`risk_engine.enabled: false`), le middleware de décision
+  du Trust Score DOIT appliquer lui-même un déclencheur déterministe publié par
+  un détecteur (`threat_intel_critical`, `ja3_blacklist`) : HTTP 403, raison du
+  détecteur, `X-WAF-Deterministic-Trigger` en réponse. Il l'ignorait : une IP
+  critique ou un JA3 blacklisté traversait le WAF sans blocage ni challenge.
 
 ## FR-36 — Allowlist de Bots Vérifiés (anti-faux-positif crawlers)
 

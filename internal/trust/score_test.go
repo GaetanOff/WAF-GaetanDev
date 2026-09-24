@@ -142,6 +142,73 @@ func TestTrustMiddlewareMarksChallengeState(t *testing.T) {
 	}
 }
 
+// tls-fingerprinting.feature / threat-intelligence.feature : sans moteur de
+// risque, le middleware de score applique lui-même les déclencheurs
+// déterministes publiés par les détecteurs, quel que soit le score.
+func TestTrustMiddlewareBlocksOnDeterministicTrigger(t *testing.T) {
+	cases := []struct {
+		trigger    string
+		reason     string
+		wantReason string
+	}{
+		{trigger: "ja3_blacklist", reason: "ja3_blacklisted", wantReason: "ja3_blacklisted"},
+		{trigger: "threat_intel_critical", reason: "abuseipdb_critical", wantReason: "abuseipdb_critical"},
+		{trigger: "threat_intel_critical", wantReason: "deterministic_threat_intel_critical"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.trigger+"/"+tc.wantReason, func(t *testing.T) {
+			manager, store, _ := newTestManager(t)
+			defer store.Close()
+			manager.Set("9.9.9.9", "example.test", 100)
+
+			request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+			request.RemoteAddr = "9.9.9.9:1234"
+			request.Header.Set("X-WAF-Deterministic-Trigger", tc.trigger)
+			if tc.reason != "" {
+				request.Header.Set("X-WAF-Reason", tc.reason)
+			}
+			response := httptest.NewRecorder()
+
+			manager.Middleware(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+				t.Fatal("a deterministic trigger must not reach the upstream")
+			})).ServeHTTP(response, request)
+
+			if response.Code != http.StatusForbidden {
+				t.Fatalf("status = %d, want 403", response.Code)
+			}
+			if got := response.Header().Get("X-WAF-Action"); got != "BLOCK" {
+				t.Fatalf("X-WAF-Action = %q, want BLOCK", got)
+			}
+			if got := response.Header().Get("X-WAF-Reason"); got != tc.wantReason {
+				t.Fatalf("X-WAF-Reason = %q, want %q", got, tc.wantReason)
+			}
+			if got := response.Header().Get("X-WAF-Deterministic-Trigger"); got != tc.trigger {
+				t.Fatalf("X-WAF-Deterministic-Trigger = %q, want %q", got, tc.trigger)
+			}
+		})
+	}
+}
+
+// Seules les valeurs de l'énumération FR-35 bloquent : un en-tête inconnu est
+// ignoré (l'ingress supprime de toute façon les X-WAF-* fournis par le client).
+func TestTrustMiddlewareIgnoresUnknownTrigger(t *testing.T) {
+	manager, store, _ := newTestManager(t)
+	defer store.Close()
+
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+	request.RemoteAddr = "9.9.9.9:1234"
+	request.Header.Set("X-WAF-Deterministic-Trigger", "unknown")
+	response := httptest.NewRecorder()
+
+	manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", response.Code)
+	}
+}
+
 // fakeClock est une horloge mutable partagée par le ScoreManager et le Store en
 // test. Le stamping du TTL (ExpiresAt) et l'éviction du Store lisent ainsi le
 // MÊME temps : câbler le Store sur time.Now pendant que le manager tourne sur une

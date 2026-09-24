@@ -20,6 +20,7 @@ import (
 	"github.com/gaetandev/waf/internal/origin"
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/storage/memory"
+	"github.com/gaetandev/waf/internal/tlsfp"
 	"github.com/gaetandev/waf/internal/trust"
 )
 
@@ -736,6 +737,35 @@ func TestRoutesWhitelistedUserAgentIsNotABypass(t *testing.T) {
 	}
 	if second.Code != http.StatusTooManyRequests {
 		t.Fatalf("second request: status = %d, want 429 — the User-Agent whitelist must not skip the rate limit", second.Code)
+	}
+}
+
+// FR-11 / FR-35 : sans moteur de risque, un JA3 blacklisté bloque quand même.
+// Le middleware de score, seul décideur dans ce cas, ignorait le déclencheur.
+func TestRoutesDeterministicTriggerBlocksWithoutRiskEngine(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.RiskEngine.Enabled = false
+	cfg.Challenge.Enabled = false
+	const blacklisted = "3b5074b1b5d032e5620f69f9159a1b97"
+	ja3 := tlsfp.NewMiddleware(config.TLSFingerprint{Enabled: true, JA3Header: "X-Client-JA3", JA3Blacklist: []string{blacklisted}}, 100)
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), []func(http.Handler) http.Handler{ja3.Handler}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("a blacklisted JA3 must not reach the upstream")
+	}))
+	request := requestFrom("198.51.100.10:443")
+	request.Header.Set("User-Agent", "Mozilla/5.0")
+	request.Header.Set("Accept-Language", "fr")
+	request.Header.Set("Accept-Encoding", "gzip")
+	request.Header.Set("X-Client-JA3", blacklisted)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", response.Code)
+	}
+	if got := response.Header().Get("X-WAF-Reason"); got != "ja3_blacklisted" {
+		t.Fatalf("X-WAF-Reason = %q, want ja3_blacklisted", got)
 	}
 }
 

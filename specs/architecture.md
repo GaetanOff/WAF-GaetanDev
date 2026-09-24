@@ -272,7 +272,8 @@ REQUÊTE ENTRANTE
       │     Fusion des familles, corroboration, échelle de mitigation
       │     graduée, mode shadow (FR-33..FR-38)
       │ sinon                  → trust.ScoreManager.Middleware
-      │     Score de confiance seul : BLOCK ou CHALLENGE au seuil (FR-05)
+      │     Déclencheur déterministe d'un détecteur → BLOCK (FR-35),
+      │     puis score de confiance seul : BLOCK ou CHALLENGE au seuil (FR-05)
       ▼
 [18] challenge.Enforcer                   toujours
       │ Une décision CHALLENGE de [17] sert la page de challenge,
