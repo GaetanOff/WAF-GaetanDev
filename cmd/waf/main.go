@@ -24,6 +24,7 @@ import (
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/deception"
 	"github.com/gaetandev/waf/internal/geo"
+	"github.com/gaetandev/waf/internal/hostname"
 	"github.com/gaetandev/waf/internal/integrity"
 	waflogger "github.com/gaetandev/waf/internal/logger"
 	"github.com/gaetandev/waf/internal/maintenance"
@@ -648,10 +649,12 @@ func envelopeGuard(cfg config.Config) func(http.Handler) http.Handler {
 func redirectToHTTPS(domains []config.DomainConfig) http.HandlerFunc {
 	allowed := make([]string, len(domains))
 	for i, d := range domains {
-		allowed[i] = d.Host
+		allowed[i] = strings.ToLower(d.Host)
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		host := stripPort(r.Host)
+		// Même normalisation que le routage : "Example.com" et "[::1]:8080"
+		// étaient refusés en 400 (casse conservée, IPv6 coupé au premier ":").
+		host := hostname.Normalize(r.Host)
 		if !hostAllowed(host, allowed) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
@@ -682,13 +685,6 @@ func hostAllowed(host string, patterns []string) bool {
 		}
 	}
 	return false
-}
-
-func stripPort(hostport string) string {
-	if before, _, ok := strings.Cut(hostport, ":"); ok {
-		return before
-	}
-	return hostport
 }
 
 func healthHandler(w http.ResponseWriter, _ *http.Request) {

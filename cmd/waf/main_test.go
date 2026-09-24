@@ -993,3 +993,34 @@ func TestRoutesStrictHostRejectsUndeclaredHosts(t *testing.T) {
 		t.Fatalf("metrics by IP: status = %d, want 400 — /waf/metrics is not exempt", code)
 	}
 }
+
+// Le Host est normalisé comme pour le routage avant d'être comparé aux
+// domaines : la casse et le port ne font plus refuser un domaine déclaré.
+func TestRedirectToHTTPSNormalizesTheHost(t *testing.T) {
+	handler := redirectToHTTPS([]config.DomainConfig{{Host: "Example.com"}, {Host: "*.boxaria.fr"}})
+	cases := []struct {
+		host     string
+		wantCode int
+		wantURL  string
+	}{
+		{host: "example.com", wantCode: http.StatusMovedPermanently, wantURL: "https://example.com/path?q=1"},
+		{host: "EXAMPLE.com:80", wantCode: http.StatusMovedPermanently, wantURL: "https://example.com/path?q=1"},
+		{host: "www.Boxaria.fr:8080", wantCode: http.StatusMovedPermanently, wantURL: "https://www.boxaria.fr/path?q=1"},
+		{host: "evil.test", wantCode: http.StatusBadRequest},
+		{host: "[::1]:8080", wantCode: http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		request := httptest.NewRequest(http.MethodGet, "http://placeholder/path?q=1", nil)
+		request.Host = tc.host
+		response := httptest.NewRecorder()
+
+		handler.ServeHTTP(response, request)
+
+		if response.Code != tc.wantCode {
+			t.Fatalf("%s: status = %d, want %d", tc.host, response.Code, tc.wantCode)
+		}
+		if got := response.Header().Get("Location"); got != tc.wantURL {
+			t.Fatalf("%s: Location = %q, want %q", tc.host, got, tc.wantURL)
+		}
+	}
+}

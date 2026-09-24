@@ -139,8 +139,10 @@ internal/
     ├── cluster/         Synchronisation d'état inter-nœuds (FR-20)
     ├── gdpr/            Anonymisation, rétention, registre (FR-28)
     ├── signing/         HMAC-SHA256 : signature et validation
-    ├── hostname/        Normalisation d'hôte (casse, port) partagée par le
-    │                    routage, le challenge et le token d'origine
+    ├── hostname/        Normalisation d'hôte (casse, port, IPv6) partagée par
+    │                    le routage, le challenge, le token d'origine, la
+    │                    redirection HTTPS, le scope per_domain du mode sous
+    │                    attaque et la sélection SNI
     └── jsonstrict/      Parsing JSON durci sur les entrées non fiables (FR-30)
 ```
 
