@@ -354,6 +354,7 @@ func run() error {
 		securityLogger.Recorder = adminServer.EventRecorder()
 		if syncer != nil {
 			adminServer.WithBlacklistObserver(syncer.PublishBlacklistAdd)
+			syncer.WithBlacklistApplier(adminServer.ApplyClusterBlacklist)
 		}
 		// PATCH /waf/admin/config (hot-reload) : la configuration validée est
 		// poussée aux composants qui la lisent par requête.

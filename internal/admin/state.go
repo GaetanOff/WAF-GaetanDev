@@ -11,6 +11,9 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/access"
 )
 
+// clusterBlacklistReason marque les entrées de blacklist reçues d'un autre nœud.
+const clusterBlacklistReason = "cluster_sync"
+
 type IPEntry struct {
 	IP      string `json:"ip"`
 	AddedAt string `json:"added_at,omitempty"`

@@ -133,3 +133,25 @@ func TestSyncerEnqueueNeverBlocks(t *testing.T) {
 		syncer.PublishBlacklistAdd("1.1.1.1")
 	}
 }
+
+func TestSyncerRoutesPropagatedBlacklistThroughTheApplier(t *testing.T) {
+	rules, err := access.NewRuleSet(nil, nil, nil)
+	if err != nil {
+		t.Fatalf("NewRuleSet() error = %v", err)
+	}
+	syncer := NewSyncer(NewLocalBus(), nil, rules)
+	var applied []string
+	syncer.WithBlacklistApplier(func(value string) error {
+		applied = append(applied, value)
+		return nil
+	})
+
+	syncer.Apply(Event{Type: EventBlacklistAdd, Value: "9.9.9.9"})
+
+	if len(applied) != 1 || applied[0] != "9.9.9.9" {
+		t.Fatalf("applied = %v, want [9.9.9.9]", applied)
+	}
+	if ok, _ := rules.IsBlacklisted("9.9.9.9"); ok {
+		t.Fatal("entry written behind the applier's back, want the applier as sole writer")
+	}
+}

@@ -52,6 +52,16 @@ func (s *Server) WithBlacklistObserver(observer func(value string)) {
 	s.onBlacklist = observer
 }
 
+// ApplyClusterBlacklist enregistre une entrée de blacklist reçue d'un autre
+// nœud (FR-20) dans l'état admin, qui reste ainsi l'unique source du RuleSet :
+// l'entrée survit aux modifications admin locales, apparaît dans
+// GET /waf/admin/blacklist et peut y être retirée. Elle n'est ni republiée (le
+// nœud émetteur l'a déjà diffusée) ni journalisée comme action d'administration.
+func (s *Server) ApplyClusterBlacklist(value string) error {
+	_, _, err := s.state.AddBlacklist(IPEntry{IP: value, Reason: clusterBlacklistReason})
+	return err
+}
+
 func NewServer(cfg config.Config, store storage.Store, scores *trust.ScoreManager, accessRules *access.RuleSet, startedAt time.Time) (*Server, error) {
 	if cfg.Admin.Enabled && cfg.Admin.Token == "" {
 		return nil, errors.New("admin token is required")
