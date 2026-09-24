@@ -1,7 +1,8 @@
 ---
 status: approved
-version: 1.2.0
-last-reviewed: 2026-06-08
+version: 1.3.0
+last-reviewed: 2026-09-24
+change: "Phases 10 à 18 ajoutées : le plan s'arrêtait à la Phase 9 alors que tasks.md et validation.md documentent les sprints 10 à 17"
 ---
 
 # Plan d'implémentation — WAF Anti-DDoS / Anti-Bot
@@ -21,6 +22,10 @@ last-reviewed: 2026-06-08
 | E9 | Câblage des signaux du moteur de risque | requirements-detection FR-33, FR-35 (Articulation) |
 | E10 | Détecteurs avancés | requirements-advanced FR-11..FR-20 |
 | E11 | Durcissement production / Ops | requirements-ops FR-21..FR-32 |
+| E12 | Anti-DDoS L7 adaptatif | requirements FR-08 v2, requirements-detection FR-39 |
+| E13 | Terminaison TLS par domaine | requirements-ops FR-33 |
+| E14 | Conformité de la configuration et frontière de confiance | requirements FR-02, FR-03, FR-06, FR-09 ; requirements-ops FR-30 ; ADR-019, ADR-020 |
+| E15 | Remédiation des audits externes | tasks.md Sprints 16 à 18 |
 
 ---
 
@@ -412,6 +417,122 @@ last-reviewed: 2026-06-08
 
 ---
 
+### Phase 10 — Révision anti-DDoS adaptative (E12)
+
+> Le seuil global ne DOIT plus produire de 503 : il devient une pression
+> adaptative consommée par le rate limit, le challenge et le moteur de risque.
+
+**Slice 10.1 — Pression globale adaptative (FR-08 v2)**
+- Niveaux `normal` / `elevated` / `high` / `critical`, throttle de pression neutre
+  pour le circuit breaker et le score (`reason=rate_limit_pressure`)
+- Spec references : requirements FR-08 (v2.0.0), ADR-016, features/anti-ddos.feature, schemas/config.schema.json
+- Tâches : tasks.md T10.1
+
+---
+
+### Phase 11 — Terminaison TLS par domaine (E13)
+
+**Slice 11.1 — Certificat par domaine sélectionné par SNI (FR-33)**
+- `server.tls` + `domains[].tls`, correspondance exacte ou wildcard, redirection
+  HTTP → HTTPS, métrique d'expiration
+- Spec references : requirements-ops FR-33, ADR-017, features/per-domain-tls.feature, schemas/config.schema.json
+- Tâches : tasks.md T11.1
+
+---
+
+### Phase 12 — Mode « sous attaque » anti-DDoS L7 (E12)
+
+**Slice 12.1 — Challenge forcé piloté par la pression (FR-39)**
+- Pression par domaine, hystérésis d'entrée/sortie, mode `shadow`, métriques
+  `waf_under_attack{domain}`, alertes d'entrée/sortie
+- Spec references : requirements-detection FR-39, ADR-018, features/anti-ddos.feature, schemas/security-event.schema.json
+- Tâches : tasks.md T12.1
+
+---
+
+### Phase 13 — Correctifs de conformité de la configuration (E14)
+
+**Slice 13.1 — `domains[].challenge_enabled` effectif (FR-06)**
+- Surcharge à trois états (absente / false / true) du challenge par domaine
+- Spec references : requirements FR-06 (v2.2.0), features/js-challenge.feature, schemas/config.schema.json
+- Tâches : tasks.md T13.1
+
+---
+
+### Phase 14 — Durcissement de la frontière d'ingress (E14)
+
+**Slice 14.1 — En-têtes X-WAF-* clients supprimés à l'entrée (FR-30)**
+- Spec references : requirements-ops FR-30, features/waf-self-protection.feature
+**Slice 14.2 — Oracle `/waf/origin/verify` rétabli sous l'assainissement (FR-19 × FR-30)**
+- Spec references : requirements-advanced FR-19, features/origin-protection.feature
+**Slice 14.3 — Surfaces de confiance implicite (FR-17, ADR-019, ADR-020)**
+- Spec references : requirements-advanced FR-17, ADR-019, ADR-020, features/rules-engine.feature
+**Slice 14.4 — architecture.md réaligné sur `routes()`**
+- Spec references : architecture.md
+- Tâches : tasks.md T14.1 à T14.4
+
+---
+
+### Phase 15 — Options de configuration inertes (E14)
+
+> Les clés documentées sans effet sont implémentées, pas retirées (décision
+> d'opérateur du 2026-09-02).
+
+**Slice 15.1 — Fenêtres req/minute et req/heure du rate limit (FR-03)**
+**Slice 15.2 — Rafraîchissement des plages Cloudflare (FR-02)**
+**Slice 15.3 — Format de journal `pretty` (FR-09, ADR-014)**
+**Slice 15.4 — Backend `redis` effectif (ADR-002, ADR-021)**
+- Spec references : requirements FR-02, FR-03, FR-09 (v2.3.0), requirements-advanced FR-20, ADR-021, features/rate-limiting.feature, features/cloudflare-ip-ranges.feature, features/security-logging.feature, features/storage-backend.feature
+- Tâches : tasks.md T15.1 à T15.4
+
+---
+
+### Phase 16 — Remédiation de l'audit du 2026-09-24 (E15)
+
+> Chaque point vérifié contre le code avant correction, un commit par
+> correction (branche `fix/audit-remediation`).
+
+**Slice 16.1 — Bugs logiques et contournements** (challenge fantôme, circuit
+breaker, PoW, cluster, API admin)
+**Slice 16.2 — Mémoire et goroutines** (`internal/ttlcache`, pools de workers)
+**Slice 16.3 — Performance du chemin chaud** (buckets Redis, routage, slowloris)
+**Slice 16.4 — Sécurité applicative et déploiement**
+**Slice 16.5 — Specs et conformité SDD** (OpenAPI public, schémas d'audit et cluster)
+- Tâches : tasks.md T16.1 à T16.23
+
+---
+
+### Phase 17 — Remédiation du second audit du 2026-09-24 (E15)
+
+> Écarts spec/code corrigés en alignant la spec ; surcharges `domains[]`
+> refusées (ADR-022) ; ADR-019 option B ; ADR-020 1C + 2A.
+
+**Slice 17.1 — Performance du chemin chaud** (métriques visiteurs, `ScoreManager.Peek`)
+**Slice 17.2 — Contrats de données** (`rule.schema.json` v2.0.0, alertes, upstream pool, visiteurs)
+**Slice 17.3 — Bugs et code mort** (ADR-022, blacklist cluster)
+**Slice 17.4 — Sécurité et robustesse** (IP Cloudflare avant slowloris, ADR-019, `strict_host`)
+**Slice 17.5 — Outillage et gates** (une cible `make` par gate, script k6)
+- Tâches : tasks.md T17.1 à T17.5
+
+---
+
+### Phase 18 — Remédiation du troisième audit du 2026-09-24 (E15)
+
+> Même méthode (branche `fix/audit-3-remediation`) : chaque point vérifié, un
+> commit par correction ; les points inexacts ou sans impact sont consignés.
+
+**Slice 18.1 — Bugs logiques et sécurité** (condition `trust_score`, secrets de
+`GET /waf/admin/config`, clé de challenge par domaine, hôte normalisé des
+tokens, 429 de l'upstream et circuit breaker)
+- Spec references : requirements-advanced FR-17, FR-19, requirements FR-06, FR-08, admin.openapi.yaml, schemas/rule.schema.json, schemas/config.schema.json
+**Slice 18.2 — Robustesse et dépendances** (cardinalité du label `domain`, pages
+d'erreur 4xx JSON, `klauspost/compress`)
+- Spec references : requirements FR-09, requirements-ops FR-32, features/maintenance-page.feature
+**Slice 18.3 — Specs** (architectures dépréciées, plan à jour, FR-11 aligné sur FR-35)
+- Tâches : tasks.md T18.1 à T18.4
+
+---
+
 ## Ordre d'implémentation recommandé
 
 ```
@@ -437,6 +558,11 @@ Slice 8.1 → 8.2 → 8.3 → 8.4 → 8.5 → 8.6 → 8.7 → 8.8 → 8.9 → 8.
                ↓
 (durcissement ops — largement indépendant, parallélisable)
 Slice 9.1 → 9.2 → 9.3 → 9.4 → 9.5 → 9.6 → 9.7 → 9.8 → 9.9 → 9.10
+               ↓
+(évolutions et remédiations, dans l'ordre chronologique livré)
+Slice 10.1 → 11.1 → 12.1 → 13.1 → 14.1 → 14.2 → 14.3 → 14.4
+               ↓
+Slice 15.1 → 15.2 → 15.3 → 15.4 → 16.x → 17.x → 18.x
 ```
 
 Chaque slice laisse le projet dans un état compilable, testé et spec-conformant.
