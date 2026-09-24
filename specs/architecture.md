@@ -1,8 +1,8 @@
 ---
 status: approved
-version: 1.4.0
+version: 1.4.1
 last-reviewed: 2026-09-24
-change: "Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
+change: "Phase 18 : paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
 ---
 
 # Architecture — WAF Anti-DDoS / Anti-Bot
@@ -139,6 +139,8 @@ internal/
     ├── cluster/         Synchronisation d'état inter-nœuds (FR-20)
     ├── gdpr/            Anonymisation, rétention, registre (FR-28)
     ├── signing/         HMAC-SHA256 : signature et validation
+    ├── hostname/        Normalisation d'hôte (casse, port) partagée par le
+    │                    routage, le challenge et le token d'origine
     └── jsonstrict/      Parsing JSON durci sur les entrées non fiables (FR-30)
 ```
 
@@ -445,7 +447,7 @@ waf/
 │   └── waf/
 │       ├── main.go              # Bootstrap, construction de la chaîne (routes())
 │       └── main_test.go         # Tests e2e sur routes()
-├── internal/                    # 42 paquets — cf. C4 Level 3
+├── internal/                    # 43 paquets — cf. C4 Level 3
 ├── web/
 │   ├── challenge.html           # Template HTML/CSS/JS du challenge PoW
 │   └── embed.go                 # go:embed : la page est dans le binaire (G7)

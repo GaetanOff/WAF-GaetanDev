@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/hostname"
 )
 
 // healthPath reste servi quel que soit le Host : les sondes de conteneur et
@@ -28,7 +29,7 @@ func StrictHost(domains []config.DomainConfig, next http.Handler) http.Handler {
 		routes = append(routes, domainRoute{host: strings.TrimPrefix(host, "*."), wildcard: wildcard})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path == healthPath || declared(routes, normalizeHost(r.Host)) {
+		if r.URL.Path == healthPath || declared(routes, hostname.Normalize(r.Host)) {
 			next.ServeHTTP(w, r)
 			return
 		}

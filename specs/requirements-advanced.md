@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 2.5.0
+version: 2.5.1
 last-reviewed: 2026-09-24
 reviewed-by: GaetanDev
 extends: requirements.md (v2.0.0)
-change: "FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
+change: "FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)
@@ -170,6 +170,7 @@ change: "FR-12/FR-13 : profils comportementaux et entrées de réputation détai
 
 - Le WAF DOIT injecter un **header secret** dans toutes les requêtes proxifiées vers l'upstream :
   `X-WAF-Origin-Token: <HMAC-SHA256(secret, domain + timestamp_hour)>`
+- `domain` est l'hôte **normalisé** (minuscules, port retiré), comme pour le routage `domains[]` : un Host `Example.com:443` est signé et vérifié comme `example.com`. Signé sur le Host brut, le token injecté échouait à `GET /waf/origin/verify?domain=example.com`
 - Le token DOIT être rotatif (change toutes les heures, tolérance 2h pour éviter les coupures)
 - La valeur de ce header DOIT être configurable (`origin_protection.secret`)
 - **Différé** : rotation du secret sans interruption (acceptation d'un secret

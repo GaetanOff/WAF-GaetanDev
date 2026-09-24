@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/hostname"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/upstream"
 	"github.com/gaetandev/waf/internal/upstreamtime"
@@ -152,7 +153,7 @@ func (h *Handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // antérieurs à la correspondance exacte sont encore parcourus, ce qui préserve
 // la règle « première entrée gagnante ».
 func (h *Handler) resolveProxy(host string) *httputil.ReverseProxy {
-	if index := h.routeIndex(normalizeHost(host)); index >= 0 {
+	if index := h.routeIndex(hostname.Normalize(host)); index >= 0 {
 		return h.domains[index].proxy
 	}
 	return h.defaultProxy
@@ -239,15 +240,4 @@ func realIP(r *http.Request) string {
 		return host
 	}
 	return r.RemoteAddr
-}
-
-func normalizeHost(host string) string {
-	// SplitHostPort alloue une erreur quand il n'y a pas de port : le cas
-	// courant (Host sans port) l'évite.
-	if strings.IndexByte(host, ':') >= 0 {
-		if hostname, _, err := net.SplitHostPort(host); err == nil {
-			return strings.ToLower(hostname)
-		}
-	}
-	return strings.ToLower(host)
 }
