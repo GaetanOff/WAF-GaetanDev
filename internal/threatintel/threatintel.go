@@ -8,7 +8,12 @@ import (
 	"net"
 	"sync"
 	"time"
+
+	"github.com/gaetandev/waf/internal/ttlcache"
 )
+
+// maxCachedVerdicts borne le cache de réputation.
+const maxCachedVerdicts = 100000
 
 // Level classe la réputation d'une IP, du plus bénin au plus dangereux.
 type Level int
@@ -33,19 +38,17 @@ type Source interface {
 
 // Checker agrège des sources et met en cache les verdicts avec TTL. Les misses
 // déclenchent une résolution asynchrone afin de ne jamais bloquer la requête.
+//
+// Le cache est borné (maxCachedVerdicts, LRU) et ses entrées expirent. C'était
+// une map dont les verdicts périmés n'étaient remplacés qu'à la relecture de la
+// même IP : chaque IP vue une fois y restait pour toujours.
 type Checker struct {
 	sources []Source
 	ttl     time.Duration
+	cache   *ttlcache.Cache[string, Verdict]
 
-	mu       sync.RWMutex
-	cache    map[string]cachedVerdict
+	mu       sync.Mutex
 	inflight map[string]struct{}
-	now      func() time.Time
-}
-
-type cachedVerdict struct {
-	verdict   Verdict
-	expiresAt time.Time
 }
 
 func NewChecker(ttl time.Duration, sources ...Source) *Checker {
@@ -55,9 +58,8 @@ func NewChecker(ttl time.Duration, sources ...Source) *Checker {
 	return &Checker{
 		sources:  sources,
 		ttl:      ttl,
-		cache:    make(map[string]cachedVerdict),
+		cache:    ttlcache.New[string, Verdict](maxCachedVerdicts, ttl),
 		inflight: make(map[string]struct{}),
-		now:      time.Now,
 	}
 }
 
@@ -69,11 +71,8 @@ func (c *Checker) Verdict(ip string) Verdict {
 		return Verdict{Level: LevelClean}
 	}
 
-	c.mu.RLock()
-	entry, ok := c.cache[ip]
-	c.mu.RUnlock()
-	if ok && entry.expiresAt.After(c.now()) {
-		return entry.verdict
+	if verdict, ok := c.cache.Get(ip); ok {
+		return verdict
 	}
 
 	c.triggerAsync(ip, parsed)
@@ -90,9 +89,8 @@ func (c *Checker) triggerAsync(ip string, parsed net.IP) {
 	c.mu.Unlock()
 
 	go func() {
-		verdict := c.evaluate(parsed)
+		c.cache.Set(ip, c.evaluate(parsed))
 		c.mu.Lock()
-		c.cache[ip] = cachedVerdict{verdict: verdict, expiresAt: c.now().Add(c.ttl)}
 		delete(c.inflight, ip)
 		c.mu.Unlock()
 	}()
@@ -106,9 +104,7 @@ func (c *Checker) resolveSync(ip string) Verdict {
 		return Verdict{Level: LevelClean}
 	}
 	verdict := c.evaluate(parsed)
-	c.mu.Lock()
-	c.cache[ip] = cachedVerdict{verdict: verdict, expiresAt: c.now().Add(c.ttl)}
-	c.mu.Unlock()
+	c.cache.Set(ip, verdict)
 	return verdict
 }
 

@@ -1,6 +1,7 @@
 package threatintel
 
 import (
+	"fmt"
 	"net"
 	"net/http"
 	"net/http/httptest"
@@ -102,4 +103,15 @@ func newScores(t *testing.T) (*trust.ScoreManager, *memory.Store) {
 		t.Fatalf("trust.NewScoreManager() error = %v", err)
 	}
 	return manager, store
+}
+
+// Régression : le cache était une map jamais purgée — chaque IP vue y restait.
+func TestCheckerCacheIsBounded(t *testing.T) {
+	checker := NewChecker(time.Hour, NewStaticSource())
+	for i := range maxCachedVerdicts + 500 {
+		checker.resolveSync(fmt.Sprintf("10.%d.%d.%d", i>>16&0xff, i>>8&0xff, i&0xff))
+	}
+	if got := checker.cache.Len(); got != maxCachedVerdicts {
+		t.Fatalf("cached verdicts = %d, want %d", got, maxCachedVerdicts)
+	}
 }
