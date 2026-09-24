@@ -8,7 +8,10 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
+	"github.com/gaetandev/waf/internal/storage/memory"
+	"github.com/gaetandev/waf/internal/trust"
 )
 
 func request(method string, target string, ip string) *http.Request {
@@ -35,7 +38,7 @@ func TestRuleSetMatchesByPriorityAndShortCircuits(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	actions := rs.Match(request(http.MethodGet, "http://x/admin/users", "1.2.3.4"))
+	actions := rs.Match(request(http.MethodGet, "http://x/admin/users", "1.2.3.4"), nil)
 	// La règle priorité 1 (continue) puis priorité 100 (block) → log puis block.
 	if len(actions) != 2 || actions[0].Type != "log" || actions[1].Type != "block" {
 		t.Fatalf("actions = %+v, want [log, block]", actions)
@@ -55,13 +58,13 @@ func TestRuleConditionsIPCidrAndMethod(t *testing.T) {
 		t.Fatalf("Load() error = %v", err)
 	}
 
-	if a := rs.Match(request(http.MethodPost, "http://x/", "10.1.2.3")); len(a) != 1 {
+	if a := rs.Match(request(http.MethodPost, "http://x/", "10.1.2.3"), nil); len(a) != 1 {
 		t.Fatalf("expected match for 10.1.2.3 POST, got %+v", a)
 	}
-	if a := rs.Match(request(http.MethodGet, "http://x/", "10.1.2.3")); len(a) != 0 {
+	if a := rs.Match(request(http.MethodGet, "http://x/", "10.1.2.3"), nil); len(a) != 0 {
 		t.Fatalf("GET must not match POST rule, got %+v", a)
 	}
-	if a := rs.Match(request(http.MethodPost, "http://x/", "8.8.8.8")); len(a) != 0 {
+	if a := rs.Match(request(http.MethodPost, "http://x/", "8.8.8.8"), nil); len(a) != 0 {
 		t.Fatalf("8.8.8.8 must not match CIDR rule, got %+v", a)
 	}
 }
@@ -73,7 +76,7 @@ func TestDisabledRuleIgnoredAndHotReload(t *testing.T) {
 		Conditions: []Condition{{Field: "path", Operator: "equals", Value: "/x"}},
 		Actions:    []Action{{Type: "block"}},
 	}})
-	if a := rs.Match(request(http.MethodGet, "http://x/x", "1.1.1.1")); len(a) != 0 {
+	if a := rs.Match(request(http.MethodGet, "http://x/x", "1.1.1.1"), nil); len(a) != 0 {
 		t.Fatalf("disabled rule must not match, got %+v", a)
 	}
 
@@ -83,7 +86,7 @@ func TestDisabledRuleIgnoredAndHotReload(t *testing.T) {
 		Conditions: []Condition{{Field: "path", Operator: "equals", Value: "/x"}},
 		Actions:    []Action{{Type: "block"}},
 	}})
-	if a := rs.Match(request(http.MethodGet, "http://x/x", "1.1.1.1")); len(a) != 1 {
+	if a := rs.Match(request(http.MethodGet, "http://x/x", "1.1.1.1"), nil); len(a) != 1 {
 		t.Fatalf("reloaded rule must match, got %+v", a)
 	}
 }
@@ -161,7 +164,7 @@ func TestRuleIPConditionIgnoresClientSuppliedXRealIP(t *testing.T) {
 			}
 			r.Header.Set("X-Forwarded-For", "203.0.113.9")
 
-			matched := len(rs.Match(r)) == 1
+			matched := len(rs.Match(r, nil)) == 1
 			if matched != tt.wantMatch {
 				t.Fatalf("match = %v, want %v (remote %s, X-Real-IP %q)", matched, tt.wantMatch, tt.remoteIP, tt.xRealIP)
 			}
@@ -188,7 +191,7 @@ func TestRuleIPConditionUsesTheCloudflareEstablishedIP(t *testing.T) {
 
 	var matched bool
 	cloudflare.Middleware(http.HandlerFunc(func(_ http.ResponseWriter, inner *http.Request) {
-		matched = len(rs.Match(inner)) == 1
+		matched = len(rs.Match(inner, nil)) == 1
 	})).ServeHTTP(httptest.NewRecorder(), r)
 
 	if !matched {
@@ -216,7 +219,7 @@ func BenchmarkMatchQueryParamRules(b *testing.B) {
 	request.RemoteAddr = "10.1.2.3:1234"
 	b.ReportAllocs()
 	for b.Loop() {
-		ruleSet.Match(request)
+		ruleSet.Match(request, nil)
 	}
 }
 
@@ -228,7 +231,7 @@ func TestRuleIPCidrMatchesIPv4MappedAddress(t *testing.T) {
 	}
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
 	request.RemoteAddr = "[::ffff:10.1.2.3]:1234"
-	if len(ruleSet.Match(request)) == 0 {
+	if len(ruleSet.Match(request, nil)) == 0 {
 		t.Fatal("IPv4-mapped client address must match the IPv4 prefix")
 	}
 }
@@ -275,4 +278,68 @@ func TestLoadFileRejectsUnknownKeys(t *testing.T) {
 	if err := NewRuleSet().LoadFile(path); err != nil {
 		t.Fatalf("LoadFile() valid file error = %v", err)
 	}
+}
+
+func newScoreManager(t *testing.T) *trust.ScoreManager {
+	t.Helper()
+	scores, err := trust.NewScoreManager(memory.New(100), config.Default())
+	if err != nil {
+		t.Fatalf("trust.NewScoreManager() error = %v", err)
+	}
+	return scores
+}
+
+func lowTrustCheckoutRules(t *testing.T) *RuleSet {
+	t.Helper()
+	rs := NewRuleSet()
+	if err := rs.Load([]Rule{{
+		Name: "tarpit-low-trust-checkout", Priority: 1, Enabled: true,
+		Conditions: []Condition{
+			{Field: "trust_score", Operator: "lt", Value: "25"},
+			{Field: "path", Operator: "starts_with", Value: "/checkout/"},
+		},
+		Actions: []Action{{Type: "tarpit"}},
+	}}); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	return rs
+}
+
+// rules-engine.feature « Règle basée sur le trust_score courant » : le score est
+// lu dans le ScoreManager. Il était lu dans X-WAF-Score, que l'ingress supprime
+// et que le middleware de score ne pose qu'en aval des règles : la condition
+// était toujours fausse en production.
+func TestTrustScoreConditionReadsTheScoreManager(t *testing.T) {
+	scores := newScoreManager(t)
+	scores.Set("1.2.3.4", "shop.example", 20)
+	var action string
+
+	NewMiddleware(lowTrustCheckoutRules(t), scores).Handler(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		action = r.Header.Get("X-WAF-Action")
+	})).ServeHTTP(httptest.NewRecorder(), request(http.MethodGet, "http://shop.example/checkout/payment", "1.2.3.4"))
+
+	if action != "TARPIT" {
+		t.Fatalf("X-WAF-Action = %q, want TARPIT for a visitor whose trust score is 20", action)
+	}
+}
+
+func TestTrustScoreConditionIgnoresTheScoreHeader(t *testing.T) {
+	scores := newScoreManager(t)
+	scores.Set("1.2.3.4", "shop.example", 80)
+	req := request(http.MethodGet, "http://shop.example/checkout/payment", "1.2.3.4")
+	req.Header.Set("X-WAF-Score", "10")
+
+	if actions := lowTrustCheckoutRules(t).Match(req, scores); len(actions) != 0 {
+		t.Fatalf("actions = %v, want none: the visitor's score is 80, whatever X-WAF-Score says", actions)
+	}
+}
+
+func TestTrustScoreConditionIsFalseWithoutScores(t *testing.T) {
+	req := request(http.MethodGet, "http://shop.example/checkout/payment", "1.2.3.4")
+
+	if actions := lowTrustCheckoutRules(t).Match(req, nil); len(actions) != 0 {
+		t.Fatalf("actions = %v, want none when no score is known", actions)
+	}
+	NewMiddleware(lowTrustCheckoutRules(t), nil).Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).
+		ServeHTTP(httptest.NewRecorder(), req)
 }

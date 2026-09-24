@@ -21,6 +21,7 @@ import (
 	"sync/atomic"
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
+	"github.com/gaetandev/waf/internal/storage"
 
 	"gopkg.in/yaml.v3"
 )
@@ -80,6 +81,15 @@ type requestView struct {
 	parsed   bool
 	clientIP string
 	resolved bool
+	scores   ScoreReader
+	score    int
+	scored   bool
+}
+
+// ScoreReader lit le trust score courant d'un visiteur sans rien écrire
+// (satisfait par *trust.ScoreManager).
+type ScoreReader interface {
+	Peek(ip string, domain string) storage.VisitorState
 }
 
 func (v *requestView) queryParam(name string) string {
@@ -94,6 +104,20 @@ func (v *requestView) ip() string {
 		v.clientIP, v.resolved = clientIP(v.r), true
 	}
 	return v.clientIP
+}
+
+// trustScore lit le score du visiteur dans le ScoreManager. Il était lu dans
+// l'en-tête X-WAF-Score, que l'ingress supprime et que seul le middleware de
+// score pose — en aval des règles : toute condition trust_score était fausse.
+// Faux (score inconnu) seulement sans ScoreReader.
+func (v *requestView) trustScore() (int, bool) {
+	if v.scores == nil {
+		return 0, false
+	}
+	if !v.scored {
+		v.score, v.scored = v.scores.Peek(v.ip(), v.r.Host).Score, true
+	}
+	return v.score, true
 }
 
 // RuleSet contient les règles compilées, triées par priorité. Rechargeable à
@@ -166,10 +190,11 @@ func validateActions(actions []Action) error {
 }
 
 // Match retourne les actions à appliquer pour la requête (première règle qui
-// matche, plus celles à `continue`). nil si aucune règle ne matche.
-func (rs *RuleSet) Match(r *http.Request) []Action {
+// matche, plus celles à `continue`). nil si aucune règle ne matche. scores peut
+// être nil : les conditions trust_score sont alors fausses.
+func (rs *RuleSet) Match(r *http.Request, scores ScoreReader) []Action {
 	compiled, _ := rs.compiled.Load().([]compiledRule)
-	view := &requestView{r: r}
+	view := &requestView{r: r, scores: scores}
 	var actions []Action
 	for _, cr := range compiled {
 		if !ruleMatches(cr, view) {
@@ -232,25 +257,30 @@ func compileCondition(c Condition) (matcher, error) {
 	}
 }
 
-// compileTrustScore évalue le trust score (header X-WAF-Score). Si le score
-// n'est pas encore disponible (-1), la condition ne matche pas (gracieux).
+// compileTrustScore évalue le trust score courant du visiteur. Si le score
+// n'est pas disponible (aucun ScoreReader), la condition ne matche pas.
 func compileTrustScore(c Condition) (matcher, error) {
 	threshold, err := strconv.Atoi(c.Value)
 	if err != nil {
 		return nil, fmt.Errorf("trust_score value must be an integer: %w", err)
 	}
+	var compare func(score int) bool
 	switch c.Operator {
 	case "lt":
-		return func(v *requestView) bool { s := trustScore(v.r); return s >= 0 && s < threshold }, nil
+		compare = func(score int) bool { return score < threshold }
 	case "lte":
-		return func(v *requestView) bool { s := trustScore(v.r); return s >= 0 && s <= threshold }, nil
+		compare = func(score int) bool { return score <= threshold }
 	case "gt":
-		return func(v *requestView) bool { s := trustScore(v.r); return s >= 0 && s > threshold }, nil
+		compare = func(score int) bool { return score > threshold }
 	case "gte":
-		return func(v *requestView) bool { s := trustScore(v.r); return s >= 0 && s >= threshold }, nil
+		compare = func(score int) bool { return score >= threshold }
 	default:
 		return nil, fmt.Errorf("unsupported trust_score operator %q", c.Operator)
 	}
+	return func(v *requestView) bool {
+		score, known := v.trustScore()
+		return known && compare(score)
+	}, nil
 }
 
 func compileIP(c Condition) (matcher, error) {
@@ -338,14 +368,4 @@ func toSet(values []string) map[string]struct{} {
 		set[v] = struct{}{}
 	}
 	return set
-}
-
-// trustScore lit le header X-WAF-Score s'il est présent (sinon -1).
-func trustScore(r *http.Request) int {
-	if v := r.Header.Get("X-WAF-Score"); v != "" {
-		if n, err := strconv.Atoi(v); err == nil {
-			return n
-		}
-	}
-	return -1
 }

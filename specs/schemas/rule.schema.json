@@ -3,7 +3,7 @@
   "$id": "https://github.com/GaetanDev/WAF/schemas/rule.schema.json",
   "title": "WAFRule",
   "description": "Règle personnalisée du moteur de règles (FR-17). Le fichier rules.file a pour racine {\"rules\": [WAFRule, …]} et est décodé strictement : toute clé absente de ce schéma est refusée au chargement. Une règle matche quand TOUTES ses conditions sont vraies (ET implicite) ; les règles sont évaluées par priorité croissante et la première qui matche exécute ses actions, sauf continue: true.",
-  "$comment": "Version 2.0.0 (2026-09-24) — schéma réaligné sur le contrat réellement chargé par internal/rules (audit du 2026-09-24, point 2.1). La v1 décrivait un groupe hiérarchique AND/OR/NOT, des clés op/header_name/param_name, des params d'action et des champs/actions sans implémentation. Différés, sans implémentation : opérateurs OR/NOT, champs ip_cidr, body_param, asn, asn_type, behavioral_score, ja3_hash, request_size, content_type, hour_of_day, referer ; opérateurs not_equals, not_contains, not_in_list, not_exists, between, in_asn ; actions challenge, rate_limit, redirect, remove_header, allow ; clés description, domains, case_sensitive ; statut et message configurables du block.",
+  "$comment": "Version 2.0.1 (2026-09-24) — description de trust_score : le score est lu dans le gestionnaire de score (audit 3, point 1.1), le contrat est inchangé. Version 2.0.0 (2026-09-24) — schéma réaligné sur le contrat réellement chargé par internal/rules (audit du 2026-09-24, point 2.1). La v1 décrivait un groupe hiérarchique AND/OR/NOT, des clés op/header_name/param_name, des params d'action et des champs/actions sans implémentation. Différés, sans implémentation : opérateurs OR/NOT, champs ip_cidr, body_param, asn, asn_type, behavioral_score, ja3_hash, request_size, content_type, hour_of_day, referer ; opérateurs not_equals, not_contains, not_in_list, not_exists, between, in_asn ; actions challenge, rate_limit, redirect, remove_header, allow ; clés description, domains, case_sensitive ; statut et message configurables du block.",
   "type": "object",
   "additionalProperties": false,
   "required": ["name", "conditions", "actions"],
@@ -48,7 +48,7 @@
         "field": {
           "type": "string",
           "enum": ["ip", "user_agent", "path", "method", "country", "header", "query_param", "trust_score"],
-          "description": "ip = IP réelle établie par le WAF (jamais un en-tête client) ; country = CF-IPCountry, supprimé s'il n'est pas prouvé Cloudflare (ADR-019) ; trust_score = score courant (X-WAF-Score), condition fausse s'il n'est pas encore connu"
+          "description": "ip = IP réelle établie par le WAF (jamais un en-tête client) ; country = CF-IPCountry, supprimé s'il n'est pas prouvé Cloudflare (ADR-019) ; trust_score = score courant du visiteur, lu dans le gestionnaire de score et jamais dans un en-tête (X-WAF-Score est posé en aval des règles), condition fausse s'il n'est pas connu"
         },
         "operator": {
           "type": "string",
