@@ -215,8 +215,8 @@ func (s *Store) GetVisitor(key string) (*storage.VisitorState, bool) {
 	}
 	s.succeeded()
 
-	var visitor storage.VisitorState
-	if err := json.Unmarshal(payload, &visitor); err != nil {
+	visitor, err := decodeVisitor(payload)
+	if err != nil {
 		// Valeur illisible : ce n'est pas un problème de connectivité, donc pas
 		// une raison de basculer en dégradé. On la traite comme une absence.
 		s.observeError("decode_visitor")
@@ -287,8 +287,8 @@ func (s *Store) ListVisitors() []storage.VisitorState {
 				if !ok {
 					continue // clé expirée entre le SCAN et le MGET
 				}
-				var visitor storage.VisitorState
-				if err := json.Unmarshal([]byte(raw), &visitor); err != nil {
+				visitor, err := decodeVisitor([]byte(raw))
+				if err != nil {
 					s.observeError("decode_visitor")
 					continue
 				}
@@ -305,6 +305,53 @@ func (s *Store) ListVisitors() []storage.VisitorState {
 	}
 	s.succeeded()
 	return visitors
+}
+
+// legacyVisitorState est la forme écrite avant que storage.VisitorState ne
+// porte ses balises JSON : clés PascalCase, hors contrat visitor.schema.json.
+// Mêmes champs, mêmes types, sans balise : la conversion vers
+// storage.VisitorState est donc directe.
+type legacyVisitorState struct {
+	IPHash               string
+	Domain               string
+	Score                int
+	FirstSeen            time.Time
+	LastSeen             time.Time
+	ExpiresAt            time.Time
+	ReqCount             int64
+	ViolationCount       int
+	LastViolation        *time.Time
+	LastRateLimitPenalty *time.Time
+	ChallengePassed      bool
+	ChallengeAttempts    int
+	ChallengeFailures    int
+	FPHash               *string
+	StickyTrustUntil     *time.Time
+	CircuitOpen          bool
+	CircuitOpenUntil     *time.Time
+}
+
+// decodeVisitor lit une valeur au contrat snake_case, et à défaut une valeur
+// PascalCase écrite par une version antérieure. Sans ce repli, une entrée
+// antérieure décodée en snake_case donnerait un visiteur vide — score 0, donc
+// BLOQUÉ — le temps que son TTL l'efface. Le repli peut disparaître une fois
+// trust.score_ttl écoulé après le déploiement de toutes les instances.
+func decodeVisitor(payload []byte) (storage.VisitorState, error) {
+	var visitor storage.VisitorState
+	if err := json.Unmarshal(payload, &visitor); err != nil {
+		return storage.VisitorState{}, err
+	}
+	if visitor.IPHash != "" {
+		return visitor, nil
+	}
+	var legacy legacyVisitorState
+	if err := json.Unmarshal(payload, &legacy); err != nil {
+		return storage.VisitorState{}, err
+	}
+	if legacy.IPHash == "" {
+		return storage.VisitorState{}, errors.New("visitor payload has no ip_hash")
+	}
+	return storage.VisitorState(legacy), nil
 }
 
 func (s *Store) GetBucket(key string) (*storage.RateBucket, bool) {
