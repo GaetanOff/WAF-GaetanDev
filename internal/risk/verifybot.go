@@ -8,9 +8,14 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/ttlcache"
 )
 
-const crawlerSpoofContribution = 60
+const (
+	crawlerSpoofContribution = 60
+	// maxBotVerifications borne le cache des vérifications reverse-DNS.
+	maxBotVerifications = 100000
+)
 
 type BotVerificationState string
 
@@ -48,19 +53,18 @@ type BotVerifierConfig struct {
 	Crawlers        []string
 }
 
+// BotVerifier vérifie par reverse-DNS confirmé qu'un crawler déclaré en est
+// bien un (FR-36). Le cache des résultats est borné (maxBotVerifications, LRU)
+// et expire selon success/failure_cache_ttl ; c'était une map dont les entrées
+// périmées n'étaient jamais retirées.
 type BotVerifier struct {
 	resolver BotResolver
 	cfg      BotVerifierConfig
 	now      func() time.Time
+	cache    *ttlcache.Cache[string, BotVerification]
 
 	mu       sync.Mutex
-	cache    map[string]botCacheEntry
 	inFlight map[string]bool
-}
-
-type botCacheEntry struct {
-	verification BotVerification
-	expiresAt    time.Time
 }
 
 func DefaultBotVerifierConfig() BotVerifierConfig {
@@ -99,13 +103,14 @@ func NewBotVerifier(cfg BotVerifierConfig, resolver BotResolver) *BotVerifier {
 	if cfg.FailureCacheTTL == 0 {
 		cfg.FailureCacheTTL = 10 * time.Minute
 	}
-	return &BotVerifier{
+	verifier := &BotVerifier{
 		resolver: resolver,
 		cfg:      cfg,
 		now:      time.Now,
-		cache:    make(map[string]botCacheEntry),
 		inFlight: make(map[string]bool),
 	}
+	verifier.cache = ttlcache.New[string, BotVerification](maxBotVerifications, cfg.FailureCacheTTL).WithClock(func() time.Time { return verifier.now() })
+	return verifier
 }
 
 func (v *BotVerifier) Check(ip string, userAgent string) BotVerification {
@@ -119,12 +124,10 @@ func (v *BotVerifier) Check(ip string, userAgent string) BotVerification {
 	}
 
 	key := bot + "|" + ip
-	now := v.now()
-	v.mu.Lock()
-	if entry, ok := v.cache[key]; ok && entry.expiresAt.After(now) {
-		v.mu.Unlock()
-		return entry.verification
+	if verification, ok := v.cache.Get(key); ok {
+		return verification
 	}
+	v.mu.Lock()
 	if !v.inFlight[key] {
 		v.inFlight[key] = true
 		go v.verify(key, ip, bot)
@@ -145,11 +148,8 @@ func (v *BotVerifier) verify(key string, ip string, bot string) {
 		ttl = v.cfg.SuccessCacheTTL
 	}
 
+	v.cache.SetWithTTL(key, result, ttl)
 	v.mu.Lock()
-	v.cache[key] = botCacheEntry{
-		verification: result,
-		expiresAt:    v.now().Add(ttl),
-	}
 	delete(v.inFlight, key)
 	v.mu.Unlock()
 }

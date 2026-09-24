@@ -2,6 +2,7 @@ package risk
 
 import (
 	"errors"
+	"fmt"
 	"testing"
 	"time"
 
@@ -176,4 +177,15 @@ func (r fakeBotResolver) LookupHost(host string) ([]string, error) {
 		return nil, errors.New("not found")
 	}
 	return addresses, nil
+}
+
+// Régression : le cache des vérifications était une map jamais purgée.
+func TestBotVerifierCacheIsBounded(t *testing.T) {
+	verifier := newTestBotVerifier(fakeBotResolver{})
+	for i := range maxBotVerifications + 100 {
+		verifier.verify(fmt.Sprintf("googlebot|10.0.%d", i), "10.0.0.1", "googlebot")
+	}
+	if got := verifier.cache.Len(); got != maxBotVerifications {
+		t.Fatalf("cached verifications = %d, want %d", got, maxBotVerifications)
+	}
 }
