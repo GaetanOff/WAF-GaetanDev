@@ -287,6 +287,45 @@ func TestMiddlewareVerifyRejectsExpiredToken(t *testing.T) {
 	}
 }
 
+// adaptive-protection.feature, « Difficulté encodée dans le token
+// anti-rétrogradation » : un PoW calculé pour la difficulté de base est refusé
+// quand le token signé en exige davantage.
+func TestMiddlewareVerifyRejectsPowBelowTokenDifficulty(t *testing.T) {
+	middleware, store := newTestChallengeMiddleware(t)
+	defer store.Close()
+	const tokenDifficulty = 12
+	token, err := middleware.tokenIssuer.GenerateForRedirectWithDifficulty("3.3.3.3", "example.test", "/page", tokenDifficulty)
+	if err != nil {
+		t.Fatalf("GenerateForRedirectWithDifficulty() error = %v", err)
+	}
+	nonce := downgradedPow(t, token, middleware.staticDifficulty(), tokenDifficulty)
+	request := verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, nonce, 1200))
+	response := httptest.NewRecorder()
+
+	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest || !strings.Contains(response.Body.String(), "invalid_pow") {
+		t.Fatalf("status = %d body = %s, want 400 invalid_pow", response.Code, response.Body.String())
+	}
+	if visitor, ok := store.GetVisitor(trust.HashIP("3.3.3.3")); !ok || visitor.Score != 30 {
+		t.Fatalf("score = %v ok=%v, want 30 (-20)", visitor, ok)
+	}
+}
+
+// downgradedPow retourne un nonce valide pour baseBits mais pas pour tokenBits.
+func downgradedPow(t *testing.T, token string, baseBits int, tokenBits int) string {
+	t.Helper()
+	for nonce := range uint64(10_000_000) {
+		nonceText := strconv.FormatUint(nonce, 10)
+		sum := sha256.Sum256([]byte(token + nonceText))
+		if hasLeadingZeroBits(sum[:], baseBits) && !hasLeadingZeroBits(sum[:], tokenBits) {
+			return nonceText
+		}
+	}
+	t.Fatal("could not find a downgraded PoW")
+	return ""
+}
+
 func newTestChallengeMiddleware(t *testing.T) (Middleware, *memory.Store) {
 	t.Helper()
 	store := memory.New(100)
