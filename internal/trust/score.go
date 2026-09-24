@@ -41,7 +41,22 @@ const (
 	// visiteur actif expire au plus maxTouchInterval plus tôt qu'à la seconde
 	// près, ce qui est sans effet pratique pour un score_ttl d'une heure.
 	maxTouchInterval = 30 * time.Second
+
+	// headerDeterministicTrigger porte un signal déterministe publié par un
+	// détecteur (threat intel critique, JA3 blacklisté ; FR-35).
+	headerDeterministicTrigger = "X-WAF-Deterministic-Trigger"
 )
+
+// deterministicTriggers sont les signaux qui bloquent seuls, sans
+// corroboration (requirements-detection FR-35) — l'énumération de
+// risk-assessment.schema.json.
+var deterministicTriggers = map[string]bool{
+	"blacklist":             true,
+	"honeypot":              true,
+	"ja3_blacklist":         true,
+	"threat_intel_critical": true,
+	"circuit_breaker":       true,
+}
 
 type ScoreManager struct {
 	store              storage.Store
@@ -218,6 +233,14 @@ func (m *ScoreManager) Middleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Sans moteur de risque, ce middleware est le seul à décider : ignorer le
+		// déclencheur laissait passer, sans blocage ni challenge, une IP classée
+		// critique par AbuseIPDB ou un JA3 explicitement blacklisté.
+		if trigger := r.Header.Get(headerDeterministicTrigger); deterministicTriggers[trigger] {
+			blockDeterministic(w, r, trigger)
+			return
+		}
+
 		visitor := m.Get(cloudflare.RealIP(r), r.Host)
 		state := m.State(visitor.Score)
 		r.Header.Set("X-WAF-Score", strconv.Itoa(visitor.Score))
@@ -242,6 +265,19 @@ func (m *ScoreManager) Middleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// blockDeterministic refuse la requête en 403 sur un déclencheur déterministe,
+// avec la raison posée par le détecteur (ex. ja3_blacklisted).
+func blockDeterministic(w http.ResponseWriter, r *http.Request, trigger string) {
+	reason := r.Header.Get("X-WAF-Reason")
+	if reason == "" {
+		reason = "deterministic_" + trigger
+	}
+	w.Header().Set(headerDeterministicTrigger, trigger)
+	w.Header().Set("X-WAF-Action", "BLOCK")
+	w.Header().Set("X-WAF-Reason", reason)
+	http.Error(w, "forbidden", http.StatusForbidden)
 }
 
 func HashIP(ip string) string {

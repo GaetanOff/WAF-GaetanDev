@@ -7,9 +7,10 @@ import (
 )
 
 // HeaderUserAgentWhitelisted marque une requête dont le User-Agent correspond
-// à whitelist_user_agents. Seul le challenge JS proactif l'honore : le reste de
-// la chaîne (blacklist, anti-DDoS, rate limit, moteur de risque et sa
-// vérification reverse-DNS des crawlers) s'applique. En-tête interne : le
+// à whitelist_user_agents. Seuls le challenge JS proactif et les heuristiques
+// anti-bot « client non navigateur » l'honorent : le reste de la chaîne
+// (blacklist, anti-DDoS, rate limit, moteur de risque et sa vérification
+// reverse-DNS des crawlers) s'applique. En-tête interne : le
 // middleware ingress supprime tout X-WAF-* fourni par le client.
 const HeaderUserAgentWhitelisted = "X-WAF-UA-Whitelisted"
 

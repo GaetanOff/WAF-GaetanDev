@@ -188,3 +188,22 @@ func TestUnderAttackTransitionObserver(t *testing.T) {
 		t.Fatalf("sorties = %d, want 1", exits)
 	}
 }
+
+// Le scope per_domain suit la normalisation d'hôte du routage : casse et port
+// ignorés, et deux hôtes IPv6 ne partagent plus le compteur "[".
+func TestUnderAttackScopeKeyNormalizesHost(t *testing.T) {
+	d := NewUnderAttackDetector(UnderAttackConfig{Enabled: true, PerDomain: true})
+	cases := map[string]string{
+		"Example.com:443":      "example.com",
+		"example.com":          "example.com",
+		"[2001:db8::1]:443":    "2001:db8::1",
+		"[2001:db8::2]:8443":   "2001:db8::2",
+		"[2001:db8::1]":        "[2001:db8::1]",
+		"api.example.com:8080": "api.example.com",
+	}
+	for host, want := range cases {
+		if got := d.scopeKey(host); got != want {
+			t.Errorf("scopeKey(%q) = %q, want %q", host, got, want)
+		}
+	}
+}

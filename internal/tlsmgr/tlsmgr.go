@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/hostname"
 )
 
 // Manager détient les certificats chargés et construit le tls.Config du serveur.
@@ -93,7 +94,7 @@ func (m *Manager) TLSConfig() *tls.Config {
 
 // getCertificate sélectionne le certificat selon le SNI du ClientHello.
 func (m *Manager) getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
-	host := normalizeHost(hello.ServerName)
+	host := hostname.Normalize(hello.ServerName)
 	for i := range m.certs {
 		if m.certs[i].matches(host) {
 			return &m.certs[i].cert, nil
@@ -175,12 +176,4 @@ func parseCipherSuites(names []string) ([]uint16, error) {
 		ids = append(ids, id)
 	}
 	return ids, nil
-}
-
-func normalizeHost(host string) string {
-	host = strings.ToLower(strings.TrimSpace(host))
-	if colon := strings.IndexByte(host, ':'); colon >= 0 {
-		host = host[:colon]
-	}
-	return host
 }

@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -20,6 +21,7 @@ import (
 	"github.com/gaetandev/waf/internal/origin"
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/storage/memory"
+	"github.com/gaetandev/waf/internal/tlsfp"
 	"github.com/gaetandev/waf/internal/trust"
 )
 
@@ -739,6 +741,35 @@ func TestRoutesWhitelistedUserAgentIsNotABypass(t *testing.T) {
 	}
 }
 
+// FR-11 / FR-35 : sans moteur de risque, un JA3 blacklisté bloque quand même.
+// Le middleware de score, seul décideur dans ce cas, ignorait le déclencheur.
+func TestRoutesDeterministicTriggerBlocksWithoutRiskEngine(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.RiskEngine.Enabled = false
+	cfg.Challenge.Enabled = false
+	const blacklisted = "3b5074b1b5d032e5620f69f9159a1b97"
+	ja3 := tlsfp.NewMiddleware(config.TLSFingerprint{Enabled: true, JA3Header: "X-Client-JA3", JA3Blacklist: []string{blacklisted}}, 100)
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), []func(http.Handler) http.Handler{ja3.Handler}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("a blacklisted JA3 must not reach the upstream")
+	}))
+	request := requestFrom("198.51.100.10:443")
+	request.Header.Set("User-Agent", "Mozilla/5.0")
+	request.Header.Set("Accept-Language", "fr")
+	request.Header.Set("Accept-Encoding", "gzip")
+	request.Header.Set("X-Client-JA3", blacklisted)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403", response.Code)
+	}
+	if got := response.Header().Get("X-WAF-Reason"); got != "ja3_blacklisted" {
+		t.Fatalf("X-WAF-Reason = %q, want ja3_blacklisted", got)
+	}
+}
+
 // FR-23 / FR-02 : la borne slowloris par IP porte sur le visiteur
 // (CF-Connecting-IP), pas sur le point de présence Cloudflare qui relaie
 // plusieurs visiteurs légitimes sur la même adresse source.
@@ -783,6 +814,149 @@ func TestRoutesSlowlorisCountsTheCloudflareVisitorNotThePoP(t *testing.T) {
 	}
 }
 
+// FR-09 / FR-23 / FR-30 / ADR-020 : les refus d'enveloppe sont comptés dans
+// Prometheus et journalisés comme toute décision du WAF. Montés au-dessus du
+// journal et des métriques, ils étaient invisibles.
+func TestRoutesEnvelopeRejectionsAreObserved(t *testing.T) {
+	cases := []struct {
+		name       string
+		configure  func(*config.Config)
+		request    func() *http.Request
+		wantCode   int
+		wantAction string
+		wantReason string
+	}{
+		{
+			name: "strict host",
+			configure: func(cfg *config.Config) {
+				cfg.Server.StrictHost = true
+				cfg.Domains = []config.DomainConfig{{Host: "boxaria.fr", Upstream: "http://10.0.0.1"}}
+			},
+			request: func() *http.Request {
+				request := requestFrom("203.0.113.10:1234")
+				request.Host = "undeclared.test"
+				return request
+			},
+			wantCode:   http.StatusBadRequest,
+			wantAction: "BLOCK",
+			wantReason: "host_not_declared",
+		},
+		{
+			name: "verify flood",
+			configure: func(cfg *config.Config) {
+				cfg.SelfProtection.Enabled = true
+				cfg.SelfProtection.VerifyMaxPerMinute = 1
+			},
+			request: func() *http.Request {
+				return httptest.NewRequest(http.MethodPost, "http://example.test/waf/verify", strings.NewReader(`{}`))
+			},
+			wantCode:   http.StatusTooManyRequests,
+			wantAction: "RATE_LIMIT",
+			wantReason: "self_protect_flood",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := config.Default()
+			cfg.Cloudflare.Trusted = false
+			cfg.Challenge.Enabled = false
+			tc.configure(&cfg)
+			events := &eventLog{}
+			logger := newTestLogger()
+			logger.Recorder = events
+			metrics := newTestMetrics()
+			handler := routes(cfg, newTestRules(t, nil, nil, nil), logger, metrics, newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(http.StatusNoContent)
+			}))
+
+			var response *httptest.ResponseRecorder
+			for range 2 { // la deuxième requête franchit la borne de /waf/verify
+				response = httptest.NewRecorder()
+				handler.ServeHTTP(response, tc.request())
+			}
+
+			if response.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d", response.Code, tc.wantCode)
+			}
+			assertObserved(t, handler, events, tc.wantAction, tc.wantReason)
+		})
+	}
+}
+
+func TestRoutesSlowlorisRejectionIsObserved(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.Challenge.Enabled = false
+	cfg.Slowloris.Enabled = true
+	cfg.Slowloris.MaxConnsPerIP = 1
+	events := &eventLog{}
+	logger := newTestLogger()
+	logger.Recorder = events
+	release := make(chan struct{})
+	inFlight := make(chan struct{})
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), logger, newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/slow" {
+			close(inFlight)
+			<-release
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	done := make(chan struct{})
+	go func() {
+		handler.ServeHTTP(httptest.NewRecorder(), requestFromPath("198.51.100.1:1234", "/slow"))
+		close(done)
+	}()
+	<-inFlight
+
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, requestFrom("198.51.100.1:1234"))
+	close(release)
+	<-done
+
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", second.Code)
+	}
+	assertObserved(t, handler, events, "RATE_LIMIT", "too_many_connections_per_ip")
+}
+
+// assertObserved vérifie que le refus figure dans waf_requests_total et dans
+// le journal de sécurité (qui alimente aussi GET /waf/admin/events).
+func assertObserved(t *testing.T, handler http.Handler, events *eventLog, action string, reason string) {
+	t.Helper()
+	if !events.has(action, reason) {
+		t.Fatalf("no security event with action=%s reason=%s in %+v", action, reason, events.events)
+	}
+	scrape := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/waf/metrics", nil)
+	request.Host = "boxaria.fr"
+	handler.ServeHTTP(scrape, request)
+	if want := `waf_requests_total{action="` + action + `"`; !strings.Contains(scrape.Body.String(), want) {
+		t.Fatalf("metrics do not count the rejection: missing %s", want)
+	}
+}
+
+type eventLog struct {
+	mu     sync.Mutex
+	events []waflogger.SecurityEvent
+}
+
+func (l *eventLog) RecordSecurityEvent(event waflogger.SecurityEvent) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = append(l.events, event)
+}
+
+func (l *eventLog) has(action string, reason string) bool {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	for _, event := range l.events {
+		if event.Action == action && event.Reason == reason {
+			return true
+		}
+	}
+	return false
+}
+
 // ADR-020 option 1C, monté dans la chaîne réelle : le Host non déclaré n'atteint
 // pas l'upstream, la sonde de santé par IP reste servie.
 func TestRoutesStrictHostRejectsUndeclaredHosts(t *testing.T) {
@@ -814,5 +988,58 @@ func TestRoutesStrictHostRejectsUndeclaredHosts(t *testing.T) {
 	}
 	if code := send("10.0.0.5:8080", "/waf/health"); code != http.StatusOK {
 		t.Fatalf("health probe by IP: status = %d, want 200", code)
+	}
+	if code := send("10.0.0.5:8080", "/waf/metrics"); code != http.StatusBadRequest {
+		t.Fatalf("metrics by IP: status = %d, want 400 — /waf/metrics is not exempt", code)
+	}
+}
+
+// Le Host est normalisé comme pour le routage avant d'être comparé aux
+// domaines : la casse et le port ne font plus refuser un domaine déclaré.
+func TestRedirectToHTTPSNormalizesTheHost(t *testing.T) {
+	handler := redirectToHTTPS([]config.DomainConfig{{Host: "Example.com"}, {Host: "*.boxaria.fr"}})
+	cases := []struct {
+		host     string
+		wantCode int
+		wantURL  string
+	}{
+		{host: "example.com", wantCode: http.StatusMovedPermanently, wantURL: "https://example.com/path?q=1"},
+		{host: "EXAMPLE.com:80", wantCode: http.StatusMovedPermanently, wantURL: "https://example.com/path?q=1"},
+		{host: "www.Boxaria.fr:8080", wantCode: http.StatusMovedPermanently, wantURL: "https://www.boxaria.fr/path?q=1"},
+		{host: "evil.test", wantCode: http.StatusBadRequest},
+		{host: "[::1]:8080", wantCode: http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		request := httptest.NewRequest(http.MethodGet, "http://placeholder/path?q=1", nil)
+		request.Host = tc.host
+		response := httptest.NewRecorder()
+
+		handler.ServeHTTP(response, request)
+
+		if response.Code != tc.wantCode {
+			t.Fatalf("%s: status = %d, want %d", tc.host, response.Code, tc.wantCode)
+		}
+		if got := response.Header().Get("Location"); got != tc.wantURL {
+			t.Fatalf("%s: Location = %q, want %q", tc.host, got, tc.wantURL)
+		}
+	}
+}
+
+// FR-26 : un domains[].upstream distinct de upstream.address est inerte sous
+// upstream_pool ; il est signalé au démarrage.
+func TestPoolShadowedDomains(t *testing.T) {
+	cfg := config.Default()
+	cfg.Upstream.Address = "http://10.0.0.1"
+	cfg.Domains = []config.DomainConfig{
+		{Host: "www.example.com", Upstream: "http://10.0.0.1"},
+		{Host: "api.example.com", Upstream: "http://10.0.0.2"},
+	}
+	if got := poolShadowedDomains(cfg); got != nil {
+		t.Fatalf("pool disabled: got %v, want none", got)
+	}
+	cfg.UpstreamPool.Enabled = true
+	got := poolShadowedDomains(cfg)
+	if len(got) != 1 || got[0] != "api.example.com" {
+		t.Fatalf("got %v, want [api.example.com]", got)
 	}
 }

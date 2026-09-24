@@ -1,6 +1,6 @@
 ---
 status: implemented
-sprint: 18
+sprint: 19
 last-updated: 2026-09-24
 ---
 
@@ -913,7 +913,44 @@ last-updated: 2026-09-24
 - [x] 2.3 Cles Redis sans hash tag : **inexact**. Le backend utilise `goredis.NewClient` (instance unique) ; Redis Cluster est hors perimetre (ADR-021), `CROSSSLOT` ne peut pas se produire. A reprendre si Redis Cluster est un jour supporte
 - [x] 2.4 `threatChecker.Close()` / `BotVerifier.Close()` non appeles : **exact, sans impact**. Ces workers ne tiennent aucune ressource a vider et le processus se termine juste apres `Shutdown`. Les appeler depuis `run()` fermerait leur canal alors que, sur le chemin d'erreur, des requetes peuvent encore y ecrire (panique « send on closed channel »)
 - [x] 3.2 `X-WAF-Action` absent de selfprotect et slowloris : **inexact quant a l'impact**. Ces deux gardes sont montees **hors** du logger et des metriques (`routes()`) : leurs 429 ne sont jamais journalises, donc jamais en `PASS`
-- [ ] Constat annexe, hors audit : ces refus (selfprotect, slowloris) ne sont ni journalises ni comptes — a specifier si on veut les observer
-- [ ] Constat annexe, hors audit : sans moteur de risque, les declencheurs deterministes `ja3_blacklist` et `threat_intel_critical` n'ont aucun effet
+- [x] Constat annexe, hors audit : ces refus (selfprotect, slowloris) ne sont ni journalises ni comptes — corrige au Sprint 19 (T19.1, 1.4)
+- [x] Constat annexe, hors audit : sans moteur de risque, les declencheurs deterministes `ja3_blacklist` et `threat_intel_critical` n'ont aucun effet — corrige au Sprint 19 (T19.1, 1.2)
 - **Validation 2026-09-24** : `go build ./...`, `go vet ./...`, `go test ./...` (690 tests, 46 paquets), `golangci-lint run` (0 issue), `spectral lint` (0 erreur), `govulncheck` (0 vulnerabilite atteignable, 1 non atteinte : GO-2026-5932) ; execution reelle du binaire sur `config.example.yaml` : `Example.com:8080` compte sous `domain="example.com"`, deux Host inventes sous `_undeclared`, secrets masques. `go test -race` non executable localement — couvert par la CI.
+- **Statut** : implemente.
+
+## Sprint 19 - Remediation du quatrieme audit du 2026-09-24 (Phase 19)
+
+> Quatrieme audit externe du 2026-09-24 : chaque point a ete verifie contre le
+> code avant correction, sur la branche `fix/audit-4-remediation`, a raison
+> d'un commit par correction. Deux points sont infirmes par la mesure (2.2,
+> 2.3), un est exact mais releve d'une decision d'architecture (2.1), deux sont
+> conformes a la spec (3.2, 4.2) ; la raison est consignee (T19.4).
+
+### T19.1 - Anomalies logiques
+- [x] 1.1 Un UA de `whitelist_user_agents` perdait 5 points par requete (`missing_browser_header`) : Googlebot bloque en huit requetes, avant la verification reverse-DNS. Les heuristiques « client non navigateur » (en-tetes manquants, UA d'outil) ne s'appliquent plus a un UA whiteliste ; honeypot, automation et headless restent evalues
+- [x] 1.2 Sans moteur de risque, `trust.ScoreManager.Middleware` ignorait `X-WAF-Deterministic-Trigger` : une IP critique AbuseIPDB ou un JA3 blackliste passait. Le middleware bloque desormais (403) les declencheurs FR-35
+- [x] 1.3 Tarpit : `w.(http.Flusher)` echouait toujours a travers les `statusRecorder` du pipeline (Unwrap seul) ; la page etait envoyee d'un bloc. `http.NewResponseController(w).Flush()`
+- [x] 1.4 slowloris, `strict_host` et selfprotect montes au-dessus de metrics/logger : leurs refus n'etaient ni comptes, ni journalises, ni publies sur `GET /waf/admin/events`. Descendus sous metrics/logger, avec `X-WAF-Action` (`RATE_LIMIT`, `BLOCK`) ; `/waf/metrics` et `/waf/origin/verify` gardent slowloris et strict_host (ADR-020), seul `/waf/health` y echappe. Reason slowloris alignee sur la feature : `too_many_connections_per_ip`
+- **Spec** : requirements.md FR-07, FR-09 (v2.3.3) ; requirements-advanced.md FR-11 (v2.5.3) ; requirements-detection.md FR-35 (v1.3.1) ; architecture.md (v1.4.3) ; features/whitelist-blacklist, anti-bot, tls-fingerprinting, slowloris-protection
+
+### T19.2 - Performance et robustesse
+- [x] 2.4 `Pool.pick` allouait une tranche de candidats par requete (1 alloc, 48 B/op) : selection en deux parcours, 0 allocation (test). FNV n'allouait pas (audit inexact sur ce point)
+- [x] 2.5 `alert.Notifier.lastSent` : map sans borne indexee par le Host client ; `ttlcache` de 10 000 cles expirant avec le cooldown
+- [x] 3.1 `redirectToHTTPS` (Host sensible a la casse, IPv6 coupe au premier `:`), scope `per_domain` du mode sous attaque (tous les hotes IPv6 sous `[`) et SNI de `tlsmgr` passent par `hostname.Normalize`
+- [x] 3.2 `upstream_pool` prioritaire sur `domains[].upstream` : **conforme a FR-26** (pool global, pool par domaine differe). Avertissement au demarrage pour chaque `domains[].upstream` rendu inerte
+- **Spec** : requirements-ops.md FR-26 (v3.5.2) ; CONFIG.md
+
+### T19.3 - Specs et conformite SDD
+- [x] 4.1 geo-rules, threat-intelligence et adaptive-protection reecrites sur le contrat reel, capacites absentes `@deferred` : bloc `geo_rules:` inexistant ; paliers AbuseIPDB (declencheur `threat_intel_critical` / plafond 20, pas de delta -40/-20) ; `invalid_pow` (et non `difficulty_mismatch`), +4 bits au niveau eleve, cles `adaptive.max_difficulty` / `decay_tau`. Tests ajoutes pour les scenarios actifs non couverts (codes pays, paliers AbuseIPDB, anti-retrogradation, decroissance)
+- [x] 4.3 `GET /waf/health` admin : `degraded` quand le store Redis sert son etat local (ADR-021) ; il repondait toujours `ok`. Le `/waf/health` public, dont le contrat n'admet que `ok`, est inchange
+- **Spec** : requirements-advanced.md FR-13, FR-14, FR-16 (v2.5.6) ; admin.openapi.yaml (v1.1.2)
+
+### T19.4 - Points non corriges
+- [x] 2.1 Allers-retours Redis sequentiels : **exact**, mais une decision d'architecture (cache de visiteur par requete, pipelining) qui exige un amendement d'ADR-021 et une mesure G6 sur Redis reel. Le chiffre de l'audit (5 a 7 ms a 1 ms de RTT) n'est pas mesure
+- [x] 2.2 Verrou global de `visitorTracker.observe` : **infirme par la mesure**. Sous contention maximale (8 coeurs, rien d'autre que le verrou) : 131 ns/op, ~7,6 M observations/s ; a 20 000 req/s, verrou occupe < 1 %
+- [x] 2.3 Verrous des detecteurs DDoS (fichiers `global.go` / `underattack.go`, pas `detector.go`) : **infirme par la mesure**. 117 ns/op (`Record`) et 284 ns/op (`Observe`) sous 8 coeurs, soit 3,5 a 8,5 M ops/s. Pas de compteurs stripes sans mesure de charge qui le justifie
+- [x] 4.2 Schemas `behavioral-profile` et `threat-intel-entry` en `draft` : **conforme au cycle de vie** (« draft : no implementation »), deja marques et references comme differes par FR-12/FR-13 au Sprint 17
+- [ ] Constat annexe, hors audit : sans moteur de risque, `geo.challenge_countries` n'a pas d'effet (contribution lue par le seul moteur) — documente dans geo-rules.feature, a traiter comme le 1.2 si besoin
+- [ ] Fonctionnalites differees (`@deferred`) de geo-rules, threat-intelligence, adaptive-protection : a planifier ou a retirer des specs
+- **Validation 2026-09-24** : `go build ./...`, `go vet ./...`, `go test ./...` (723 tests et sous-tests, 45 paquets testes), `golangci-lint run` (0 issue), `spectral lint` (0 erreur), `govulncheck` (0 vulnerabilite atteignable, 1 non atteinte) ; execution reelle du binaire sur `config.example.yaml` avec `strict_host` : Host non declare 400 journalise `BLOCK host_not_declared` et compte sous `_undeclared`, `/waf/metrics` par IP 400, `/waf/health` 200. `go test -race` non executable localement — couvert par la CI.
 - **Statut** : implemente.

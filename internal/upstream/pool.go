@@ -67,62 +67,107 @@ func (p *Pool) Pick(key string) (*Upstream, bool) {
 	return p.pick(key, true) // fallback backups
 }
 
+// pick sélectionne parmi les candidats (membres sains du groupe primaire ou
+// backup) sans matérialiser leur liste : une tranche de candidats était
+// allouée sur le tas à chaque requête proxifiée. Deux parcours de
+// p.upstreams — compter, puis désigner le n-ième — suffisent.
 func (p *Pool) pick(key string, backup bool) (*Upstream, bool) {
-	candidates := make([]*Upstream, 0, len(p.upstreams))
+	count, totalWeight := 0, 0
 	for _, u := range p.upstreams {
-		if u.Backup == backup && u.Healthy() {
-			candidates = append(candidates, u)
+		if isCandidate(u, backup) {
+			count++
+			totalWeight += u.Weight
 		}
 	}
-	if len(candidates) == 0 {
+	if count == 0 {
 		return nil, false
 	}
 
 	switch p.strategy {
 	case StrategyIPHash:
-		return candidates[hashKey(key)%uint32(len(candidates))], true
+		return p.nthCandidate(backup, int(hashKey(key)%uint32(count))), true
 	case StrategyLeastConn:
-		return leastConn(candidates), true
+		return p.leastConn(backup), true
 	case StrategyWeighted:
-		return p.weighted(candidates), true
+		return p.weighted(backup, totalWeight), true
 	default: // round_robin
-		p.mu.Lock()
-		idx := p.counter % uint64(len(candidates))
-		p.counter++
-		p.mu.Unlock()
-		return candidates[idx], true
+		return p.nthCandidate(backup, int(p.next()%uint64(count))), true
 	}
 }
 
-func leastConn(candidates []*Upstream) *Upstream {
-	best := candidates[0]
-	for _, u := range candidates[1:] {
-		if u.Inflight() < best.Inflight() {
+func isCandidate(u *Upstream, backup bool) bool {
+	return u.Backup == backup && u.Healthy()
+}
+
+// next retourne puis avance le compteur de rotation.
+func (p *Pool) next() uint64 {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	current := p.counter
+	p.counter++
+	return current
+}
+
+// nthCandidate retourne le n-ième candidat. Un membre qui change d'état entre
+// le comptage et ce parcours peut décaler l'index : le dernier candidat vu,
+// ou à défaut le premier membre du groupe, est alors retenu.
+func (p *Pool) nthCandidate(backup bool, n int) *Upstream {
+	var last *Upstream
+	for _, u := range p.upstreams {
+		if !isCandidate(u, backup) {
+			continue
+		}
+		if n == 0 {
+			return u
+		}
+		n--
+		last = u
+	}
+	if last != nil {
+		return last
+	}
+	return p.firstOfGroup(backup)
+}
+
+func (p *Pool) leastConn(backup bool) *Upstream {
+	var best *Upstream
+	for _, u := range p.upstreams {
+		if isCandidate(u, backup) && (best == nil || u.Inflight() < best.Inflight()) {
 			best = u
 		}
+	}
+	if best == nil {
+		return p.firstOfGroup(backup)
 	}
 	return best
 }
 
-func (p *Pool) weighted(candidates []*Upstream) *Upstream {
-	total := 0
-	for _, u := range candidates {
-		total += u.Weight
-	}
+func (p *Pool) weighted(backup bool, total int) *Upstream {
 	if total <= 0 {
-		return candidates[0]
+		return p.nthCandidate(backup, 0)
 	}
-	p.mu.Lock()
-	point := int(p.counter % uint64(total))
-	p.counter++
-	p.mu.Unlock()
-	for _, u := range candidates {
+	point := int(p.next() % uint64(total))
+	for _, u := range p.upstreams {
+		if !isCandidate(u, backup) {
+			continue
+		}
 		point -= u.Weight
 		if point < 0 {
 			return u
 		}
 	}
-	return candidates[len(candidates)-1]
+	return p.nthCandidate(backup, 0)
+}
+
+// firstOfGroup est le repli d'une course entre comptage et sélection : tous
+// les candidats sont devenus non sains entre-temps.
+func (p *Pool) firstOfGroup(backup bool) *Upstream {
+	for _, u := range p.upstreams {
+		if u.Backup == backup {
+			return u
+		}
+	}
+	return p.upstreams[0]
 }
 
 func hashKey(key string) uint32 {

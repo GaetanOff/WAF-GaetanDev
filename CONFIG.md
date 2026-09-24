@@ -718,7 +718,7 @@ upstream_pool:
     unhealthy_threshold: 3
 ```
 
-Remplace l'`upstream` unique par un pool load-balancé avec health checks. **Prend la priorité sur `upstream` et `domains[].upstream`** quand activé.
+Remplace l'`upstream` unique par un pool load-balancé avec health checks. **Prend la priorité sur `upstream` et `domains[].upstream`** quand activé : le pool est global et sert tous les hôtes (pas de pool par domaine). Un `domains[].upstream` différent de `upstream.address` est alors ignoré, et signalé par un avertissement au démarrage.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
@@ -989,7 +989,7 @@ whitelist_user_agents:
   - "UptimeRobot"
 ```
 
-User-agents de bots légitimes **exemptés du challenge JS proactif** (un crawler n'exécute pas le JS). Chaque entrée est une **expression régulière** (syntaxe RE2) recherchée dans le header `User-Agent`, **sensible à la casse** — préfixer par `(?i)` pour l'ignorer.
+User-agents de bots légitimes **exemptés du challenge JS proactif** (un crawler n'exécute pas le JS) **et des heuristiques anti-bot « client non navigateur »** (en-têtes `Accept-Language`/`Accept-Encoding` absents, UA d'outil type `curl/`) : un crawler n'envoie pas les en-têtes d'un navigateur. Honeypots, UA d'automation (Selenium, Puppeteer) et navigateurs headless restent pénalisés. Chaque entrée est une **expression régulière** (syntaxe RE2) recherchée dans le header `User-Agent`, **sensible à la casse** — préfixer par `(?i)` pour l'ignorer.
 
 Ce n'est **pas** un bypass : un `User-Agent` se forge. La blacklist, l'anti-DDoS, le rate limiting et le moteur de risque s'appliquent. Un faux crawler démasqué par `risk_engine.verified_bots` (reverse-DNS) voit sa réputation dégradée et reçoit le challenge ou le blocage que décide le moteur ; un crawler vérifié est autorisé (`ALLOW`). Pour un bypass total, utiliser `whitelist` (IP ou CIDR).
 

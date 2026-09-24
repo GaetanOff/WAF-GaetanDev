@@ -104,3 +104,25 @@ func TestControllerRaisesDifficultyUnderAttackThenDecays(t *testing.T) {
 		t.Fatalf("snapshot mutated state: %d -> %d", before, after)
 	}
 }
+
+// adaptive-protection.feature, « Retour à la normale » : les bits ajoutés
+// décroissent en e^(-t/τ) — 16 + round(8·e^(-60/300)) = 23 après une minute,
+// la base après 5τ.
+func TestControllerDecaysBackToBaseline(t *testing.T) {
+	now := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
+	controller := NewController(16, 24, 5*time.Minute)
+	controller.now = func() time.Time { return now }
+	controller.ObservePressure("critical")
+	if d := controller.Snapshot(); d != 24 {
+		t.Fatalf("critical difficulty = %d, want 24", d)
+	}
+
+	now = now.Add(time.Minute)
+	if d := controller.Difficulty(); d != 23 {
+		t.Fatalf("difficulty after 1 min = %d, want 23", d)
+	}
+	now = now.Add(24 * time.Minute)
+	if d := controller.Difficulty(); d != 16 {
+		t.Fatalf("difficulty after 5 tau = %d, want 16", d)
+	}
+}

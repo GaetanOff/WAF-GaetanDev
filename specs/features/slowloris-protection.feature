@@ -59,7 +59,8 @@ Feature: Protection Slowloris & Slow HTTP
     And l'IP "1.2.3.4" a déjà 50 connexions actives
     When elle ouvre une 51ème connexion
     Then le WAF rejette la connexion (TCP RST ou HTTP 429 selon config)
-    And un event est journalisé avec reason="too_many_connections_per_ip"
+    And un event est journalisé avec action="RATE_LIMIT" reason="too_many_connections_per_ip"
+    And la requête est comptée dans waf_requests_total{action="RATE_LIMIT"}
 
   Scenario: Requête unique portant des milliers de lignes d'en-tête
     # max_conns_per_ip borne le nombre de requêtes concurrentes ; il ne borne pas

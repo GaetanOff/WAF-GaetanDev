@@ -2,9 +2,10 @@ package antiddos
 
 import (
 	"container/list"
-	"strings"
 	"sync"
 	"time"
+
+	"github.com/gaetandev/waf/internal/hostname"
 )
 
 // DefaultMaxTrackedDomains borne le nombre de domaines suivis par le compteur de
@@ -167,11 +168,9 @@ func (d *UnderAttackDetector) scopeKey(domain string) string {
 	if !d.cfg.PerDomain {
 		return "*"
 	}
-	host := domain
-	if i := strings.IndexByte(host, ':'); i >= 0 { // retire le port éventuel
-		host = host[:i]
-	}
-	return strings.ToLower(host)
+	// Coupé au premier ":", un Host IPv6 ("[2001:db8::1]:443") donnait "[" :
+	// tous les hôtes IPv6 partageaient un même compteur de pression.
+	return hostname.Normalize(domain)
 }
 
 // getOrCreateLocked retourne l'état du scope, en créant l'entrée (et en évinçant le

@@ -10,6 +10,7 @@
 package deception
 
 import (
+	"errors"
 	"net/http"
 	"strconv"
 	"time"
@@ -61,7 +62,12 @@ func (t *Tarpit) Dispatch(next http.Handler) http.Handler {
 
 // serve écrit une fausse page HTML par chunks espacés de délais.
 func (t *Tarpit) serve(w http.ResponseWriter, r *http.Request) {
-	flusher, _ := w.(http.Flusher)
+	// ResponseController remonte la chaîne Unwrap() : les middlewares en amont
+	// (métriques, journal, anti-DDoS) enveloppent w sans implémenter
+	// http.Flusher, et une assertion directe w.(http.Flusher) échouait donc
+	// toujours. La réponse était alors bufférisée et envoyée d'un bloc à la fin
+	// du délai, au lieu de retenir le client chunk par chunk.
+	controller := http.NewResponseController(w)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 
@@ -82,8 +88,8 @@ func (t *Tarpit) serve(w http.ResponseWriter, r *http.Request) {
 		if _, err := w.Write([]byte(chunk)); err != nil {
 			return
 		}
-		if flusher != nil {
-			flusher.Flush()
+		if err := controller.Flush(); err != nil && !errors.Is(err, http.ErrNotSupported) {
+			return
 		}
 		select {
 		case <-time.After(t.delay):

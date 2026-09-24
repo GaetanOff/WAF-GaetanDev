@@ -24,6 +24,7 @@ import (
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/deception"
 	"github.com/gaetandev/waf/internal/geo"
+	"github.com/gaetandev/waf/internal/hostname"
 	"github.com/gaetandev/waf/internal/integrity"
 	waflogger "github.com/gaetandev/waf/internal/logger"
 	"github.com/gaetandev/waf/internal/maintenance"
@@ -88,6 +89,9 @@ func run() error {
 		cfg.Server.Listen = *listenAddress
 	}
 	warnUntrustedInfrastructureHeaders(*cfg)
+	for _, host := range poolShadowedDomains(*cfg) {
+		slog.Warn("domains[].upstream is ignored while upstream_pool is enabled: the pool serves every host", "host", host, "requirement", "FR-26")
+	}
 
 	readTimeout, err := parseDuration("server.read_timeout", cfg.Server.ReadTimeout)
 	if err != nil {
@@ -503,6 +507,24 @@ func warnUntrustedInfrastructureHeaders(cfg config.Config) {
 	}
 }
 
+// poolShadowedDomains retourne les hôtes dont domains[].upstream diffère de
+// upstream.address alors que upstream_pool est actif. Le pool, global, sert
+// alors tous les hôtes (FR-26 ; pool par domaine différé) : ces upstreams ne
+// reçoivent aucune requête. Un avertissement et non une erreur — la clé est
+// obligatoire dans domains[], et la configuration reste celle que FR-26 décrit.
+func poolShadowedDomains(cfg config.Config) []string {
+	if !cfg.UpstreamPool.Enabled {
+		return nil
+	}
+	var hosts []string
+	for _, domain := range cfg.Domains {
+		if domain.Upstream != cfg.Upstream.Address {
+			hosts = append(hosts, domain.Host)
+		}
+	}
+	return hosts
+}
+
 // domainHosts retourne les hôtes déclarés dans domains[].
 func domainHosts(domains []config.DomainConfig) []string {
 	hosts := make([]string, 0, len(domains))
@@ -532,14 +554,15 @@ func newStore(cfg config.Config, observer redisstore.Observer) (storage.Store, e
 }
 
 func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflogger.Logger, metrics *wafmetrics.Metrics, antiDDoS antiddos.Middleware, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, riskMiddleware *risk.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, detectors []func(http.Handler) http.Handler, proxyHandler http.Handler) http.Handler {
+	guard := envelopeGuard(cfg)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/waf/health", healthHandler)
-	mux.Handle("/waf/metrics", metrics.Handler())
+	mux.Handle("/waf/metrics", guard(metrics.Handler()))
 	if cfg.OriginProtection.Enabled {
 		// Protection de l'origine (FR-19) : endpoint de vérification + injection
 		// du token signé vers l'upstream (le proxy transmet le header).
 		signer := origin.NewSigner(cfg.OriginProtection.Secret)
-		mux.HandleFunc("/waf/origin/verify", signer.VerifyHandler)
+		mux.Handle("/waf/origin/verify", guard(http.HandlerFunc(signer.VerifyHandler)))
 		proxyHandler = signer.Injector(proxyHandler)
 	}
 	// FR-34 / FR-04 : une décision CHALLENGE du moteur de risque ou du trust score
@@ -564,13 +587,17 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	proxyHandler = challengeMiddleware.Handler(proxyHandler)
 	proxyHandler = antiDDoS.Handler(proxyHandler)
 	proxyHandler = access.Middleware(accessRules, proxyHandler)
-	proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
-	proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
 	// Auto-protection (FR-30) : limite le flood de POST /waf/verify par IP.
 	if cfg.SelfProtection.Enabled {
 		verifyWindow := selfprotect.NewWindow(cfg.SelfProtection.VerifyMaxPerMinute, time.Minute)
 		proxyHandler = selfprotect.PathGuard("/waf/verify", verifyWindow)(proxyHandler)
 	}
+	// Refus d'enveloppe (slowloris, strict_host) et auto-protection sous le
+	// journal et les métriques : montés au-dessus, leurs 429 et 400 n'étaient
+	// ni comptés dans Prometheus, ni journalisés, ni publiés sur le flux admin.
+	proxyHandler = guard(proxyHandler)
+	proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
+	proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
 	// Bypass des assets statiques (FR-24) : le plus en amont du pipeline pour
 	// marquer PASS avant challenge/trust/détecteurs (la blacklist reste appliquée).
 	if cfg.StaticAssets.Enabled {
@@ -578,16 +605,6 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	}
 	mux.Handle("/", proxyHandler)
 	var handler http.Handler = mux
-	// Host non déclaré refusé (ADR-020 option 1C, opt-in) : un Host non listé
-	// hériterait sinon de la politique globale, y compris vers la même origine
-	// qu'un domaine durci. /waf/health reste servi aux sondes par IP.
-	if cfg.Server.StrictHost {
-		handler = proxy.StrictHost(cfg.Domains, handler)
-	}
-	// Protection Slowloris (FR-23) : limite les requêtes concurrentes par IP.
-	if cfg.Slowloris.Enabled {
-		handler = slowloris.New(cfg.Slowloris.MaxConnsPerIP).Handler(handler)
-	}
 	// Extraction de l'IP réelle (FR-02) : en amont de tout ce qui compte par IP.
 	// Montée plus bas (autour du seul pipeline de proxy), elle laissait slowloris,
 	// l'auto-protection de /waf/verify et le bypass d'assets lire RemoteAddr,
@@ -622,6 +639,30 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	return handler
 }
 
+// envelopeGuard retourne les refus par IP et par Host appliqués à tout chemin
+// servi, /waf/health excepté (sondes par IP) : une instance unique, pour que la
+// borne slowloris par IP compte toutes les requêtes de l'IP, quel que soit le
+// chemin. La chaîne "/" les monte sous le journal et les métriques.
+func envelopeGuard(cfg config.Config) func(http.Handler) http.Handler {
+	var limiter *slowloris.Limiter
+	if cfg.Slowloris.Enabled {
+		limiter = slowloris.New(cfg.Slowloris.MaxConnsPerIP)
+	}
+	return func(next http.Handler) http.Handler {
+		// Host non déclaré refusé (ADR-020 option 1C, opt-in) : un Host non
+		// listé hériterait sinon de la politique globale, y compris vers la
+		// même origine qu'un domaine durci.
+		if cfg.Server.StrictHost {
+			next = proxy.StrictHost(cfg.Domains, next)
+		}
+		// Protection Slowloris (FR-23) : limite les requêtes concurrentes par IP.
+		if limiter != nil {
+			next = limiter.Handler(next)
+		}
+		return next
+	}
+}
+
 // redirectToHTTPS renvoie un handler de redirection HTTP→HTTPS qui valide le
 // Host entrant contre les domaines configurés avant de rediriger. Un Host non
 // reconnu reçoit un 400 : sans cette garde, un attaquant peut injecter un Host
@@ -629,10 +670,12 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 func redirectToHTTPS(domains []config.DomainConfig) http.HandlerFunc {
 	allowed := make([]string, len(domains))
 	for i, d := range domains {
-		allowed[i] = d.Host
+		allowed[i] = strings.ToLower(d.Host)
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
-		host := stripPort(r.Host)
+		// Même normalisation que le routage : "Example.com" et "[::1]:8080"
+		// étaient refusés en 400 (casse conservée, IPv6 coupé au premier ":").
+		host := hostname.Normalize(r.Host)
 		if !hostAllowed(host, allowed) {
 			http.Error(w, "bad request", http.StatusBadRequest)
 			return
@@ -663,13 +706,6 @@ func hostAllowed(host string, patterns []string) bool {
 		}
 	}
 	return false
-}
-
-func stripPort(hostport string) string {
-	if before, _, ok := strings.Cut(hostport, ":"); ok {
-		return before
-	}
-	return hostport
 }
 
 func healthHandler(w http.ResponseWriter, _ *http.Request) {

@@ -22,6 +22,14 @@ Feature: TLS / JA3 Fingerprinting
     And l'événement est journalisé avec reason="ja3_blacklisted"
     # FR-35 / ADR-015 : un JA3 blacklisté est une vérité non ambiguë.
 
+  Scenario: JA3 hash en blacklist sans moteur de risque — BLOCK quand même
+    Given le hash "3b5074b1b5d032e5620f69f9159a1b97" est dans la blacklist JA3
+    And risk_engine.enabled = false
+    When une requête avec ce JA3 arrive, quel que soit son trust score
+    Then le middleware de trust score la bloque (HTTP 403)
+    And la réponse porte X-WAF-Deterministic-Trigger: ja3_blacklist et reason="ja3_blacklisted"
+    # Régression : sans moteur, le déclencheur était ignoré et la requête passait.
+
   Scenario: JA3 propre — aucun impact
     Given le hash JA3 "a0e9f5d64349fb13191bc781f81f42e1" n'est pas en blacklist
     When une requête avec ce JA3 arrive

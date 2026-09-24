@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 2.5.2
+version: 2.5.6
 last-reviewed: 2026-09-24
 reviewed-by: GaetanDev
 extends: requirements.md (v2.0.0)
-change: "FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par le moteur de risque, FR-35), la clause « score -= 40 et challenge immédiat » antérieure au moteur est retirée. Précédent (2.5.1) — FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
+change: "FR-14 : anti-rétrogradation spécifiée en `invalid_pow`, plancher de pression précisé, message de page, métrique d'intensité et baseline 24 h marqués différés. Précédent (2.5.5) — FR-13 : paliers AbuseIPDB réalignés sur le vérificateur (≥ 80 déclencheur threat_intel_critical, ≥ 50 trust score plafonné à 20), plages locales et échec de source spécifiés. Précédent (2.5.4) — FR-16 : exigences réalignées sur le bloc `geo` implémenté, rate limit et score par pays, règles par domaine et métriques par pays marqués différés. Précédent (2.5.3) — FR-11 : sans moteur de risque, le middleware de trust score applique le déclencheur `ja3_blacklist` (403) — la blacklist JA3 était sans effet. Précédent (2.5.2) — FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par le moteur de risque, FR-35), la clause « score -= 40 et challenge immédiat » antérieure au moteur est retirée. Précédent (2.5.1) — FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)
@@ -21,7 +21,7 @@ change: "FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par
 - Le WAF DOIT maintenir une liste de hashes JA3 connus malveillants (configurable)
 - Le WAF DOIT stocker le JA3 dans le `VisitorProfile` pour détection d'incohérence entre sessions
 - Un hash JA3 en blacklist DOIT être déclaré **déclencheur déterministe** `ja3_blacklist` (requirements-detection FR-35, ADR-015) : le moteur de risque le bloque (HTTP 403) sans exigence de corroboration, et la raison journalisée est `ja3_blacklisted`. Aucun delta de trust score n'est appliqué. Cette clause remplace « score -= 40 et challenge immédiat », antérieure au moteur de risque
-- Le déclencheur n'est appliqué que par le moteur de risque : en `risk_engine.shadow_mode` la décision BLOCK est journalisée sans être appliquée, et sans moteur (`risk_engine.enabled: false`) la blacklist JA3 n'a pas d'effet
+- En `risk_engine.shadow_mode`, la décision BLOCK du moteur est journalisée sans être appliquée. Sans moteur (`risk_engine.enabled: false`), le middleware de trust score applique lui-même le déclencheur (HTTP 403) : une blacklist JA3 configurée n'est jamais sans effet
 - Le WAF DEVRAIT détecter les changements de JA3 pour un même visiteur entre sessions (fingerprint swap = suspicieux)
 - La collecte JA3 DOIT être optionnelle et désactivable (mode Cloudflare sans Bot Management)
 
@@ -45,7 +45,14 @@ change: "FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par
 ## FR-13 — Intégration Threat Intelligence externe
 
 - Le WAF DOIT supporter l'intégration avec **AbuseIPDB** (API v2) pour la réputation IP
-  - Score AbuseIPDB ≥ 50 → Trust Score delta -20 ; ≥ 80 → delta -40
+  - Score AbuseIPDB ≥ 80 → verdict **critique** : déclencheur déterministe
+    `threat_intel_critical`, BLOCK sans corroboration (FR-35) ; ≥ 50 → verdict
+    **malveillant** : trust score plafonné à 20 ; en dessous, aucun effet. Cette
+    clause remplace « delta -40 / -20 », antérieure au moteur de risque
+  - Plages locales `blocklist_cidrs` (malveillant, plafond 20) et `suspect_cidrs`
+    (suspect, plafond 35)
+  - Une erreur ou un timeout de l'API vaut verdict « propre » : le WAF ne bloque
+    jamais sur l'indisponibilité d'une source
   - Cache des résultats avec TTL configurable (défaut 1h)
   - Quota API respecté (max 1000 req/jour gratuit)
 - Le WAF DOIT maintenir une liste auto-mise-à-jour des **Tor exit nodes** (depuis https://check.torproject.org/torbulkexitlist)
@@ -61,7 +68,9 @@ change: "FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par
   rechargeables, statistiques admin, et entrées de réputation au format
   `schemas/threat-intel-entry.schema.json` (statut draft) — le vérificateur ne
   retient aujourd'hui qu'un verdict {niveau, raison} par IP, issu des CIDR
-  configurés et d'AbuseIPDB
+  configurés et d'AbuseIPDB ; métrique `waf_threat_intel_errors_total` et
+  endpoint `GET /waf/admin/threat-intel/stats` (`threat-intelligence.feature`,
+  scénarios `@deferred`)
 
 ## FR-14 — Adaptive PoW Difficulty
 
@@ -72,8 +81,9 @@ change: "FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par
   - **Niveau Critique** (trafic > 200% baseline) : difficulté += 8 bits (max configurable, défaut 24)
 - La difficulté DOIT revenir progressivement au niveau normal après la fin de l'attaque (décroissance exponentielle sur 5 min)
 - La difficulté courante DOIT être exposée dans les métriques Prometheus (`waf_challenge_pow_difficulty`)
-- La page challenge DOIT adapter le message affiché selon la difficulté ("Vérification renforcée" si niveau critique)
-- La difficulté DOIT être incluse dans le token de challenge (vérifiée côté serveur pour éviter la rétrogradation)
+- La difficulté DOIT être incluse dans le token de challenge (vérifiée côté serveur pour éviter la rétrogradation) : un PoW qui ne satisfait pas la difficulté signée est refusé en `400 invalid_pow` (score -20), sans code d'erreur distinct
+- La pression globale anti-DDoS (FR-08) impose un plancher immédiat : `elevated` +4, `high` +6, `critical` +8 bits
+- **Différé** (non implémenté — `adaptive-protection.feature`, scénarios `@deferred`) : message de la page de challenge adapté à la difficulté (« Vérification renforcée »), métrique `waf_attack_intensity_indicator`, baseline EMA sur 24 h (la baseline est une EMA à α = 0,05 par calcul de difficulté, initialisée au premier débit observé) et repli sur `rate_limit.requests_per_second` au démarrage
 
 ## FR-15 — Deception Layer (Tarpit + Honeypot Content)
 
@@ -109,6 +119,14 @@ change: "FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par
 - Les règles géographiques DOIVENT être configurables par domaine
 - En l'absence du header CF-IPCountry (déploiement sans Cloudflare) → règles geo ignorées gracieusement
 - Un `CF-IPCountry` reçu d'une connexion hors plage Cloudflare, ou avec `cloudflare.trusted: false`, est supprimé à l'entrée et traité comme absent (FR-30, ADR-019 option B)
+- **Implémenté** (bloc `geo` de `config.schema.json`) : `blocked_countries` → 403
+  `geo_country_blocked` ; `allowed_countries` → 403 `geo_country_not_allowed`
+  pour tout autre pays ; `challenge_countries` → contribution
+  `challenge_contribution` (défaut 60) de la famille `geo` au moteur de risque
+  (FR-33), sans effet quand le moteur est désactivé
+- **Différé** (non implémenté — `geo-rules.feature`, scénarios `@deferred`) :
+  rate limit renforcé par pays, delta de score initial par pays, règles geo par
+  domaine, label `country` des métriques et journal debug d'un code inconnu
 
 ## FR-17 — Moteur de Règles Personnalisées (Rules Engine)
 

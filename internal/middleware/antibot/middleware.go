@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -39,6 +40,9 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		}
 
 		decision := m.rules.Evaluate(r)
+		if isNonBrowserSignal(decision.Reason) && r.Header.Get(access.HeaderUserAgentWhitelisted) == "true" {
+			decision = Decision{}
+		}
 		if decision.Delta == 0 {
 			next.ServeHTTP(w, r)
 			return
@@ -87,4 +91,18 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isNonBrowserSignal désigne les heuristiques qui ne prouvent qu'une chose :
+// le client n'est pas un navigateur interactif. Un User-Agent de
+// whitelist_user_agents les déclare justement comme tel — un crawler n'envoie
+// ni Accept-Language ni les autres en-têtes d'un navigateur. Sans cette
+// exemption, chaque requête de Googlebot coûtait 5 points : sous le seuil de
+// blocage en huit requêtes, avant que la vérification reverse-DNS du moteur de
+// risque ait pu le reconnaître. L'exemption n'ouvre aucun contournement : ces
+// en-têtes se forgent aussi aisément que le User-Agent, et un faux crawler
+// reste démasqué par risk_engine.verified_bots. Honeypot, outils
+// d'automatisation et navigateurs headless restent évalués.
+func isNonBrowserSignal(reason string) bool {
+	return reason == ReasonMissingHeader || reason == ReasonSuspiciousUA
 }

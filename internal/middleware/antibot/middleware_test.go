@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -215,6 +216,79 @@ func TestWhitelistedActionBypassesAntiBot(t *testing.T) {
 	}
 	if _, ok := store.GetVisitor(trust.HashIP("1.2.3.4")); ok {
 		t.Fatal("expected no score to be calculated for whitelisted request")
+	}
+}
+
+// whitelist-blacklist.feature, « User-Agent whitelisté — pas de pénalité
+// d'en-têtes navigateur » : un crawler n'envoie pas les en-têtes d'un
+// navigateur ; ses requêtes répétées ne doivent pas le faire bloquer.
+func TestWhitelistedUserAgentIsNotPenalizedForNonBrowserSignals(t *testing.T) {
+	cases := []struct {
+		name      string
+		userAgent string
+	}{
+		{name: "missing browser headers", userAgent: "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"},
+		{name: "tool user agent", userAgent: "curl/8.5.0 UptimeCheck"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			middleware, store := newTestMiddleware(t)
+			defer store.Close()
+
+			for range 20 {
+				request := requestFrom("66.249.66.1:1234", "/")
+				request.Header.Set("User-Agent", tc.userAgent)
+				request.Header.Set(access.HeaderUserAgentWhitelisted, "true")
+				response := httptest.NewRecorder()
+
+				middleware.Handler(trustAfter(middleware.scores)).ServeHTTP(response, request)
+
+				if response.Code != http.StatusNoContent {
+					t.Fatalf("status = %d, want 204: a whitelisted crawler must not be blocked", response.Code)
+				}
+				if got := request.Header.Get(headerRiskFingerprint); got != "" {
+					t.Fatalf("%s = %q, want no fingerprint contribution", headerRiskFingerprint, got)
+				}
+			}
+			if visitor := visitorFor(t, store, "66.249.66.1"); visitor.Score != 50 {
+				t.Fatalf("score = %d, want the initial 50", visitor.Score)
+			}
+		})
+	}
+}
+
+// La whitelist UA n'exempte que les signaux « client non navigateur » : un
+// outil d'automatisation, un navigateur headless ou un honeypot restent évalués.
+func TestWhitelistedUserAgentKeepsAutomationAndHoneypotSignals(t *testing.T) {
+	cases := []struct {
+		name      string
+		path      string
+		userAgent string
+		wantCode  int
+	}{
+		{name: "honeypot", path: "/.env", userAgent: "Googlebot/2.1", wantCode: http.StatusForbidden},
+		{name: "automation", path: "/", userAgent: "Googlebot/2.1 Selenium", wantCode: http.StatusForbidden},
+		{name: "headless", path: "/", userAgent: "Googlebot/2.1 HeadlessChrome/120.0", wantCode: http.StatusNoContent},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			middleware, store := newTestMiddleware(t)
+			defer store.Close()
+
+			request := requestFrom("203.0.113.10:1234", tc.path)
+			request.Header.Set("User-Agent", tc.userAgent)
+			request.Header.Set(access.HeaderUserAgentWhitelisted, "true")
+			response := httptest.NewRecorder()
+
+			middleware.Handler(trustAfter(middleware.scores)).ServeHTTP(response, request)
+
+			if response.Code != tc.wantCode {
+				t.Fatalf("status = %d, want %d", response.Code, tc.wantCode)
+			}
+			if visitor := visitorFor(t, store, "203.0.113.10"); visitor.Score >= 50 {
+				t.Fatalf("score = %d, want a penalty", visitor.Score)
+			}
+		})
 	}
 }
 

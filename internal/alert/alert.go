@@ -10,9 +10,14 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"sync"
 	"time"
+
+	"github.com/gaetandev/waf/internal/ttlcache"
 )
+
+// maxCooldownKeys borne le nombre de couples trigger+domaine suivis par le
+// cooldown. Le domaine est le Host de la requête, fourni par le client.
+const maxCooldownKeys = 10000
 
 // Types de webhook supportés.
 const (
@@ -86,8 +91,11 @@ type Notifier struct {
 	stop  chan struct{}
 	done  chan struct{}
 
-	mu       sync.Mutex
-	lastSent map[string]time.Time
+	// lastSent retient le dernier envoi par trigger+domaine le temps du
+	// cooldown. C'était une map sans borne ni expiration : le domaine étant le
+	// Host de la requête, des blocages sous des Host aléatoires y ajoutaient
+	// une entrée chacun, pour toujours.
+	lastSent *ttlcache.Cache[string, time.Time]
 	now      func() time.Time
 }
 
@@ -106,9 +114,9 @@ func NewNotifier(sinks []Sink, cooldown time.Duration, maxRetries int, client *h
 		queue:      make(chan Alert, 256),
 		stop:       make(chan struct{}),
 		done:       make(chan struct{}),
-		lastSent:   make(map[string]time.Time),
 		now:        time.Now,
 	}
+	n.lastSent = ttlcache.New[string, time.Time](maxCooldownKeys, cooldown).WithClock(func() time.Time { return n.now() })
 	go n.worker()
 	return n
 }
@@ -188,14 +196,16 @@ func (n *Notifier) enqueue(alert Alert) {
 
 func (n *Notifier) allow(alert Alert) bool {
 	key := alert.Trigger + "|" + alert.Domain
-	n.mu.Lock()
-	defer n.mu.Unlock()
-	now := n.now()
-	if last, ok := n.lastSent[key]; ok && now.Sub(last) < n.cooldown {
-		return false
-	}
-	n.lastSent[key] = now
-	return true
+	allowed := false
+	n.lastSent.Update(key, func(last time.Time, found bool) time.Time {
+		now := n.now()
+		if found && now.Sub(last) < n.cooldown {
+			return last
+		}
+		allowed = true
+		return now
+	})
+	return allowed
 }
 
 func (n *Notifier) deliver(alert Alert) {

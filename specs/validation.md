@@ -295,6 +295,43 @@ last-reviewed: 2026-09-24
 | 2026-09-24 | `ttlcache` sous contention | Benchmark `Get` parallèle (non versionné), 1/4/8/16 cœurs | mesure | 37 / 91 / 85 / 108 ns/op : ~10 M lectures/s par cache, sharding non justifié |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `Example.com:8080` compté sous `domain="example.com"` ; `attack-1.test`, `attack-2.test` sous `_undeclared` ; `GET /waf/admin/config` masque les secrets |
 
+| 2026-09-24 | Sprint 19 (audit 4) | `go test ./...` | pass | 723 tests et sous-tests, 45 paquets testés |
+| 2026-09-24 | Sprint 19 (audit 4) | `go vet ./...` + `go build ./...` | pass | |
+| 2026-09-24 | Sprint 19 (audit 4) | `golangci-lint run ./...` | pass | 0 issue |
+| 2026-09-24 | Sprint 19 (audit 4) | `spectral lint` admin + public | pass | 0 erreur |
+| 2026-09-24 | Sprint 19 (audit 4) | `govulncheck ./...` | pass | 0 vulnérabilité atteignable ; 1 dans un module requis, non appelée |
+| 2026-09-24 | Sprint 19 (audit 4) | `go test -race` | **non exécuté localement** | cgo indisponible sur le poste ; couvert par la CI |
+| 2026-09-24 | Crawler whitelisté | `TestWhitelistedUserAgentIsNotPenalizedForNonBrowserSignals` | pass | En échec sur l'ancien code (contribution fingerprint publiée, score en baisse) |
+| 2026-09-24 | Déclencheur sans moteur | `TestRoutesDeterministicTriggerBlocksWithoutRiskEngine` | pass | En échec sur l'ancien code (JA3 blacklisté transmis) |
+| 2026-09-24 | Tarpit | `TestTarpitFlushesEachChunkThroughWrappedWriters` | pass | 0 flush sur l'ancien code, 1 par chunk après |
+| 2026-09-24 | Refus d'enveloppe | `TestRoutesEnvelopeRejectionsAreObserved`, `TestRoutesSlowlorisRejectionIsObserved` | pass | Aucun événement ni compteur sur l'ancien code |
+| 2026-09-24 | Pool d'upstreams | `BenchmarkPoolPick`, `TestPoolPickDoesNotAllocate` | pass | 1 alloc (48 B/op) avant, 0 après, 4 stratégies |
+| 2026-09-24 | Verrous visiteurs / DDoS | Benchmarks parallèles (non versionnés), 1 et 8 cœurs | mesure | `observe` 93 / 131 ns/op ; `Record` 60 / 117 ; `Observe` 98 / 284 : verrous occupés < 1 % à 20 000 req/s |
+| 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` + `strict_host` | pass | Host non déclaré : 400, `BLOCK host_not_declared` journalisé, `waf_blocked_total{domain="_undeclared"}` ; `/waf/metrics` par IP 400 ; `/waf/health` 200 |
+
+### Sprint 19 — quatrième audit du 2026-09-24 : ce qui était exact, ce qui ne l'était pas
+
+- **Exact et corrigé** : 1.1 à 1.4, 2.4 (allocation de tranche seulement :
+  FNV n'allouait pas), 2.5, 3.1, 4.1, 4.3. Chaque correctif de code a un test
+  qui échoue sur l'ancien code. En corrigeant 1.4, la reason slowloris a été
+  alignée sur la feature (`too_many_connections_per_ip`).
+- **Exact, localisation corrigée** : 4.3 — le `/waf/health` public est
+  conforme à son contrat (`enum: [ok]`) ; l'écart portait sur celui de l'API
+  admin (`ok | degraded`).
+- **Exact, non corrigé** : 2.1 — décision d'architecture (cache par requête ou
+  pipelining Redis), à instruire par un amendement d'ADR-021 et une mesure G6.
+- **Infirmé par la mesure** : 2.2 et 2.3 — les verrous tiennent des millions
+  d'opérations par seconde sous contention ; ils ne sont pas un goulot.
+- **Conforme à la spec** : 3.2 (FR-26 : pool global prioritaire ; un
+  avertissement signale désormais les `domains[].upstream` inertes) et 4.2
+  (`draft` est un état légitime du cycle de vie).
+- **Changements de comportement** : un UA whitelisté n'est plus pénalisé pour
+  des en-têtes navigateur absents ; sans moteur de risque, un JA3 blacklisté ou
+  une IP critique est bloqué ; les refus slowloris/strict_host/flood de
+  `/waf/verify` apparaissent dans les métriques, le journal et les alertes
+  (`strict_host` compte en `BLOCK`) ; la reason slowloris devient
+  `too_many_connections_per_ip` ; `/waf/health` n'est plus soumis à slowloris.
+
 ### Sprint 18 — troisième audit du 2026-09-24 : ce qui était exact, ce qui ne l'était pas
 
 - **Exact et corrigé** : 1.1 à 1.5, 2.1, 3.1, 3.3, 4.1 à 4.3. Chaque correctif
@@ -578,9 +615,9 @@ critère d'acceptation.
 
 | Check | Status | Notes |
 |-------|--------|-------|
-| `go test ./...` | ✅ | 690 tests, 46 paquets |
+| `go test ./...` | ✅ | 723 tests et sous-tests, 45 paquets testés |
 | `go test -race ./...` | ⬜ | non exécutable localement (pas de toolchain C sous Windows) — exécuté par la CI (`ci.yml`, job Test) |
-| Scénarios non implémentés isolés (`@deferred`) | ✅ | rules-engine, upstream-health, audit-trail, deception-layer, origin-protection, acme-tls, webhook-alerts |
+| Scénarios non implémentés isolés (`@deferred`) | ✅ | rules-engine, upstream-health, audit-trail, deception-layer, origin-protection, acme-tls, webhook-alerts, geo-rules, threat-intelligence, adaptive-protection |
 
 ### G5 — Security
 ```bash
