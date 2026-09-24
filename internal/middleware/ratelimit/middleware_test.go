@@ -233,11 +233,9 @@ func TestPressureThrottle429IsNeutral(t *testing.T) {
 	if got := response.Header().Get("X-WAF-Reason"); got != ReasonPressureThrottle {
 		t.Fatalf("X-WAF-Reason = %q, want %s", got, ReasonPressureThrottle)
 	}
-	visitor, ok := store.GetVisitor(trust.HashIP("9.9.9.9"))
-	if !ok {
-		t.Fatal("expected visitor to exist")
-	}
-	if visitor.Score != 50 {
+	// Une pénalité aurait écrit le visiteur : absent ou intact, il n'en a reçu
+	// aucune (la lecture de confiance sous pression n'écrit plus, cf. Peek).
+	if visitor, ok := store.GetVisitor(trust.HashIP("9.9.9.9")); ok && visitor.Score != 50 {
 		t.Fatalf("score = %d, want 50 (no penalty for pressure-only 429)", visitor.Score)
 	}
 }

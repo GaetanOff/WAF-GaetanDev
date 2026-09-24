@@ -369,7 +369,7 @@ func (m *Middleware) pressureFactor(r *http.Request, ip string) float64 {
 // isTrusted indique si le visiteur a prouvé sa fiabilité (challenge réussi ou
 // navigation stable) et doit être épargné par le resserrement de pression.
 func (m *Middleware) isTrusted(ip string, host string) bool {
-	visitor := m.scores.Get(ip, host)
+	visitor := m.scores.Peek(ip, host)
 	return m.scores.State(visitor.Score) == trust.StateTrusted
 }
 

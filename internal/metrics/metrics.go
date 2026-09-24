@@ -251,7 +251,7 @@ func (m *Metrics) observeVisitor(r *http.Request, scores *trust.ScoreManager) {
 		return
 	}
 	ip := cloudflare.RealIP(r)
-	visitor := scores.Get(ip, r.Host)
+	visitor := scores.Peek(ip, r.Host)
 	state := scores.State(visitor.Score)
 	m.mu.Lock()
 	defer m.mu.Unlock()
