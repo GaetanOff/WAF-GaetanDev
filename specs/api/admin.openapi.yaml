@@ -198,6 +198,32 @@ components:
               minimum: 8
               maximum: 24
 
+    AuditEntry:
+      $ref: "../schemas/audit-entry.schema.json"
+
+    GDPRErasureRequest:
+      type: object
+      additionalProperties: false
+      required: [ip]
+      properties:
+        ip:
+          type: string
+          description: Adresse IP en clair du visiteur ; elle est hachée pour retrouver son état et n'est pas conservée.
+          examples:
+            - "203.0.113.7"
+
+    GDPRErasureResult:
+      type: object
+      additionalProperties: false
+      required: [erased, ip_hash]
+      properties:
+        erased:
+          type: boolean
+          description: true si un état existait pour ce visiteur (il est supprimé dans tous les cas)
+        ip_hash:
+          type: string
+          pattern: "^[0-9a-f]{16}$"
+
   parameters:
     IP:
       name: ip
@@ -618,6 +644,70 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
 
+  /waf/admin/audit:
+    get:
+      operationId: listAuditEntries
+      summary: Consulter le journal d'audit des actions d'administration
+      description: |
+        Retourne le journal d'audit (FR-27), de la plus ancienne à la plus
+        récente entrée, borné à audit.max_entries (rotation FIFO). Liste vide
+        si audit.enabled est faux. Journal append-only : aucune méthode ne le
+        modifie (DELETE répond 405).
+      tags: [Audit]
+      parameters:
+        - $ref: "#/components/parameters/Page"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: Entrées d'audit
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, total]
+                properties:
+                  items:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/AuditEntry"
+                  total:
+                    type: integer
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
+  /waf/admin/gdpr/erase:
+    post:
+      operationId: eraseVisitorData
+      summary: Effacer les données d'un visiteur (droit à l'effacement)
+      description: |
+        Supprime l'état du visiteur identifié par son IP (RGPD article 17,
+        FR-28) et journalise l'action (gdpr_erase) dans l'audit.
+      tags: [GDPR]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/GDPRErasureRequest"
+      responses:
+        "200":
+          description: Données effacées (ou absentes)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/GDPRErasureResult"
+        "400":
+          description: Corps invalide ou IP manquante
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "invalid_request"
+                message: "ip is required"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+
 tags:
   - name: System
     description: Health, version, métriques Prometheus
@@ -629,3 +719,7 @@ tags:
     description: Consultation des visiteurs actifs et scores
   - name: Events
     description: Événements de sécurité récents
+  - name: Audit
+    description: Journal d'audit des actions d'administration (FR-27)
+  - name: GDPR
+    description: Droits des personnes (FR-28)

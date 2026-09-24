@@ -65,24 +65,47 @@ type WAFStats struct {
 	BlockedVisitors     int   `json:"blocked_visitors"`
 }
 
+// route associe une opération du contrat specs/api/admin.openapi.yaml
+// (specPath) à son motif ServeMux. Table unique : un test vérifie que chaque
+// route servie a son opération dans le contrat (invariant #2).
+type route struct {
+	method   string
+	pattern  string // chemin ServeMux (préfixe "/" final pour les paramètres)
+	specPath string
+	public   bool
+	handler  http.HandlerFunc
+}
+
+func (s *Server) routeTable() []route {
+	return []route{
+		{method: http.MethodGet, pattern: "/waf/health", specPath: "/waf/health", public: true, handler: s.health},
+		{method: http.MethodGet, pattern: "/waf/stats", specPath: "/waf/stats", handler: s.stats},
+		{method: http.MethodGet, pattern: "/waf/admin/config", specPath: "/waf/admin/config", handler: s.getConfig},
+		{method: http.MethodPatch, pattern: "/waf/admin/config", specPath: "/waf/admin/config", handler: s.patchConfig},
+		{method: http.MethodGet, pattern: "/waf/admin/whitelist", specPath: "/waf/admin/whitelist", handler: s.getWhitelist},
+		{method: http.MethodPost, pattern: "/waf/admin/whitelist", specPath: "/waf/admin/whitelist", handler: s.addWhitelist},
+		{method: http.MethodDelete, pattern: "/waf/admin/whitelist/", specPath: "/waf/admin/whitelist/{ip}", handler: s.deleteWhitelist},
+		{method: http.MethodGet, pattern: "/waf/admin/blacklist", specPath: "/waf/admin/blacklist", handler: s.getBlacklist},
+		{method: http.MethodPost, pattern: "/waf/admin/blacklist", specPath: "/waf/admin/blacklist", handler: s.addBlacklist},
+		{method: http.MethodDelete, pattern: "/waf/admin/blacklist/", specPath: "/waf/admin/blacklist/{ip}", handler: s.deleteBlacklist},
+		{method: http.MethodGet, pattern: "/waf/admin/visitors", specPath: "/waf/admin/visitors", handler: s.listVisitors},
+		{method: http.MethodGet, pattern: "/waf/admin/visitors/", specPath: "/waf/admin/visitors/{ip_hash}", handler: s.getVisitor},
+		{method: http.MethodDelete, pattern: "/waf/admin/visitors/", specPath: "/waf/admin/visitors/{ip_hash}", handler: s.deleteVisitor},
+		{method: http.MethodGet, pattern: "/waf/admin/events", specPath: "/waf/admin/events", handler: s.listEvents},
+		{method: http.MethodGet, pattern: "/waf/admin/audit", specPath: "/waf/admin/audit", handler: s.listAudit},
+		{method: http.MethodPost, pattern: "/waf/admin/gdpr/erase", specPath: "/waf/admin/gdpr/erase", handler: s.gdprErase},
+	}
+}
+
 func (s *Server) routes() http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /waf/health", s.health)
-	mux.Handle("GET /waf/stats", s.auth(http.HandlerFunc(s.stats)))
-	mux.Handle("GET /waf/admin/config", s.auth(http.HandlerFunc(s.getConfig)))
-	mux.Handle("PATCH /waf/admin/config", s.auth(http.HandlerFunc(s.patchConfig)))
-	mux.Handle("GET /waf/admin/whitelist", s.auth(http.HandlerFunc(s.getWhitelist)))
-	mux.Handle("POST /waf/admin/whitelist", s.auth(http.HandlerFunc(s.addWhitelist)))
-	mux.Handle("DELETE /waf/admin/whitelist/", s.auth(http.HandlerFunc(s.deleteWhitelist)))
-	mux.Handle("GET /waf/admin/blacklist", s.auth(http.HandlerFunc(s.getBlacklist)))
-	mux.Handle("POST /waf/admin/blacklist", s.auth(http.HandlerFunc(s.addBlacklist)))
-	mux.Handle("DELETE /waf/admin/blacklist/", s.auth(http.HandlerFunc(s.deleteBlacklist)))
-	mux.Handle("GET /waf/admin/visitors", s.auth(http.HandlerFunc(s.listVisitors)))
-	mux.Handle("GET /waf/admin/visitors/", s.auth(http.HandlerFunc(s.getVisitor)))
-	mux.Handle("DELETE /waf/admin/visitors/", s.auth(http.HandlerFunc(s.deleteVisitor)))
-	mux.Handle("GET /waf/admin/events", s.auth(http.HandlerFunc(s.listEvents)))
-	mux.Handle("GET /waf/admin/audit", s.auth(http.HandlerFunc(s.listAudit)))
-	mux.Handle("POST /waf/admin/gdpr/erase", s.auth(http.HandlerFunc(s.gdprErase)))
+	for _, r := range s.routeTable() {
+		var handler http.Handler = r.handler
+		if !r.public {
+			handler = s.auth(handler)
+		}
+		mux.Handle(r.method+" "+r.pattern, handler)
+	}
 	return mux
 }
 
