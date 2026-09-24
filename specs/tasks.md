@@ -1,7 +1,7 @@
 ---
-status: draft
-sprint: 5
-last-updated: 2026-06-09
+status: implemented
+sprint: 15
+last-updated: 2026-09-24
 ---
 
 # Tasks — WAF Anti-DDoS / Anti-Bot

@@ -1,7 +1,7 @@
 ---
-status: draft
+status: implemented
 version: 1.0.0
-last-reviewed: 2026-06-03
+last-reviewed: 2026-09-24
 ---
 
 # Validation Report — WAF Anti-DDoS / Anti-Bot
