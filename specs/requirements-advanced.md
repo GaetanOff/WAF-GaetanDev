@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 2.5.4
+version: 2.5.5
 last-reviewed: 2026-09-24
 reviewed-by: GaetanDev
 extends: requirements.md (v2.0.0)
-change: "FR-16 : exigences réalignées sur le bloc `geo` implémenté, rate limit et score par pays, règles par domaine et métriques par pays marqués différés. Précédent (2.5.3) — FR-11 : sans moteur de risque, le middleware de trust score applique le déclencheur `ja3_blacklist` (403) — la blacklist JA3 était sans effet. Précédent (2.5.2) — FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par le moteur de risque, FR-35), la clause « score -= 40 et challenge immédiat » antérieure au moteur est retirée. Précédent (2.5.1) — FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
+change: "FR-13 : paliers AbuseIPDB réalignés sur le vérificateur (≥ 80 déclencheur threat_intel_critical, ≥ 50 trust score plafonné à 20), plages locales et échec de source spécifiés. Précédent (2.5.4) — FR-16 : exigences réalignées sur le bloc `geo` implémenté, rate limit et score par pays, règles par domaine et métriques par pays marqués différés. Précédent (2.5.3) — FR-11 : sans moteur de risque, le middleware de trust score applique le déclencheur `ja3_blacklist` (403) — la blacklist JA3 était sans effet. Précédent (2.5.2) — FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par le moteur de risque, FR-35), la clause « score -= 40 et challenge immédiat » antérieure au moteur est retirée. Précédent (2.5.1) — FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)
@@ -45,7 +45,14 @@ change: "FR-16 : exigences réalignées sur le bloc `geo` implémenté, rate lim
 ## FR-13 — Intégration Threat Intelligence externe
 
 - Le WAF DOIT supporter l'intégration avec **AbuseIPDB** (API v2) pour la réputation IP
-  - Score AbuseIPDB ≥ 50 → Trust Score delta -20 ; ≥ 80 → delta -40
+  - Score AbuseIPDB ≥ 80 → verdict **critique** : déclencheur déterministe
+    `threat_intel_critical`, BLOCK sans corroboration (FR-35) ; ≥ 50 → verdict
+    **malveillant** : trust score plafonné à 20 ; en dessous, aucun effet. Cette
+    clause remplace « delta -40 / -20 », antérieure au moteur de risque
+  - Plages locales `blocklist_cidrs` (malveillant, plafond 20) et `suspect_cidrs`
+    (suspect, plafond 35)
+  - Une erreur ou un timeout de l'API vaut verdict « propre » : le WAF ne bloque
+    jamais sur l'indisponibilité d'une source
   - Cache des résultats avec TTL configurable (défaut 1h)
   - Quota API respecté (max 1000 req/jour gratuit)
 - Le WAF DOIT maintenir une liste auto-mise-à-jour des **Tor exit nodes** (depuis https://check.torproject.org/torbulkexitlist)
@@ -61,7 +68,9 @@ change: "FR-16 : exigences réalignées sur le bloc `geo` implémenté, rate lim
   rechargeables, statistiques admin, et entrées de réputation au format
   `schemas/threat-intel-entry.schema.json` (statut draft) — le vérificateur ne
   retient aujourd'hui qu'un verdict {niveau, raison} par IP, issu des CIDR
-  configurés et d'AbuseIPDB
+  configurés et d'AbuseIPDB ; métrique `waf_threat_intel_errors_total` et
+  endpoint `GET /waf/admin/threat-intel/stats` (`threat-intelligence.feature`,
+  scénarios `@deferred`)
 
 ## FR-14 — Adaptive PoW Difficulty
 

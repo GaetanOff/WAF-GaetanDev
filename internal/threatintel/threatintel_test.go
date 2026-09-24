@@ -158,3 +158,33 @@ func TestCheckerBoundsConcurrentLookups(t *testing.T) {
 	}
 	close(source.release)
 }
+
+// threat-intelligence.feature : paliers AbuseIPDB (>= 80 critique, >= 50
+// malveillant, sinon propre) et service en échec traité comme « propre ».
+func TestHTTPSourceScoreTiersAndFailures(t *testing.T) {
+	cases := []struct {
+		name   string
+		status int
+		body   string
+		want   Level
+	}{
+		{name: "critical", status: http.StatusOK, body: `{"data":{"abuseConfidenceScore":92}}`, want: LevelCritical},
+		{name: "malicious", status: http.StatusOK, body: `{"data":{"abuseConfidenceScore":55}}`, want: LevelMalicious},
+		{name: "clean", status: http.StatusOK, body: `{"data":{"abuseConfidenceScore":10}}`, want: LevelClean},
+		{name: "service error", status: http.StatusServiceUnavailable, body: ``, want: LevelClean},
+		{name: "invalid body", status: http.StatusOK, body: `not json`, want: LevelClean},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+				w.WriteHeader(tc.status)
+				_, _ = w.Write([]byte(tc.body))
+			}))
+			defer server.Close()
+
+			if v := NewHTTPSource(server.URL, "test-key", server.Client()).Lookup(net.ParseIP("1.2.3.4")); v.Level != tc.want {
+				t.Fatalf("level = %d, want %d", v.Level, tc.want)
+			}
+		})
+	}
+}
