@@ -707,3 +707,34 @@ func TestRoutesHumanCreditStopsRechallengeLoop(t *testing.T) {
 		t.Fatalf("proven human re-challenged: X-WAF-Risk-Decision = %q", request.Header.Get("X-WAF-Risk-Decision"))
 	}
 }
+
+// whitelist_user_agents n'est pas un bypass : « User-Agent: Googlebot » se
+// forge. Il exempte du challenge proactif, pas du rate limit (ni du reste).
+func TestRoutesWhitelistedUserAgentIsNotABypass(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.RateLimit.RequestsPerSecond = 1
+	cfg.RateLimit.Burst = 1
+	proxied := 0
+	handler := routes(cfg, newTestRules(t, nil, nil, []string{"Googlebot"}), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxied++
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	crawler := func() *http.Request {
+		request := requestFrom("198.51.100.10:443")
+		request.Header.Set("User-Agent", "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)")
+		return request
+	}
+
+	first := httptest.NewRecorder()
+	handler.ServeHTTP(first, crawler())
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, crawler())
+
+	if first.Code != http.StatusNoContent || proxied != 1 {
+		t.Fatalf("first request: status = %d proxied = %d, want 204 without challenge", first.Code, proxied)
+	}
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("second request: status = %d, want 429 — the User-Agent whitelist must not skip the rate limit", second.Code)
+	}
+}

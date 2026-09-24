@@ -63,8 +63,8 @@ Feature: Détection Anti-Bot
   Scenario: Bot légitime — Googlebot whitelisté
     Given une requête avec User-Agent "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
     When le WAF analyse la requête
-    Then la requête est transmise à l'upstream sans challenge
-    And aucun score n'est calculé pour ce visiteur
+    Then la requête est transmise à l'upstream sans challenge proactif
+    And le moteur de risque vérifie le crawler par reverse-DNS (verified_bots)
 
   Scenario: WebGL renderer headless détecté dans le fingerprint
     Given un visiteur soumet un challenge avec webgl_renderer = "Google SwiftShader"

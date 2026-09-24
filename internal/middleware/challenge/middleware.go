@@ -13,6 +13,7 @@ import (
 	"github.com/gaetandev/waf/internal/config"
 	browserfp "github.com/gaetandev/waf/internal/fingerprint"
 	"github.com/gaetandev/waf/internal/jsonstrict"
+	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -150,6 +151,13 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		}
 		if clearance, ok := m.clearance(r); ok {
 			r.Header.Set(headerFingerprintHash, clearance.FPHash)
+			next.ServeHTTP(w, r)
+			return
+		}
+		// whitelist_user_agents exempte du seul challenge proactif : un crawler
+		// n'exécute pas le JS. Une décision CHALLENGE du moteur de risque (faux
+		// crawler démasqué par reverse-DNS) reste appliquée par l'Enforcer.
+		if r.Header.Get(access.HeaderUserAgentWhitelisted) == "true" {
 			next.ServeHTTP(w, r)
 			return
 		}

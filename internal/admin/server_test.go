@@ -75,7 +75,7 @@ func TestAdminWhitelistCRUDUpdatesAccessRules(t *testing.T) {
 	if createResponse.Code != http.StatusCreated {
 		t.Fatalf("create status = %d body=%s, want 201", createResponse.Code, createResponse.Body.String())
 	}
-	if ok, reason := server.accessRules.IsWhitelisted("192.168.0.10", "Mozilla/5.0"); !ok || reason != "whitelist_cidr" {
+	if ok, reason := server.accessRules.IsWhitelisted("192.168.0.10"); !ok || reason != "whitelist_cidr" {
 		t.Fatalf("whitelist active=%v reason=%q, want whitelist_cidr", ok, reason)
 	}
 
@@ -84,7 +84,7 @@ func TestAdminWhitelistCRUDUpdatesAccessRules(t *testing.T) {
 	if deleteResponse.Code != http.StatusNoContent {
 		t.Fatalf("delete status = %d, want 204", deleteResponse.Code)
 	}
-	if ok, _ := server.accessRules.IsWhitelisted("192.168.0.10", "Mozilla/5.0"); ok {
+	if ok, _ := server.accessRules.IsWhitelisted("192.168.0.10"); ok {
 		t.Fatal("whitelist entry should be inactive after delete")
 	}
 }

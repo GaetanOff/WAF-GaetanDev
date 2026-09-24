@@ -973,9 +973,9 @@ whitelist_user_agents:
   - "UptimeRobot"
 ```
 
-User-agents de bots légitimes qui bypassent le challenge JS. La comparaison est une **recherche de sous-chaîne insensible à la casse** dans le header `User-Agent`.
+User-agents de bots légitimes **exemptés du challenge JS proactif** (un crawler n'exécute pas le JS). Chaque entrée est une **expression régulière** (syntaxe RE2) recherchée dans le header `User-Agent`, **sensible à la casse** — préfixer par `(?i)` pour l'ignorer.
 
-> **Note** : Le WAF peut vérifier que ces bots sont bien ceux qu'ils prétendent être via `risk_engine.verified_bots`.
+Ce n'est **pas** un bypass : un `User-Agent` se forge. La blacklist, l'anti-DDoS, le rate limiting et le moteur de risque s'appliquent. Un faux crawler démasqué par `risk_engine.verified_bots` (reverse-DNS) voit sa réputation dégradée et reçoit le challenge ou le blocage que décide le moteur ; un crawler vérifié est autorisé (`ALLOW`). Pour un bypass total, utiliser `whitelist` (IP ou CIDR).
 
 ---
 
