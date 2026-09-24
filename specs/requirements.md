@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 2.3.0
+version: 2.3.1
 last-reviewed: 2026-09-24
 reviewed-by: GaetanDev
-change: "FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
+change: "FR-08 : seul un refus du rate limit du WAF (`X-WAF-Action: RATE_LIMIT`) est une violation de circuit-breaker, jamais un 429 de l'upstream. Précédent (2.3.0) — FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
 ---
 
 # Requirements — WAF Anti-DDoS / Anti-Bot
@@ -96,6 +96,7 @@ change: "FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent d
 ### FR-08 — Anti-DDoS
 - Le WAF DOIT détecter une augmentation anormale du taux de requêtes par IP et par domaine
 - Le WAF DOIT implémenter un circuit-breaker par IP : blocage temporaire après N violations consécutives
+- Une violation est un refus du **rate limit du WAF** (`X-WAF-Action: RATE_LIMIT`). Un `429` venu de l'**upstream** (rate limit applicatif) NE DOIT PAS compter : le WAF transformerait sinon la limite d'une API en bannissement réseau de l'IP
 - Le WAF DOIT supporter la configuration d'un seuil global de trafic (req/s total) servant de baseline de pression, sans blocage global automatique
 - Le WAF DOIT calculer un niveau de pression global explicite : `normal`, `elevated`, `high`, `critical`
 - Le WAF NE DOIT PAS retourner HTTP 503, HTTP 403 ou ouvrir un blocage complet uniquement parce que le seuil global de trafic est dépassé

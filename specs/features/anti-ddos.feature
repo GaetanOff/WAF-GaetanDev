@@ -45,6 +45,13 @@ Feature: Protection Anti-DDoS
     And le circuit s'ouvre à la 5e violation
     # Régression : une requête admise remettait la série à zéro.
 
+  Scenario: Circuit-breaker — un 429 de l'upstream n'est pas une violation
+    Given l'upstream applique son propre rate limit et répond HTTP 429
+    When un visiteur reçoit 15 réponses 429 de l'upstream
+    Then chaque réponse 429 lui est transmise
+    And le circuit-breaker ne s'ouvre pas
+    # Régression : tout 429 comptait, le WAF bannissait l'IP après cinq 429 de l'origine.
+
   Scenario: Circuit-breaker — série éteinte par l'ancienneté
     Given un visiteur a atteint le rate limit 2 fois
     When sa violation suivante survient plus de 60 s après la précédente
