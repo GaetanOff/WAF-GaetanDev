@@ -1,6 +1,7 @@
 package rules
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -190,5 +191,42 @@ func TestRuleIPConditionUsesTheCloudflareEstablishedIP(t *testing.T) {
 
 	if !matched {
 		t.Fatal("la règle doit matcher sur l'IP de CF-Connecting-IP validée, pas sur l'IP de l'edge Cloudflare")
+	}
+}
+
+func BenchmarkMatchQueryParamRules(b *testing.B) {
+	ruleSet := NewRuleSet()
+	var rules []Rule
+	for i := range 10 {
+		rules = append(rules, Rule{
+			Name: fmt.Sprintf("rule-%d", i), Priority: i, Enabled: true,
+			Conditions: []Condition{
+				{Field: "query_param", Name: fmt.Sprintf("p%d", i), Operator: "equals", Value: "block"},
+				{Field: "ip", Operator: "in_cidr", Values: []string{"10.0.0.0/8", "192.168.0.0/16"}},
+			},
+			Actions: []Action{{Type: "block"}},
+		})
+	}
+	if err := ruleSet.Load(rules); err != nil {
+		b.Fatalf("Load() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/search?q=shoes&page=2&sort=asc", nil)
+	request.RemoteAddr = "10.1.2.3:1234"
+	b.ReportAllocs()
+	for b.Loop() {
+		ruleSet.Match(request)
+	}
+}
+
+// IPv4 mappé en IPv6 : netip distingue ::ffff:a.b.c.d de a.b.c.d, net.IPNet non.
+func TestRuleIPCidrMatchesIPv4MappedAddress(t *testing.T) {
+	ruleSet := NewRuleSet()
+	if err := ruleSet.Load([]Rule{{Name: "cidr", Enabled: true, Conditions: []Condition{{Field: "ip", Operator: "in_cidr", Value: "10.0.0.0/8"}}, Actions: []Action{{Type: "block"}}}}); err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+	request.RemoteAddr = "[::ffff:10.1.2.3]:1234"
+	if len(ruleSet.Match(request)) == 0 {
+		t.Fatal("IPv4-mapped client address must match the IPv4 prefix")
 	}
 }
