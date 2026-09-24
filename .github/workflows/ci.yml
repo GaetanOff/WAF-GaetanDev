@@ -68,4 +68,4 @@ jobs:
         with:
           node-version: "24"
       - name: spectral lint
-        run: npx --yes @stoplight/spectral-cli@6 lint specs/api/admin.openapi.yaml --ruleset .spectral.yaml
+        run: npx --yes @stoplight/spectral-cli@6 lint specs/api/admin.openapi.yaml specs/api/public.openapi.yaml --ruleset .spectral.yaml
