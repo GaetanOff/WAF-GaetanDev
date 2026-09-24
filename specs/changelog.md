@@ -6,6 +6,38 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — quatrième audit du 2026-09-24 (phase 19)
+
+- Sans moteur de risque (`risk_engine.enabled: false`), les déclencheurs
+  déterministes `threat_intel_critical` et `ja3_blacklist` bloquent (403) : ils
+  étaient ignorés et la requête passait.
+- Les refus slowloris, `strict_host` et flood de `/waf/verify` sont comptés
+  (`waf_requests_total`), journalisés et publiés sur `GET /waf/admin/events`.
+- Le cooldown des alertes webhook est borné (10 000 clés) : des blocages sous
+  des `Host` aléatoires ne font plus grossir la mémoire sans fin.
+
+### Fixed — quatrième audit du 2026-09-24
+
+- Un User-Agent de `whitelist_user_agents` n'est plus pénalisé par les
+  heuristiques « client non navigateur » : Googlebot n'est plus bloqué au bout
+  de huit requêtes.
+- Le tarpit envoie ses chunks au fil de l'eau à travers les wrappers du
+  pipeline ; il était bufférisé et envoyé d'un bloc.
+- Redirection HTTP→HTTPS, scope `per_domain` du mode sous attaque et SNI
+  normalisent l'hôte comme le routage (casse, port, IPv6).
+- `GET /waf/health` de l'API admin répond `degraded` quand Redis est en mode
+  dégradé.
+- La sélection d'un membre d'`upstream_pool` n'alloue plus.
+
+### Changed — quatrième audit du 2026-09-24
+
+- La reason d'un refus slowloris devient `too_many_connections_per_ip`
+  (valeur de la spec) ; `/waf/health` n'est plus soumis à slowloris.
+- Avertissement au démarrage pour tout `domains[].upstream` rendu inerte par
+  `upstream_pool`.
+- geo-rules, threat-intelligence et adaptive-protection sont réalignées sur le
+  contrat réel ; les capacités non implémentées sont `@deferred`.
+
 ### Security — troisième audit du 2026-09-24 (phase 18)
 
 - `GET /waf/admin/config` masque `origin_protection.secret` (qui permettait de
