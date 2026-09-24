@@ -532,14 +532,15 @@ func newStore(cfg config.Config, observer redisstore.Observer) (storage.Store, e
 }
 
 func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflogger.Logger, metrics *wafmetrics.Metrics, antiDDoS antiddos.Middleware, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, riskMiddleware *risk.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, detectors []func(http.Handler) http.Handler, proxyHandler http.Handler) http.Handler {
+	guard := envelopeGuard(cfg)
 	mux := http.NewServeMux()
 	mux.HandleFunc("/waf/health", healthHandler)
-	mux.Handle("/waf/metrics", metrics.Handler())
+	mux.Handle("/waf/metrics", guard(metrics.Handler()))
 	if cfg.OriginProtection.Enabled {
 		// Protection de l'origine (FR-19) : endpoint de vérification + injection
 		// du token signé vers l'upstream (le proxy transmet le header).
 		signer := origin.NewSigner(cfg.OriginProtection.Secret)
-		mux.HandleFunc("/waf/origin/verify", signer.VerifyHandler)
+		mux.Handle("/waf/origin/verify", guard(http.HandlerFunc(signer.VerifyHandler)))
 		proxyHandler = signer.Injector(proxyHandler)
 	}
 	// FR-34 / FR-04 : une décision CHALLENGE du moteur de risque ou du trust score
@@ -564,13 +565,17 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	proxyHandler = challengeMiddleware.Handler(proxyHandler)
 	proxyHandler = antiDDoS.Handler(proxyHandler)
 	proxyHandler = access.Middleware(accessRules, proxyHandler)
-	proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
-	proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
 	// Auto-protection (FR-30) : limite le flood de POST /waf/verify par IP.
 	if cfg.SelfProtection.Enabled {
 		verifyWindow := selfprotect.NewWindow(cfg.SelfProtection.VerifyMaxPerMinute, time.Minute)
 		proxyHandler = selfprotect.PathGuard("/waf/verify", verifyWindow)(proxyHandler)
 	}
+	// Refus d'enveloppe (slowloris, strict_host) et auto-protection sous le
+	// journal et les métriques : montés au-dessus, leurs 429 et 400 n'étaient
+	// ni comptés dans Prometheus, ni journalisés, ni publiés sur le flux admin.
+	proxyHandler = guard(proxyHandler)
+	proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
+	proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
 	// Bypass des assets statiques (FR-24) : le plus en amont du pipeline pour
 	// marquer PASS avant challenge/trust/détecteurs (la blacklist reste appliquée).
 	if cfg.StaticAssets.Enabled {
@@ -578,16 +583,6 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	}
 	mux.Handle("/", proxyHandler)
 	var handler http.Handler = mux
-	// Host non déclaré refusé (ADR-020 option 1C, opt-in) : un Host non listé
-	// hériterait sinon de la politique globale, y compris vers la même origine
-	// qu'un domaine durci. /waf/health reste servi aux sondes par IP.
-	if cfg.Server.StrictHost {
-		handler = proxy.StrictHost(cfg.Domains, handler)
-	}
-	// Protection Slowloris (FR-23) : limite les requêtes concurrentes par IP.
-	if cfg.Slowloris.Enabled {
-		handler = slowloris.New(cfg.Slowloris.MaxConnsPerIP).Handler(handler)
-	}
 	// Extraction de l'IP réelle (FR-02) : en amont de tout ce qui compte par IP.
 	// Montée plus bas (autour du seul pipeline de proxy), elle laissait slowloris,
 	// l'auto-protection de /waf/verify et le bypass d'assets lire RemoteAddr,
@@ -620,6 +615,30 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 		handler = origin.CaptureInboundToken(handler)
 	}
 	return handler
+}
+
+// envelopeGuard retourne les refus par IP et par Host appliqués à tout chemin
+// servi, /waf/health excepté (sondes par IP) : une instance unique, pour que la
+// borne slowloris par IP compte toutes les requêtes de l'IP, quel que soit le
+// chemin. La chaîne "/" les monte sous le journal et les métriques.
+func envelopeGuard(cfg config.Config) func(http.Handler) http.Handler {
+	var limiter *slowloris.Limiter
+	if cfg.Slowloris.Enabled {
+		limiter = slowloris.New(cfg.Slowloris.MaxConnsPerIP)
+	}
+	return func(next http.Handler) http.Handler {
+		// Host non déclaré refusé (ADR-020 option 1C, opt-in) : un Host non
+		// listé hériterait sinon de la politique globale, y compris vers la
+		// même origine qu'un domaine durci.
+		if cfg.Server.StrictHost {
+			next = proxy.StrictHost(cfg.Domains, next)
+		}
+		// Protection Slowloris (FR-23) : limite les requêtes concurrentes par IP.
+		if limiter != nil {
+			next = limiter.Handler(next)
+		}
+		return next
+	}
 }
 
 // redirectToHTTPS renvoie un handler de redirection HTTP→HTTPS qui valide le

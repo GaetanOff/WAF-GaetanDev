@@ -1,8 +1,8 @@
 ---
 status: approved
-version: 1.4.2
+version: 1.4.3
 last-reviewed: 2026-09-24
-change: "Phase 18 : architecture-advanced.md et architecture-ops.md dépréciés, ce document est la seule architecture de référence ; paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
+change: "Phase 19 : slowloris, strict_host et selfprotect descendent sous metrics et logger (refus comptés et journalisés) ; le middleware de trust score applique les déclencheurs déterministes sans moteur de risque. Précédent (1.4.2) — Phase 18 : architecture-advanced.md et architecture-ops.md dépréciés, ce document est la seule architecture de référence ; paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
 ---
 
 # Architecture — WAF Anti-DDoS / Anti-Bot
@@ -184,8 +184,8 @@ REQUÊTE ENTRANTE
       │ retient CF-Connecting-IP comme IP réelle ; 400 si l'en-tête
       │ est présent hors plage Cloudflare (FR-02).
       │ Non monté : l'IP réelle est celle de la connexion.
-      │ Dans l'enveloppe et non dans la chaîne "/" : slowloris [4] et
-      │ selfprotect [7] comptent par IP, et lisaient sinon l'IP du point
+      │ Dans l'enveloppe et non dans la chaîne "/" : slowloris [10a] et
+      │ selfprotect [10c] comptent par IP, et lisaient sinon l'IP du point
       │ de présence Cloudflare — un DoS collatéral des visiteurs
       │ légitimes qui partagent ce PoP.
       │ Tout autre CF-* d'une source hors plage Cloudflare est
@@ -193,21 +193,22 @@ REQUÊTE ENTRANTE
       │ Non monté (trusted faux) : cloudflare.StripUntrusted supprime
       │ tout CF-*, quelle que soit la source.
       ▼
-[4] slowloris                             si slowloris.enabled
-      │ Borne les requêtes concurrentes par IP réelle (FR-23).
+[4] (vacant : slowloris est descendu en [10a], numérotation conservée)
       ▼
-[4b] proxy.StrictHost                     si server.strict_host
-      │ 400 host_not_declared sur un Host sans entrée domains[]
-      │ (correspondance du routage), /waf/health excepté (ADR-020 1C).
+[4b] (vacant : proxy.StrictHost est descendu en [10b])
       ▼
 [5] http.ServeMux
       │ /waf/health          → healthHandler
-      │ /waf/metrics         → handler Prometheus
-      │ /waf/origin/verify   → origin.VerifyHandler   si origin_protection.enabled
+      │ /waf/metrics         → [10a][10b] → handler Prometheus
+      │ /waf/origin/verify   → [10a][10b] → origin.VerifyHandler
+      │                        si origin_protection.enabled
       │ /                    → chaîne de protection ci-dessous
       │
       │ Les trois chemins /waf/* ci-dessus sont servis directement :
-      │ ils ne traversent PAS les étapes [6] à [21].
+      │ ils ne traversent PAS les étapes [6] à [21], à part les
+      │ refus d'enveloppe [10a][10b] (même instance slowloris : la
+      │ borne par IP compte tous les chemins). /waf/health n'en
+      │ traverse aucun : les sondes par IP restent servies.
       ▼
 ── Chaîne de protection (chemin "/" uniquement) ─────────────────────────────────
       │
@@ -215,8 +216,7 @@ REQUÊTE ENTRANTE
       │ Bypass des assets statiques : pose X-WAF-Action=PASS (FR-24).
       │ La blacklist reste appliquée en [11].
       ▼
-[7] selfprotect.PathGuard("/waf/verify")  si self_protection.enabled
-      │ Limite le flood de POST /waf/verify par IP (FR-30).
+[7] (vacant : selfprotect est descendu en [10c])
       ▼
 [8] (vacant : cloudflare.Middleware est remonté en [3b], numérotation conservée)
       ▼
@@ -226,6 +226,22 @@ REQUÊTE ENTRANTE
 [10] logger.Middleware                    toujours
       │ Événement de sécurité JSON structuré (FR-09). Alimente aussi
       │ GET /waf/admin/events et les compteurs de GET /waf/stats.
+      ▼
+── Refus d'enveloppe : sous [9] et [10], donc comptés et journalisés ───────────
+      │ Montés au-dessus de [9]/[10], leurs 429 et 400 n'apparaissaient
+      │ ni dans Prometheus, ni dans le journal, ni sur le flux admin.
+      ▼
+[10a] slowloris                           si slowloris.enabled
+      │ Borne les requêtes concurrentes par IP réelle (FR-23) :
+      │ 429 RATE_LIMIT, reason too_many_connections_per_ip.
+      ▼
+[10b] proxy.StrictHost                    si server.strict_host
+      │ 400 BLOCK host_not_declared sur un Host sans entrée domains[]
+      │ (correspondance du routage), /waf/health excepté (ADR-020 1C).
+      ▼
+[10c] selfprotect.PathGuard("/waf/verify") si self_protection.enabled
+      │ Limite le flood de POST /waf/verify par IP (FR-30) :
+      │ 429 RATE_LIMIT, reason self_protect_flood.
       ▼
 [11] access.Middleware                    toujours
       │ Whitelist IP/CIDR    → X-WAF-Action=PASS (bypass total).

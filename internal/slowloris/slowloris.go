@@ -44,7 +44,8 @@ func (l *Limiter) Handler(next http.Handler) http.Handler {
 		ip := cloudflare.RealIP(r)
 		if !l.acquire(ip) {
 			w.Header().Set("Retry-After", "10")
-			w.Header().Set("X-WAF-Reason", "too_many_connections")
+			w.Header().Set("X-WAF-Action", "RATE_LIMIT")
+			w.Header().Set("X-WAF-Reason", "too_many_connections_per_ip")
 			http.Error(w, "too many requests", http.StatusTooManyRequests)
 			return
 		}

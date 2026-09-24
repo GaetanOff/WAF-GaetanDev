@@ -76,6 +76,7 @@ func PathGuard(path string, window *Window) func(http.Handler) http.Handler {
 				ip := cloudflare.RealIP(r)
 				if window.Record(ip) > window.max {
 					w.Header().Set("Retry-After", "10")
+					w.Header().Set("X-WAF-Action", "RATE_LIMIT")
 					w.Header().Set("X-WAF-Reason", "self_protect_flood")
 					http.Error(w, "too many requests", http.StatusTooManyRequests)
 					return

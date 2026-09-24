@@ -33,6 +33,7 @@ func StrictHost(domains []config.DomainConfig, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		w.Header().Set("X-WAF-Action", "BLOCK")
 		w.Header().Set("X-WAF-Reason", "host_not_declared")
 		http.Error(w, "bad request", http.StatusBadRequest)
 	})
