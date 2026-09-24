@@ -50,6 +50,7 @@ func TestHandlerRelaysWebSocketUpgrade(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read upgrade response: %v", err)
 	}
+	defer func() { _ = response.Body.Close() }()
 	if response.StatusCode != http.StatusSwitchingProtocols {
 		t.Fatalf("status = %d, want 101", response.StatusCode)
 	}
