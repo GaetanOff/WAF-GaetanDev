@@ -6,6 +6,52 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Removed — second audit du 2026-09-24 (phase 17)
+
+- **BREAKING** — `domains[].protected_paths`, `public_paths`,
+  `rate_limit_override` et `trust_override` sont refusés au démarrage
+  (ADR-022) : acceptés depuis toujours, ils n'étaient jamais appliqués.
+  Migration : supprimer ces clés (leur effet était nul).
+- `/wp-admin` et `/wp-login.php` ne sont plus des `honeypot_paths` par défaut :
+  ils bannissaient l'administrateur de tout site WordPress protégé.
+
+### Security — second audit du 2026-09-24
+
+- **ADR-019 (option B)** : tout en-tête `CF-*` d'une connexion hors plage
+  Cloudflare est supprimé à l'entrée (et tous si `cloudflare.trusted` est
+  faux) — un `CF-IPCountry` ou un `Cf-Bot-Management-Ja3Hash` forgé ne pilote
+  plus la géo, les règles ni la blacklist JA3.
+- **ADR-020 (1C)** : `server.strict_host` (opt-in) refuse en 400 un `Host` sans
+  entrée `domains[]`, qui héritait sinon de la politique globale.
+- Slowloris et l'auto-protection de `/waf/verify` comptent par IP du visiteur,
+  plus par IP du point de présence Cloudflare (DoS collatéral).
+- Intégrité : décodage récursif et normalisation des blancs avant la recherche
+  des motifs d'injection (`union%0aselect`, `onerror =`, triple encodage).
+- Moteur de règles : une action non supportée, une règle sans action ou une clé
+  inconnue font échouer le chargement au lieu d'être ignorées.
+
+### Fixed — second audit du 2026-09-24
+
+- Une entrée de blacklist reçue du cluster n'est plus effacée par la
+  modification admin locale suivante.
+- Les valeurs Redis des visiteurs suivent `visitor.schema.json` (snake_case) ;
+  les valeurs PascalCase déjà écrites restent lisibles.
+- Les alertes portent l'`id` UUID requis par `alert.schema.json`, et l'enum
+  `trigger` du schéma liste enfin les triggers émis.
+- Les défauts documentés de `upstream_pool.health_check` sont appliqués.
+
+### Changed — second audit du 2026-09-24
+
+- Chemin chaud : les lectures de score n'écrivent plus le visiteur (TTL glissé
+  au plus toutes les 30 s, `Peek` pour les observateurs) ; jauges de visiteurs
+  en O(1) et bornées ; pool de tampons du proxy sans allocation.
+- Contrats réalignés sur le code : `rule.schema.json` 2.0.0,
+  `upstream-pool.schema.json` 2.0.0, `behavioral-profile` et
+  `threat-intel-entry` en draft ; scénarios Gherkin non implémentés tagués
+  `@deferred` ; ADR-007 et ADR-012 annotés.
+- Outillage : `*.go eol=lf`, gates AGENTS.md sur les outils Go, cibles `make`
+  par gate, script k6 `tests/load/basic.js`.
+
 ### Fixed — audit du 2026-09-24 (phase 16)
 
 - **Les décisions CHALLENGE challengent enfin** : le moteur de risque et le trust

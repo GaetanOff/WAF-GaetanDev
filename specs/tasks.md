@@ -1,6 +1,6 @@
 ---
 status: implemented
-sprint: 16
+sprint: 17
 last-updated: 2026-09-24
 ---
 
@@ -821,14 +821,61 @@ last-updated: 2026-09-24
 - [x] Non applique : depuis Go 1.23 (module en go 1.27.0), un timer de `time.After` non reference est recuperable par le GC avant son echeance. `select` sur `time.After` + `ctx.Done()` ne fuit plus
 
 ### T16.22 - Surcharges `domains[]` inertes (`protected_paths`, `public_paths`, `rate_limit_override`, `trust_override`)
-- [ ] Constat exact, mais hors perimetre par decision anterieure (Sprint 15) : les implementer demande leurs propres specs et gates. **Decision d'operateur attendue** : implementer ou rejeter ces cles a la validation
+- [x] Constat exact, hors perimetre par decision anterieure (Sprint 15). **Decision d'operateur du 2026-09-24** : rejet a la validation (ADR-022, T17.3)
 
 ### T16.23 - ADR-019 / ADR-020 toujours `proposed`
-- [ ] Les deux ADR reservent explicitement la decision a l'operateur. **Decision attendue**
+- [x] **Decision d'operateur du 2026-09-24** : ADR-019 option B, ADR-020 1C + 2A, implementees (T17.4)
 
 ### Restes identifies en cours de sprint (non traites)
-- [ ] Allers-retours Redis de `VisitorState` (score, moteur de risque) toujours unitaires
-- [ ] `admin.State` reecrit la blacklist complete a chaque modification (`RuleSet.Update`) : une entree recue du cluster est perdue au prochain ajout admin local
-- [ ] audit-trail.feature decrit des filtres `since`/`until`/`action` et des noms d'action en majuscules que `GET /waf/admin/audit` n'implemente pas
-- [ ] FR-20 : publication du niveau de pression global / `degraded_mode` non implementee
+- [x] Allers-retours Redis de `VisitorState` : reduits par T17.1 (plus d'ecriture par lecture ; les lectures restent unitaires)
+- [x] `admin.State` reecrit la blacklist complete a chaque modification : corrige par T17.3 (3.2)
+- [x] audit-trail.feature : reecrite sur le contrat reel, filtres `@deferred` (T17.2, 2.6)
+- [ ] FR-20 : publication du niveau de pression global / `degraded_mode` non implementee (constante orpheline retiree, T17.3)
 - **Statut** : implemente (hors T16.22, T16.23 et restes ci-dessus).
+
+## Sprint 17 - Remediation du second audit du 2026-09-24 (Phase 17)
+
+> Second audit externe du 2026-09-24 : chaque point a ete verifie contre le code
+> avant correction, sur la branche `fix/audit-2-remediation`, a raison d'un
+> commit par correction. Decisions d'operateur du jour : ecarts spec/code
+> corriges en **alignant la spec** (pas de nouvelle fonctionnalite), surcharges
+> `domains[]` **refusees** (ADR-022), ADR-019 **option B**, ADR-020 **1C + 2A**.
+
+### T17.1 - Performance du chemin chaud
+- [x] 1.1 `metrics.observeVisitor` : recomptage O(N) de tous les visiteurs vus depuis le demarrage, sous verrou global, map jamais purgee, map allouee par requete. Compteurs par etat ajustes au changement d'etat, expiration par queue de liste LRU (fenetre `trust.score_ttl`), borne `trust.max_visitors` : 49 ns/op, 0 allocation a 100 000 visiteurs
+- [x] 1.2 / 1.4 `ScoreManager.Get` reecrivait le visiteur a chaque lecture (SET Redis synchrone ou verrou global du store memoire), jusqu'a six fois par requete. Glissement du TTL au plus une fois par 30 s ; `Peek` en lecture seule pour le logger, les metriques, le rate limit sous pression et le plafond threat intel
+- [x] 1.3 `bufferPool.Put` faisait echapper un en-tete de tranche par requete (`moved to heap: buffer` confirme). Pool de `*[32768]byte` : 0 allocation par cycle (test en echec sur l'ancien code)
+
+### T17.2 - Contrats de donnees et SDD
+- [x] 2.1 `rule.schema.json` v2.0.0 reecrit sur le moteur reel (liste en ET, `operator`/`name`, actions block/tarpit/score_delta/add_header/log) ; `rules-engine.feature` reecrit, capacites absentes `@deferred` ; le chargement refuse desormais toute action non supportee, une regle sans action et toute cle YAML inconnue
+- [x] 2.2 Alertes : `id` UUID v4 ajoute (requis par le schema), enum `trigger` = triggers emis ; test de conformance au schema
+- [x] 2.3 `upstream-pool.schema.json` v2.0.0 = bloc `upstream_pool` charge (`healthy_threshold`/`unhealthy_threshold`) ; retry, 503, `GET /waf/admin/upstreams`, alertes/metriques `@deferred`. Au passage : les defauts de sonde documentes n'etaient pas appliques (pool active sans `interval` refuse au demarrage) — corriges
+- [x] 2.4 `storage.VisitorState` sans balises JSON : Redis ecrivait des cles PascalCase hors `visitor.schema.json`. Balises snake_case, test de conformance, lecture de repli des valeurs anterieures (sinon visiteur vide = score 0 = bloque)
+- [x] 2.5 `behavioral-profile` et `threat-intel-entry` marques draft (aucun producteur)
+- [x] 2.6 Scenarios non implementes tagues `@deferred` : deception-layer (injection), origin-protection (mTLS, rotation), acme-tls (alerte 7 j, SIGHUP), audit-trail (filtres, echec d'auth, contexte ; feature reecrite sur le contrat reel), webhook-alerts
+- [x] 2.7 ADR-019 et ADR-020 `accepted` (voir T17.4)
+
+### T17.3 - Bugs et code mort
+- [x] 3.1 Surcharges `domains[]` inertes refusees a la validation avec un message qui nomme la cle (ADR-022, rupture de contrat de configuration) ; clot T16.22
+- [x] 3.2 Entree de blacklist recue du cluster effacee au premier ajout/retrait admin local : elle passe desormais par l'etat admin (listee, retirable, jamais republiee)
+- [x] 3.3 `EventDegradedMode` orphelin supprime (valeur toujours reservee par le schema) ; cas `degraded_mode` jamais emis retires de `internal/alert`
+- [x] 3.4 `PATCH /waf/admin/config` limite a trois blocs : **constat exact mais pas un defaut** — le perimetre est celui du schema `ConfigUpdate` (`additionalProperties: false`), une cle hors perimetre recoit un 400 (`jsonstrict`), rien n'est accepte en silence. La rotation a chaud de `origin_protection.secret` reste differee (FR-19, `@deferred`)
+
+### T17.4 - Securite et robustesse
+- [x] 4.1 Slowloris et selfprotect comptaient par IP du PoP Cloudflare (`cloudflare.Middleware` monte sous eux) : monte dans l'enveloppe, entre maintenance et slowloris (test en echec sur l'ancien code)
+- [x] 4.2 ADR-019 option B : tout `CF-*` d'une source hors plage Cloudflare est supprime, et tous quand `cloudflare.trusted` est faux ; avertissement au demarrage pour `geo` / `ja3_header` alors sans entree. L'omission reste un contournement tant que l'origine est joignable (documente)
+- [x] 4.3 ADR-020 : `server.strict_host` (opt-in) -> 400 `host_not_declared`, `/waf/health` exempte, correspondance du routage ; refuse sans `domains[]`
+- [x] 4.4 `/wp-admin` et `/wp-login.php` retires des honeypots par defaut (bannissaient l'administrateur de tout WordPress) ; remplaces par `/wp-config.php`
+- [x] 4.5 Integrite : decodage recursif (3 couches) et forme normalisee (blancs replies, commentaires SQL retires, blancs autour de `=`). Le double encodage de traversee cite par l'audit etait **deja** detecte ; le triple ne l'etait pas
+
+### T17.5 - Outillage et gates
+- [x] 5.1 `*.go text eol=lf` : `golangci-lint run` passe de 93 faux positifs `gofmt` a 0 sur Windows
+- [x] 5.2 AGENTS.md / CLAUDE.md : gates pointees sur les outils Go ; une cible `make` par gate
+- [x] 5.3 `tests/load/basic.js` cree ; gates G1-G6 executees et consignees (validation.md). G6 toujours **non executee** (k6 absent du poste)
+
+### Restes (non traites)
+- [ ] G6 : campagne k6 a executer sur un poste equipe
+- [ ] `github.com/klauspost/compress` v1.17.9 -> v1.18.7 (GO-2026-5841, non atteignable)
+- [ ] Fonctionnalites differees (`@deferred`) : a planifier ou a retirer des specs
+- **Validation 2026-09-24** : `go build ./...`, `go vet ./...`, `go test ./...` (678 tests, 45 paquets), `golangci-lint run` (0 issue), `spectral lint` (0 erreur), `govulncheck` (0 vulnerabilite atteignable) ; execution reelle du binaire sur `config.example.yaml` (`/waf/health` 200, `CF-Connecting-IP` forge 400). `go test -race` non executable localement — couvert par la CI.
+- **Statut** : implemente.

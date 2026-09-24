@@ -273,6 +273,41 @@ last-reviewed: 2026-09-24
 | 2026-09-24 | PoW client | Solveur de la page exécuté sous Node | pass | Premier nonce accepté par le serveur pour 0/1/5/10/13 bits ; hash égal à SHA-256 pour les préfixes de 0 à 200 octets |
 | 2026-09-24 | Binaire autonome | Exécution réelle hors du dépôt | pass | Démarre depuis un répertoire temporaire (échouait sur `read challenge template`) |
 | 2026-09-24 | Open redirect | Sonde sur `routes()` | non exploitable | `//evil.com/path` → 307 `/evil.com/path` par le ServeMux ; durcissement appliqué |
+| 2026-09-24 | Sprint 17 (audit 2) | `go test ./...` | pass | 678 tests, 45 paquets |
+| 2026-09-24 | Sprint 17 (audit 2) | `go vet ./...` + `go build ./...` | pass | |
+| 2026-09-24 | Sprint 17 (audit 2) | `golangci-lint run ./...` | pass | 0 issue — plus de faux positifs `gofmt` grâce à `*.go eol=lf` |
+| 2026-09-24 | Sprint 17 (audit 2) | `spectral lint` admin + public | pass | 0 erreur, 0 avertissement |
+| 2026-09-24 | Sprint 17 (audit 2) | `govulncheck ./...` | pass | 0 vulnérabilité atteignable ; 2 dans des modules requis, non appelées (GO-2026-5932, GO-2026-5841) |
+| 2026-09-24 | Sprint 17 (audit 2) | `go test -race` | **non exécuté localement** | cgo indisponible sur le poste ; couvert par la CI |
+| 2026-09-24 | Sprint 17 (audit 2) | `k6 run tests/load/basic.js` | **non exécuté** | k6 absent du poste ; script créé |
+| 2026-09-24 | Métriques visiteurs | `BenchmarkVisitorTrackerObserve` (100 000 visiteurs) | pass | 49 ns/op, 0 allocation (O(N) sous verrou global avant) |
+| 2026-09-24 | Pool de tampons proxy | `TestBufferPoolCycleDoesNotAllocate` | pass | 1 allocation par cycle avant, 0 après |
+| 2026-09-24 | Slowloris derrière Cloudflare | `TestRoutesSlowlorisCountsTheCloudflareVisitorNotThePoP` | pass | 429 pour le 2ᵉ visiteur du même PoP avant correctif |
+| 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `/waf/health` 200 ; `CF-Connecting-IP` forgé hors Cloudflare 400 |
+
+### Sprint 17 — second audit du 2026-09-24 : ce qui était exact, ce qui ne l'était pas
+
+- **Exact et corrigé** : 1.1 à 1.4, 2.1 à 2.7, 3.1 à 3.3, 4.1 à 4.5, 5.1 à 5.3.
+  Chaque correctif de code a un test qui échoue sur l'ancien code quand le
+  défaut était observable (pool de tampons, slowloris, schéma visiteur,
+  intégrité, blacklist cluster).
+- **Exact mais pas un défaut** : 3.4. `PATCH /waf/admin/config` est borné au
+  schéma `ConfigUpdate` (`additionalProperties: false`) et répond 400 à toute
+  autre clé ; rien n'est accepté en silence. La rotation à chaud du secret
+  d'origine est une fonctionnalité différée (FR-19), pas une régression.
+- **Partiellement inexact** : 4.5 — le double encodage de traversée
+  (`%252e%252e%252f`) était déjà détecté (la forme décodée une fois contient
+  `%2e%2e`) ; les contournements par espacement et le triple encodage, eux,
+  passaient.
+- **Décisions d'opérateur** : écarts de spec résolus en alignant la spec (les
+  capacités absentes deviennent `@deferred`, aucune n'est implémentée ici) ;
+  ADR-019 option B, ADR-020 1C + 2A, ADR-022 (rejet des surcharges inertes).
+- **Rupture** : ADR-022 — une configuration qui contient encore
+  `protected_paths`, `public_paths`, `rate_limit_override` ou `trust_override`
+  ne démarre plus. Le décodage strict du fichier de règles et le refus des
+  actions non supportées peuvent aussi refuser un fichier de règles
+  jusque-là « accepté » : dans les deux cas, ce qui est refusé n'avait aucun
+  effet.
 
 ### Slice 12.1 — Notes & couverture du périmètre (FR-39)
 
