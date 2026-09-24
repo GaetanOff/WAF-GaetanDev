@@ -6,6 +6,38 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — troisième audit du 2026-09-24 (phase 18)
+
+- `GET /waf/admin/config` masque `origin_protection.secret` (qui permettait de
+  forger `X-WAF-Origin-Token`), `threat_intel.abuseipdb.api_key` et
+  `alerting.webhooks[].url`. Le masquage ne modifie plus la configuration
+  active : le premier GET écrasait le mot de passe Redis en vigueur.
+- `challenge.secret_key` est exigée dès qu'un domaine active
+  `challenge_enabled: true`, même si `challenge.enabled` est faux : le WAF
+  signait sinon tokens et cookies avec une clé vide.
+- Le label `domain` des métriques est borné aux hôtes de `domains[]` (autres
+  hôtes : `_undeclared`) : un `Host` inventé ne crée plus de série Prometheus.
+- `github.com/klauspost/compress` v1.18.7 (GO-2026-5841, non atteignable).
+
+### Fixed — troisième audit du 2026-09-24
+
+- Les règles `trust_score` s'évaluent sur le score courant du visiteur ; elles
+  ne matchaient jamais (lecture d'un en-tête posé en aval des règles).
+- Un 429 de l'upstream n'est plus une violation de circuit-breaker : le rate
+  limit d'une API ne conduit plus au bannissement de l'IP par le WAF.
+- Tokens et cookies de challenge, token d'origine : signés sur l'hôte
+  normalisé ; un visiteur sur `Example.com` ou `example.com:443` garde sa
+  clearance, et l'origine vérifie son token avec `?domain=example.com`.
+- Pages d'erreur brandées : un 4xx JSON d'API n'est plus remplacé par la page
+  HTML du WAF, même pour `Accept: text/html,*/*`.
+
+### Changed — troisième audit du 2026-09-24
+
+- `architecture-advanced.md` et `architecture-ops.md` sont dépréciés ;
+  `architecture.md` est la seule architecture de référence.
+- `plan.md` couvre les phases 10 à 18 ; FR-11 est aligné sur FR-35 (un JA3
+  blacklisté est un déclencheur déterministe, BLOCK par le moteur de risque).
+
 ### Removed — second audit du 2026-09-24 (phase 17)
 
 - **BREAKING** — `domains[].protected_paths`, `public_paths`,
