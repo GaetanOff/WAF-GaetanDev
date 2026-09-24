@@ -1,0 +1,59 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://github.com/GaetanDev/WAF/schemas/cluster-event.schema.json",
+  "title": "ClusterEvent",
+  "description": "Événement de synchronisation inter-nœuds publié sur le canal Redis Pub/Sub cluster.channel (FR-20, défaut \"waf:events\"). Cohérence éventuelle : un nœud qui rejoint ne reçoit que les événements postérieurs.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["type"],
+  "properties": {
+    "type": {
+      "type": "string",
+      "enum": ["blacklist_add", "score_critical", "circuit_open", "degraded_mode"],
+      "description": "Nature de l'événement. degraded_mode est réservé : aucun nœud ne le publie aujourd'hui."
+    },
+    "node": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$",
+      "description": "Identifiant aléatoire du nœud émetteur, tiré au démarrage. Un nœud ignore les événements qui portent le sien (écho Pub/Sub)."
+    },
+    "value": {
+      "type": "string",
+      "description": "IP ou CIDR ajouté à la blacklist (blacklist_add)"
+    },
+    "ip_hash": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{16}$",
+      "description": "Visiteur concerné (score_critical, circuit_open) — même hash que visitor.schema.json"
+    },
+    "domain": {
+      "type": "string",
+      "description": "Domaine du visiteur (score_critical)"
+    },
+    "score": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 4,
+      "description": "Score de confiance propagé (score_critical : score < 5). Il n'abaisse que le score local, jamais ne le remonte. Absent vaut 0."
+    },
+    "until": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Fin d'ouverture du circuit (circuit_open) : la même échéance sur tous les nœuds. Absente : 300 s après réception."
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "type": { "const": "blacklist_add" } } },
+      "then": { "required": ["value"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "score_critical" } } },
+      "then": { "required": ["ip_hash"] }
+    },
+    {
+      "if": { "properties": { "type": { "const": "circuit_open" } } },
+      "then": { "required": ["ip_hash"] }
+    }
+  ]
+}
