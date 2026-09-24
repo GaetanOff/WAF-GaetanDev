@@ -170,9 +170,21 @@ func clientIP(r *http.Request) string {
 	return host
 }
 
+// degradationReporter est satisfait par le backend Redis : il sert son état
+// local quand Redis est injoignable (ADR-021).
+type degradationReporter interface {
+	Degraded() bool
+}
+
+// health répond "degraded" quand le stockage partagé est en mode dégradé : le
+// nœud sert, mais sur son seul état local. Le statut était toujours "ok".
 func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+	status := "ok"
+	if reporter, ok := s.store.(degradationReporter); ok && reporter.Degraded() {
+		status = "degraded"
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"status":         "ok",
+		"status":         status,
 		"version":        s.cfg.Version,
 		"uptime_seconds": int64(time.Since(s.startedAt).Seconds()),
 	})

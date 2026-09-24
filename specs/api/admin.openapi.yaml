@@ -6,7 +6,7 @@ info:
     API d'administration du WAF Anti-DDoS/Anti-Bot.
     Exposée sur un port séparé (défaut: 9090), protégée par Bearer token.
     Ne jamais exposer ce port publiquement.
-  version: 1.1.1
+  version: 1.1.2
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -274,7 +274,7 @@ paths:
     get:
       operationId: getHealth
       summary: Health check
-      description: Retourne l'état de santé du WAF et sa version. Endpoint non authentifié, utilisé par les sondes de disponibilité.
+      description: Retourne l'état de santé du WAF et sa version. Endpoint non authentifié, utilisé par les sondes de disponibilité. `status` vaut `degraded` quand le stockage partagé (`storage.backend = redis`) est en mode dégradé et que le nœud sert son seul état local (ADR-021, jauge `waf_storage_degraded`) ; le WAF reste opérationnel, la réponse reste 200.
       security: []
       tags: [System]
       responses:

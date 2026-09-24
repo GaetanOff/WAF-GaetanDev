@@ -561,6 +561,13 @@ func (s *Store) operationContext() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), s.timeout)
 }
 
+// Degraded indique si le nœud sert son état local faute de Redis, tel que
+// publié par waf_storage_degraded. Lecture sans effet de bord : contrairement
+// à degraded, elle n'ouvre pas la sonde de fin de fenêtre.
+func (s *Store) Degraded() bool {
+	return s.degradedGauge.Load()
+}
+
 // degraded indique si le nœud sert son état local.
 func (s *Store) degraded() bool {
 	until := s.degradedUntil.Load()

@@ -552,12 +552,19 @@ func TestDegradedModeRecoversWhenRedisComesBack(t *testing.T) {
 		t.Fatal("precondition: the node must be degraded")
 	}
 
+	if !store.Degraded() {
+		t.Fatal("Degraded() must report the degraded mode (GET /waf/health)")
+	}
+
 	fake.setFailing(false)
 	clock.advance(degradedWindow)
 	store.SetVisitor("d0d0cafe", visitorFixture(clock.Now().Add(time.Hour)))
 
 	if store.degraded() {
 		t.Fatal("the node must be back to nominal after a successful probe")
+	}
+	if store.Degraded() {
+		t.Fatal("Degraded() must report the recovery")
 	}
 	if _, _, ok := fake.rawValue(visitorKeyPrefix + "d0d0cafe"); !ok {
 		t.Fatal("writes must reach Redis again")

@@ -12,6 +12,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/access"
+	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -223,6 +224,39 @@ func statusWithHeaderLines(t *testing.T, url string, count int) (int, error) {
 	defer func() { _ = response.Body.Close() }()
 	return response.StatusCode, nil
 }
+
+// admin.openapi.yaml, getHealth : status vaut "degraded" quand le stockage
+// partagé est en mode dégradé (ADR-021), "ok" sinon ; version est requise.
+func TestHealthReportsDegradedStorage(t *testing.T) {
+	for _, tc := range []struct {
+		degraded bool
+		want     string
+	}{{false, "ok"}, {true, "degraded"}} {
+		server := newTestServer(t)
+		server.store = reportingStore{Store: server.store, degraded: tc.degraded}
+		response := httptest.NewRecorder()
+
+		server.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://admin.test/waf/health", nil))
+
+		var body struct {
+			Status  string `json:"status"`
+			Version string `json:"version"`
+		}
+		if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+			t.Fatalf("decode health: %v", err)
+		}
+		if response.Code != http.StatusOK || body.Status != tc.want || body.Version == "" {
+			t.Fatalf("degraded=%v: status %d body %+v, want 200 status=%s with a version", tc.degraded, response.Code, body, tc.want)
+		}
+	}
+}
+
+type reportingStore struct {
+	storage.Store
+	degraded bool
+}
+
+func (s reportingStore) Degraded() bool { return s.degraded }
 
 func newTestServer(t *testing.T) *Server {
 	t.Helper()
