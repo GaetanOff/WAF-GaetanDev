@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
@@ -42,8 +41,7 @@ type Metrics struct {
 	cfRangeUpdates  *prometheus.CounterVec
 	storageDegraded prometheus.Gauge
 	storageErrors   *prometheus.CounterVec
-	mu              sync.Mutex
-	visitors        map[string]string
+	visitors        *visitorTracker
 	now             func() time.Time
 }
 
@@ -132,13 +130,21 @@ func New() *Metrics {
 			Name: "waf_storage_errors_total",
 			Help: "Storage backend errors by operation (ADR-021).",
 		}, []string{"operation"}),
-		visitors: make(map[string]string),
-		now:      time.Now,
+		now: time.Now,
 	}
+	m.visitors = newVisitorTracker(defaultVisitorWindow, defaultMaxVisitors, m.activeVisitors, m.visitorsByState)
 	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors)
 	// La liste compilée est en vigueur au démarrage : publier son cardinal tout
 	// de suite évite une jauge à 0 qui se lirait comme « aucune plage connue ».
 	m.cfRanges.Set(float64(len(cloudflare.Ranges())))
+	return m
+}
+
+// WithVisitorBounds aligne le suivi des visiteurs actifs sur la configuration
+// du trust score : un visiteur sort des jauges quand son score expirerait
+// (trust.score_ttl), et le suivi n'en retient pas plus que trust.max_visitors.
+func (m *Metrics) WithVisitorBounds(window time.Duration, maxVisitors int) *Metrics {
+	m.visitors = newVisitorTracker(window, maxVisitors, m.activeVisitors, m.visitorsByState)
 	return m
 }
 
@@ -250,26 +256,8 @@ func (m *Metrics) observeVisitor(r *http.Request, scores *trust.ScoreManager) {
 	if scores == nil {
 		return
 	}
-	ip := cloudflare.RealIP(r)
-	visitor := scores.Peek(ip, r.Host)
-	state := scores.State(visitor.Score)
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	m.visitors[visitor.IPHash] = state
-	counts := map[string]int{
-		trust.StateTrusted:    0,
-		trust.StateMonitored:  0,
-		trust.StateChallenged: 0,
-		trust.StateBlocked:    0,
-	}
-	for _, visitorState := range m.visitors {
-		counts[visitorState]++
-	}
-	m.activeVisitors.Set(float64(len(m.visitors)))
-	for stateName, count := range counts {
-		m.visitorsByState.WithLabelValues(stateName).Set(float64(count))
-	}
+	visitor := scores.Peek(cloudflare.RealIP(r), r.Host)
+	m.visitors.observe(visitor.IPHash, scores.State(visitor.Score), m.now())
 }
 
 func (m *Metrics) observeGlobalPressure(r *http.Request) {

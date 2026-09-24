@@ -194,6 +194,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	metrics.WithVisitorBounds(scoreManager.TTL(), cfg.Trust.MaxVisitors)
 	antiDDoS, err := antiddos.NewFromConfig(store, *cfg)
 	if err != nil {
 		return err
