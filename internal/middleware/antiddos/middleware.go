@@ -128,16 +128,15 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		next.ServeHTTP(recorder, r)
 		if isPressureThrottle(recorder) {
 			// 429 imputable au seul throttle de pression (FR-08) : neutre pour le
-			// breaker — pas une violation (le WAF ouvrirait le circuit à cause des
-			// 429 qu'il a lui-même provoqués), pas un succès non plus (pas de
-			// reset de la série de violations en cours).
+			// breaker — le WAF ouvrirait sinon le circuit à cause des 429 qu'il a
+			// lui-même provoqués.
 			return
 		}
+		// Une requête admise ne remet pas la série à zéro : seule l'ancienneté de
+		// la dernière violation l'éteint (cf. RecordViolation).
 		if isViolation(recorder) {
 			m.breaker.RecordViolation(ip)
-			return
 		}
-		m.breaker.Reset(ip)
 	})
 }
 

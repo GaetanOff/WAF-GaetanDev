@@ -32,11 +32,23 @@ Feature: Protection Anti-DDoS
 
   Scenario: Circuit-breaker — blocage temporaire après violations répétées
     Given un visiteur avec l'IP "1.2.3.4"
-    And le visiteur a atteint le rate limit 5 fois consécutives
+    And le visiteur a atteint le rate limit 5 fois, chaque violation à moins de 60 s de la précédente
     When il envoie une nouvelle requête
     Then la requête reçoit une réponse HTTP 403
     And le log indique action="CIRCUIT_BREAK"
     And le circuit-breaker expire après 300 secondes
+
+  Scenario: Circuit-breaker — attaque par impulsions
+    Given un visiteur avec l'IP "1.2.3.4"
+    When il enchaîne 4 requêtes en 429 puis 1 requête admise, en boucle
+    Then les violations continuent de se cumuler malgré les requêtes admises
+    And le circuit s'ouvre à la 5e violation
+    # Régression : une requête admise remettait la série à zéro.
+
+  Scenario: Circuit-breaker — série éteinte par l'ancienneté
+    Given un visiteur a atteint le rate limit 2 fois
+    When sa violation suivante survient plus de 60 s après la précédente
+    Then une nouvelle série commence (violation_count = 1)
 
   Scenario: Protection IP whitelistée — pas de rate limiting
     Given l'IP "10.0.0.1" est dans la whitelist

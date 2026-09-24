@@ -45,7 +45,12 @@
     "violation_count": {
       "type": "integer",
       "minimum": 0,
-      "description": "Nombre de violations (rate limit, honeypot, etc.)"
+      "description": "Nombre de violations de la série en cours (circuit-breaker FR-08)"
+    },
+    "last_violation": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Dernière violation : une violation survenant plus de 60 s après elle ouvre une nouvelle série"
     },
     "last_rate_limit_penalty": {
       "type": ["string", "null"],

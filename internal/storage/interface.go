@@ -11,6 +11,7 @@ type VisitorState struct {
 	ExpiresAt            time.Time
 	ReqCount             int64
 	ViolationCount       int
+	LastViolation        *time.Time
 	LastRateLimitPenalty *time.Time
 	ChallengePassed      bool
 	ChallengeAttempts    int

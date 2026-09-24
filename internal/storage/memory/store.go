@@ -296,5 +296,9 @@ func cloneVisitor(visitor storage.VisitorState) *storage.VisitorState {
 		circuitOpenUntil := *visitor.CircuitOpenUntil
 		visitor.CircuitOpenUntil = &circuitOpenUntil
 	}
+	if visitor.LastViolation != nil {
+		lastViolation := *visitor.LastViolation
+		visitor.LastViolation = &lastViolation
+	}
 	return &visitor
 }
