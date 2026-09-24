@@ -142,10 +142,32 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		}
 
 		// Les fenêtres sont d'abord RECHARGÉES sans prélèvement : le jeton n'est
-		// consommé que si toutes l'autorisent (FR-03).
-		windows := m.evaluate(ipHash, factor, now)
-		allowed, retryAfter, reason := verdict(windows)
-		snapshots := m.settle(windows, allowed, now)
+		// consommé que si toutes l'autorisent (FR-03). Lecture, calcul et
+		// écriture forment une seule mise à jour atomique du store ; la
+		// fonction peut être rejouée sur conflit, les variables capturées
+		// reflètent donc le calcul effectivement retenu.
+		configured := *m.windows.Load()
+		keys := make([]string, len(configured))
+		for i, w := range configured {
+			keys[i] = ipHash + w.keySuffix
+		}
+		var (
+			windows    []evaluation
+			allowed    bool
+			retryAfter time.Duration
+			reason     string
+			snapshots  []BucketSnapshot
+		)
+		m.store.UpdateBuckets(keys, func(current []*storage.RateBucket) []storage.RateBucket {
+			windows = m.evaluate(configured, keys, current, factor, now)
+			allowed, retryAfter, reason = verdict(windows)
+			snapshots = settle(windows, allowed, now)
+			buckets := make([]storage.RateBucket, len(snapshots))
+			for i, snapshot := range snapshots {
+				buckets[i] = toStorageBucket(snapshot)
+			}
+			return buckets
+		})
 
 		if !allowed {
 			if pressured && m.nominalWouldAllow(windows, now) {
@@ -197,14 +219,13 @@ type evaluation struct {
 	retryAfter  time.Duration
 }
 
-// evaluate charge et recharge chaque fenêtre active, sans rien prélever ni
-// persister.
-func (m *Middleware) evaluate(ipHash string, factor float64, now time.Time) []evaluation {
-	windows := *m.windows.Load()
+// evaluate recharge chaque fenêtre active depuis son état courant (nil :
+// fenêtre neuve), sans rien prélever ni persister.
+func (m *Middleware) evaluate(windows []window, keys []string, current []*storage.RateBucket, factor float64, now time.Time) []evaluation {
 	evaluations := make([]evaluation, 0, len(windows))
-	for _, w := range windows {
-		key := ipHash + w.keySuffix
-		existing, hasExisting := m.store.GetBucket(key)
+	for i, w := range windows {
+		key := keys[i]
+		existing, hasExisting := current[i], current[i] != nil
 		bucket := m.loadBucket(existing, hasExisting, w.rate*factor, w.capacity, now)
 		allowed, retryAfter := bucket.Refill(now)
 		evaluations = append(evaluations, evaluation{
@@ -242,12 +263,12 @@ func verdict(evaluations []evaluation) (bool, time.Duration, string) {
 }
 
 // settle prélève le jeton de chaque fenêtre quand la requête est admise, puis
-// persiste l'état des fenêtres. Sur refus, seule la RECHARGE est persistée :
+// retourne l'état à persister. Sur refus, seule la RECHARGE est persistée :
 // l'horodatage doit avancer, mais aucun jeton n'est prélevé — ni dans la fenêtre
 // qui refuse, ni dans les autres (FR-03). Sans cette séparation, un client buté
 // sur sa limite horaire verrait aussi son burst à la seconde vidé, et
 // repartirait avec un bucket vide à la réouverture de la fenêtre.
-func (m *Middleware) settle(evaluations []evaluation, allowed bool, now time.Time) []BucketSnapshot {
+func settle(evaluations []evaluation, allowed bool, now time.Time) []BucketSnapshot {
 	snapshots := make([]BucketSnapshot, 0, len(evaluations))
 	for _, e := range evaluations {
 		if allowed {
@@ -258,7 +279,6 @@ func (m *Middleware) settle(evaluations []evaluation, allowed bool, now time.Tim
 		// interroge pour expirer l'entrée, même quand le middleware tourne sur
 		// une horloge injectée (tests).
 		snapshot.ExpiresAt = time.Now().Add(e.window.ttl)
-		m.store.SetBucket(e.key, toStorageBucket(snapshot))
 		snapshots = append(snapshots, snapshot)
 	}
 	return snapshots

@@ -96,7 +96,8 @@ décider seule quoi faire d'une erreur Redis — elle ne peut pas la remonter.
 - `internal/storage/redis/store.go` implémente `storage.Store` ; `cmd/waf`
   sélectionne l'implémentation via `storage.backend` (fin du no-op silencieux).
 - Le paquet dialogue avec Redis à travers une interface réduite aux commandes
-  réellement utilisées (`Get`, `Set`, `Del`, `Scan`, `Ping`, `Close`), ce qui
+  réellement utilisées (`Get`, `MGet`, `Set`, `Del`, `Scan`, `Eval`, `Ping`,
+  `Close` — `MGet`/`Eval` depuis l'amendement ci-dessous), ce qui
   permet de tester le mode dégradé, le calcul de TTL et la sérialisation
   **sans Redis en CI** (ADR-002 : les tests d'intégration n'exigent pas Redis).
 - Métriques ajoutées : `waf_storage_degraded` (jauge 0/1) et
@@ -108,6 +109,30 @@ décider seule quoi faire d'une erreur Redis — elle ne peut pas la remonter.
 - `cluster.enabled` (FR-20, Pub/Sub) reste **indépendant** du backend : le bus
   d'événements et le store partagé sont deux mécanismes distincts qui utilisent
   la même connexion configurée `storage.redis`.
+
+## Amendement — mise à jour atomique des buckets (2026-09-24)
+
+Constat d'audit : le rate limiter faisait un `GET` puis un `SET` par fenêtre
+(seconde, minute, heure), soit six allers-retours séquentiels par requête, et
+la paire lecture/écriture n'était pas atomique — deux instances lisaient le
+même solde et écrasaient mutuellement leur prélèvement (la même course existait
+entre requêtes concurrentes d'un seul nœud).
+
+- `storage.Store` gagne `UpdateBuckets(keys, update)` : lecture, calcul et
+  écriture des buckets d'une requête en une opération atomique.
+- `memory` : verrous striés (64) choisis par la première clé — les clés d'un
+  appel sont celles d'une même IP.
+- `redis` : `MGET` puis un script Lua **compare-and-set** (`EVAL`) qui n'écrit
+  que si aucune clé n'a changé depuis la lecture ; sur conflit, le calcul est
+  rejoué sur l'état frais (3 tentatives, puis écriture inconditionnelle du
+  dernier calcul plutôt que sa perte). Deux allers-retours au lieu de six.
+  Erreur Redis : même traitement que les autres opérations (échec compté,
+  repli local).
+- La surface de commandes du client s'étend à `MGet` et `Eval`. Les clés d'un
+  appel ne partagent pas de hash tag : le backend vise une instance Redis
+  (`goredis.NewClient`), pas Redis Cluster.
+- Hors périmètre de cet amendement : les lectures/écritures de `VisitorState`
+  (score, moteur de risque) restent des allers-retours unitaires.
 
 ## Spec References
 

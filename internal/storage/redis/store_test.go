@@ -26,6 +26,8 @@ type fakeRedis struct {
 	failing bool
 	pingErr error
 	closed  bool
+
+	beforeEval func()
 }
 
 func newFakeRedis() *fakeRedis {
@@ -119,6 +121,38 @@ func (f *fakeRedis) Scan(_ context.Context, _ uint64, match string, _ int64) *go
 		}
 	}
 	return goredis.NewScanCmdResult(keys, 0, nil)
+}
+
+// Eval émule bucketCASScript, seul script du Store : compare-and-set des
+// clés. beforeEval, s'il est défini, s'exécute avant la comparaison — il simule
+// l'écriture d'un autre nœud entre le MGET et l'EVAL.
+func (f *fakeRedis) Eval(_ context.Context, script string, keys []string, args ...any) *goredis.Cmd {
+	if f.beforeEval != nil {
+		hook := f.beforeEval
+		f.beforeEval = nil
+		hook()
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.record("eval") {
+		return goredis.NewCmdResult(nil, errFakeDown)
+	}
+	if script != bucketCASScript {
+		return goredis.NewCmdResult(nil, fmt.Errorf("unexpected script"))
+	}
+	n := len(keys)
+	for i, key := range keys {
+		current, exists := f.values[key]
+		expected := args[i].(string)
+		if (expected == "" && exists) || (expected != "" && current != expected) {
+			return goredis.NewCmdResult(int64(0), nil)
+		}
+	}
+	for i, key := range keys {
+		f.values[key] = args[n+i].(string)
+		f.ttls[key] = time.Duration(args[2*n+i].(int64)) * time.Millisecond
+	}
+	return goredis.NewCmdResult(int64(1), nil)
 }
 
 func (f *fakeRedis) Ping(_ context.Context) *goredis.StatusCmd {
@@ -671,4 +705,80 @@ func TestStoreSatisfiesTheStorageInterface(t *testing.T) {
 	store, _, _, _ := newTestStore(t, 10)
 
 	var _ storage.Store = store
+}
+
+func bucketFixture(tokens float64, expiresAt time.Time) storage.RateBucket {
+	return storage.RateBucket{IPHash: "d0d0cafe", Tokens: tokens, Rate: 1, Capacity: 10, LastRefill: expiresAt.Add(-time.Minute), ExpiresAt: expiresAt}
+}
+
+// 4.1 : toutes les fenêtres d'une requête en deux allers-retours (MGET + EVAL)
+// au lieu d'un GET et d'un SET par fenêtre.
+func TestUpdateBucketsUsesTwoRoundTrips(t *testing.T) {
+	store, fake, _, clock := newTestStore(t, 100)
+	keys := []string{"d0d0cafe", "d0d0cafe:m", "d0d0cafe:h"}
+	expiresAt := clock.Now().Add(time.Hour)
+
+	store.UpdateBuckets(keys, func(current []*storage.RateBucket) []storage.RateBucket {
+		next := make([]storage.RateBucket, len(current))
+		for i := range current {
+			next[i] = bucketFixture(float64(i+1), expiresAt)
+		}
+		return next
+	})
+
+	if fake.callCount("mget") != 1 || fake.callCount("eval") != 1 || fake.callCount("get") != 0 || fake.callCount("set") != 0 {
+		t.Fatalf("calls: mget=%d eval=%d get=%d set=%d, want one MGET and one EVAL", fake.callCount("mget"), fake.callCount("eval"), fake.callCount("get"), fake.callCount("set"))
+	}
+	for i, key := range keys {
+		bucket, ok := store.GetBucket(key)
+		if !ok || bucket.Tokens != float64(i+1) {
+			t.Fatalf("bucket %s = %+v, want %d tokens", key, bucket, i+1)
+		}
+		if _, ttl, _ := fake.rawValue(bucketKeyPrefix + key); ttl != time.Hour {
+			t.Fatalf("ttl %s = %s, want 1h", key, ttl)
+		}
+	}
+}
+
+// Race inter-nœuds : un autre nœud écrit entre la lecture et l'écriture. Le
+// prélèvement est recalculé sur l'état frais au lieu d'écraser le sien.
+func TestUpdateBucketsRecomputesOnConcurrentWrite(t *testing.T) {
+	store, fake, _, clock := newTestStore(t, 100)
+	expiresAt := clock.Now().Add(time.Hour)
+	initial, _ := json.Marshal(bucketFixture(5, expiresAt))
+	fake.put(bucketKeyPrefix+"d0d0cafe", string(initial))
+	fake.beforeEval = func() {
+		other, _ := json.Marshal(bucketFixture(4, expiresAt)) // l'autre nœud a prélevé un jeton
+		fake.put(bucketKeyPrefix+"d0d0cafe", string(other))
+	}
+
+	attempts := 0
+	store.UpdateBuckets([]string{"d0d0cafe"}, func(current []*storage.RateBucket) []storage.RateBucket {
+		attempts++
+		return []storage.RateBucket{bucketFixture(current[0].Tokens-1, expiresAt)}
+	})
+
+	if attempts != 2 {
+		t.Fatalf("update attempts = %d, want 2 (conflict then retry)", attempts)
+	}
+	if bucket, _ := store.GetBucket("d0d0cafe"); bucket.Tokens != 3 {
+		t.Fatalf("tokens = %v, want 3: both nodes' consumption must count", bucket.Tokens)
+	}
+}
+
+func TestUpdateBucketsFallsBackToLocalWhenRedisFails(t *testing.T) {
+	store, fake, observer, clock := newTestStore(t, 100)
+	fake.setFailing(true)
+	expiresAt := clock.Now().Add(time.Hour)
+
+	store.UpdateBuckets([]string{"d0d0cafe"}, func([]*storage.RateBucket) []storage.RateBucket {
+		return []storage.RateBucket{bucketFixture(7, expiresAt)}
+	})
+
+	if observer.errorCount("update_buckets") != 1 {
+		t.Fatalf("update_buckets errors = %d, want 1", observer.errorCount("update_buckets"))
+	}
+	if bucket, ok := store.local.GetBucket("d0d0cafe"); !ok || bucket.Tokens != 7 {
+		t.Fatalf("local bucket = %+v, want the computed state kept locally", bucket)
+	}
 }
