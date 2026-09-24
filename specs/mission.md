@@ -1,7 +1,7 @@
 ---
 status: approved
-version: 1.0.0
-last-reviewed: 2026-06-03
+version: 1.1.0
+last-reviewed: 2026-09-24
 ---
 
 # Mission — WAF Anti-DDoS / Anti-Bot
@@ -42,7 +42,7 @@ Construire un reverse proxy WAF écrit en Go, hautement performant, qui s'interc
 - Pas de CAPTCHA, pas de reCAPTCHA, pas de hCaptcha
 - Pas d'interface d'administration graphique (v1)
 - Pas de DPI (deep packet inspection) au niveau TCP/IP
-- Pas de protection contre les injections SQL / XSS (responsabilité de l'application)
+- Pas de WAF applicatif à signatures (type OWASP CRS) : la protection contre les injections SQL / XSS reste la responsabilité de l'application. Le WAF ne repère que des motifs d'injection caractérisés (FR-18), qui contribuent au score de risque sans jamais bloquer à eux seuls
 - Pas de CDN intégré
 
 ## Constraints
