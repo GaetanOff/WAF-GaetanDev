@@ -194,6 +194,10 @@ REQUÊTE ENTRANTE
 [4] slowloris                             si slowloris.enabled
       │ Borne les requêtes concurrentes par IP réelle (FR-23).
       ▼
+[4b] proxy.StrictHost                     si server.strict_host
+      │ 400 host_not_declared sur un Host sans entrée domains[]
+      │ (correspondance du routage), /waf/health excepté (ADR-020 1C).
+      ▼
 [5] http.ServeMux
       │ /waf/health          → healthHandler
       │ /waf/metrics         → handler Prometheus

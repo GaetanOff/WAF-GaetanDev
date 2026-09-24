@@ -71,8 +71,12 @@ type ServerConfig struct {
 	// MaxHeaderValueCount borne le nombre de valeurs d'en-tête acceptées par
 	// requête (FR-23, http.Server.MaxHeaderValueCount — Go 1.27+). 0 laisse le
 	// défaut Go (http.DefaultMaxHeaderValueCount, 500).
-	MaxHeaderValueCount int       `yaml:"max_header_value_count"`
-	TLS                 ServerTLS `yaml:"tls"`
+	MaxHeaderValueCount int `yaml:"max_header_value_count"`
+	// StrictHost refuse en 400 un Host qui ne correspond à aucune entrée
+	// domains[] (ADR-020 option 1C). Opt-in : activé par défaut, il casserait
+	// l'accès par IP et tout déploiement sans domains[].
+	StrictHost bool      `yaml:"strict_host"`
+	TLS        ServerTLS `yaml:"tls"`
 }
 
 // ServerTLS configure la terminaison TLS sur le WAF (FR-33, ADR-017). Les
@@ -702,6 +706,10 @@ func (c *Config) Validate() error {
 	// fait la protection FR-23 ; alignée sur config.schema.json.
 	if c.Server.MaxHeaderValueCount < 0 || c.Server.MaxHeaderValueCount > 10000 {
 		fields = append(fields, "server.max_header_value_count must be between 0 and 10000")
+	}
+	if c.Server.StrictHost && len(c.Domains) == 0 {
+		// Sans domains[], strict_host refuserait tout sauf /waf/health.
+		fields = append(fields, "server.strict_host requires at least one domains[] entry")
 	}
 	if c.Upstream.MaxIdleConns < 1 {
 		fields = append(fields, "upstream.max_idle_conns must be >= 1")

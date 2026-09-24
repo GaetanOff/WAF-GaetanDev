@@ -42,6 +42,7 @@ server:
   write_timeout: "30s"
   idle_timeout: "60s"
   graceful_shutdown_timeout: "15s"
+  strict_host: false
 ```
 
 | Clé | Type | Défaut | Description |
@@ -52,6 +53,7 @@ server:
 | `write_timeout` | durée | `"30s"` | Délai max pour envoyer la réponse complète au client. |
 | `idle_timeout` | durée | `"60s"` | Délai max d'inactivité sur une connexion keep-alive avant fermeture. |
 | `graceful_shutdown_timeout` | durée | `"15s"` | Délai accordé aux connexions en cours pour se terminer proprement lors d'un arrêt (SIGTERM). |
+| `strict_host` | bool | `false` | Répond `400` (`X-WAF-Reason: host_not_declared`) à toute requête dont le `Host` ne correspond à aucune entrée [`domains`](#domains--configuration-par-domaine), `/waf/health` excepté ([ADR-020](specs/decisions/ADR-020-host-header-routing-trust.md)). Exige au moins une entrée `domains[]`. `/waf/metrics` n'est **pas** exempté : un scraper Prometheus doit alors présenter un `Host` déclaré. **Opt-in** : activé, il coupe l'accès par IP. |
 
 ### `server.tls` — Terminaison TLS par domaine (SNI)
 
@@ -1037,7 +1039,7 @@ La correspondance d'hôte est insensible à la casse et ignore le port : `Host: 
 |---|---|---|
 | `host` | string | Nom de domaine à matcher (exact ou wildcard `*.`). |
 | `upstream` | string | URL de l'upstream pour ce domaine (surcharge `upstream.address`). |
-| `challenge_enabled` | bool | Surcharge `challenge.enabled` pour ce domaine. **Clé absente = hérite du global** (un domaine déclaré pour son seul `upstream` ou son certificat ne perd pas le challenge). `false` = jamais de challenge JS sur ce domaine, **y compris en mode sous attaque** ([FR-39](#antiddosunder_attack--mode--sous-attaque--fr-39-adr-018)). `true` = challenge servi même si `challenge.enabled` est `false` globalement. |
+| `challenge_enabled` | bool | Surcharge `challenge.enabled` pour ce domaine. ⚠ Sans [`server.strict_host`](#server--serveur-http), un `Host` non listé hérite de la politique **globale** et de `upstream.address` : si cet upstream est la même origine, durcir un domaine ne protège rien — il suffit de changer l'en-tête `Host` (ADR-020). **Clé absente = hérite du global** (un domaine déclaré pour son seul `upstream` ou son certificat ne perd pas le challenge). `false` = jamais de challenge JS sur ce domaine, **y compris en mode sous attaque** ([FR-39](#antiddosunder_attack--mode--sous-attaque--fr-39-adr-018)). `true` = challenge servi même si `challenge.enabled` est `false` globalement. |
 | `protected_paths` | liste | Préfixes de chemins qui déclenchent **toujours** le challenge, quelle que soit la valeur du score (utile pour `/api/`, `/admin/`). |
 | `public_paths` | liste | Préfixes de chemins qui ne déclenchent **jamais** le challenge (assets, robots.txt, etc.). |
 | `rate_limit_override.requests_per_second` | float | Limite de débit spécifique à ce domaine (remplace la valeur globale). |

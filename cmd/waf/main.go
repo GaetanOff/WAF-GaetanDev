@@ -569,6 +569,12 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	}
 	mux.Handle("/", proxyHandler)
 	var handler http.Handler = mux
+	// Host non déclaré refusé (ADR-020 option 1C, opt-in) : un Host non listé
+	// hériterait sinon de la politique globale, y compris vers la même origine
+	// qu'un domaine durci. /waf/health reste servi aux sondes par IP.
+	if cfg.Server.StrictHost {
+		handler = proxy.StrictHost(cfg.Domains, handler)
+	}
 	// Protection Slowloris (FR-23) : limite les requêtes concurrentes par IP.
 	if cfg.Slowloris.Enabled {
 		handler = slowloris.New(cfg.Slowloris.MaxConnsPerIP).Handler(handler)

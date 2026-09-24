@@ -18,6 +18,10 @@ server:
   # Un navigateur en envoie ~20-30 ; 100 laisse de la marge tout en coupant les
   # requêtes à des milliers de lignes d'en-tête. 0 = défaut Go (500).
   max_header_value_count: 100
+  # ADR-020 — 400 sur un Host qui ne correspond à aucune entrée domains[]
+  # (/waf/health excepté). Opt-in : laisse à false pour un upstream unique sans
+  # domains[] ou un accès par IP. Voir CONFIG.md avant de durcir un domaine.
+  strict_host: false
   # Terminaison TLS par domaine (FR-33) : opt-in, si le WAF n'est PAS derrière
   # un terminateur TLS amont. Le certificat est choisi par SNI via domains[].tls.
   tls:

@@ -782,3 +782,37 @@ func TestRoutesSlowlorisCountsTheCloudflareVisitorNotThePoP(t *testing.T) {
 		t.Fatalf("first visitor: status = %d, want 204", code)
 	}
 }
+
+// ADR-020 option 1C, monté dans la chaîne réelle : le Host non déclaré n'atteint
+// pas l'upstream, la sonde de santé par IP reste servie.
+func TestRoutesStrictHostRejectsUndeclaredHosts(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.Challenge.Enabled = false
+	cfg.Server.StrictHost = true
+	cfg.Domains = []config.DomainConfig{{Host: "boxaria.fr", Upstream: "http://10.0.0.1"}}
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Host != "boxaria.fr" {
+			t.Fatalf("undeclared host %q reached the upstream", r.Host)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	send := func(host string, path string) int {
+		request := httptest.NewRequest(http.MethodGet, "http://placeholder"+path, nil)
+		request.Host = host
+		request.RemoteAddr = "203.0.113.10:1234"
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response.Code
+	}
+
+	if code := send("peu-importe.test", "/"); code != http.StatusBadRequest {
+		t.Fatalf("undeclared host: status = %d, want 400", code)
+	}
+	if code := send("boxaria.fr", "/"); code != http.StatusNoContent {
+		t.Fatalf("declared host: status = %d, want 204", code)
+	}
+	if code := send("10.0.0.5:8080", "/waf/health"); code != http.StatusOK {
+		t.Fatalf("health probe by IP: status = %d, want 200", code)
+	}
+}

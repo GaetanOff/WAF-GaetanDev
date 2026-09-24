@@ -1,14 +1,15 @@
 ---
-status: proposed
+status: accepted
 date: 2026-09-01
+decided: 2026-09-24
 deciders: GaetanDev
 relates-to: requirements.md (FR-01, FR-06 v2.2.0), requirements-ops.md (FR-33 — TLS par domaine), features/js-challenge.feature, features/per-domain-tls.feature, ADR-017
 ---
 
 # ADR-020 — Confiance accordée à l'en-tête `Host` pour le routage et la politique par domaine
 
-> **Statut : proposed.** Les deux questions posées ici ont des réponses qui
-> peuvent rejeter du trafic aujourd'hui accepté. Elles relèvent de l'opérateur.
+> **Statut : accepted (2026-09-24).** Zone 1 : option 1C (opt-in) retenue et
+> implémentée. Zone 2 : option 2A (statu quo documenté).
 
 ## Context
 
@@ -128,7 +129,20 @@ un réglage explicite (`domains_default_policy: inherit | strict`).
 
 ## Decision
 
-**À prendre.** Avis de l'auteur de l'audit, à titre de recommandation :
+**Retenue le 2026-09-24** (décision d'opérateur, audit du 2026-09-24, point 4.3) :
+
+- **Zone 1 — option 1C.** Clé `server.strict_host` (défaut `false`). Activée,
+  toute requête dont le `Host` ne correspond à aucune entrée `domains[]` reçoit
+  un `400` avec `X-WAF-Reason: host_not_declared`. La correspondance est celle du
+  routage (`proxy.StrictHost` réutilise `domainRoute.matches`) : casse ignorée,
+  port retiré, wildcard couvrant l'apex. `/waf/health` est exempté ;
+  `/waf/metrics` ne l'est pas. `config.Validate` refuse `strict_host: true` sans
+  aucune entrée `domains[]`. La garde est montée juste autour du routeur
+  (`architecture.md`, étape [4b]).
+- **Zone 2 — option 2A.** Aucune liaison SNI ↔ `Host` : l'écart est documenté,
+  aucune décision de sécurité ne dépend aujourd'hui du SNI.
+
+Avis initial de l'auteur de l'audit, conservé pour mémoire :
 
 - **Zone 1 : 1C en opt-in** (`server.strict_host`, défaut `false`), parce qu'elle
   réutilise un précédent déjà validé dans le code et qu'elle est la plus facile à
@@ -138,15 +152,15 @@ un réglage explicite (`domains_default_policy: inherit | strict`).
   usages HTTP/2 légitimes. À revoir si une décision de sécurité vient un jour
   dépendre du SNI.
 
-Rien n'est implémenté à ce jour, et **aucun comportement n'a été modifié** par la
+Au moment de la rédaction, rien n'était implémenté, et **aucun comportement n'avait été modifié** par la
 passe d'audit sur ce sujet : la seule correction livrée concerne la condition `ip`
 du moteur de règles (FR-17 v2.3.0, T14.3).
 
 ## Consequences
 
-- Tant que la Zone 1 est ouverte, une configuration qui durcit un domaine tout en
-  laissant `upstream.address` pointer sur la même origine DOIT être considérée
-  comme non durcie. À documenter dans `CONFIG.md` à côté de
+- Avec `strict_host: false` (défaut), une configuration qui durcit un domaine
+  tout en laissant `upstream.address` pointer sur la même origine DOIT être
+  considérée comme non durcie. Documenté dans `CONFIG.md` à côté de
   `domains[].challenge_enabled`, où l'opérateur la lira.
 - 1C, si retenue, exige que `/waf/health` reste servi hors validation — sinon les
   sondes de conteneur tombent.

@@ -3,7 +3,7 @@ status: implemented
 version: 3.4.0
 last-reviewed: 2026-09-24
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée"
+change: "FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -207,7 +207,7 @@ change: "FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non
   en-tête de requête dont le WAF ne peut pas prouver l'origine. Les en-têtes
   internes (`X-WAF-*`) sont couverts par la règle ci-dessus ; les en-têtes
   **d'infrastructure** posés par un intermédiaire relèvent d'ADR-019 (`accepted`,
-  option B) et l'en-tête `Host` d'ADR-020 :
+  option B) et l'en-tête `Host` d'ADR-020 (`accepted`, options 1C et 2A) :
   - Le WAF DOIT supprimer tout en-tête `CF-*` (préfixe insensible à la casse)
     d'une connexion qui ne vient pas d'une plage Cloudflare, et de toute
     connexion quand `cloudflare.trusted` est faux. Un `CF-Connecting-IP` forgé
@@ -217,6 +217,13 @@ change: "FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non
     FR-16 (géo) et la blacklist JA3 de FR-11 restent des contrôles de réduction
     de bruit tant que le WAF est joignable hors Cloudflare, et DOIVENT être
     documentés comme tels. Un `ja3_header` hors espace `CF-` n'est pas couvert
+  - Avec `server.strict_host: true`, une requête dont le `Host` ne correspond à
+    aucune entrée `domains[]` DOIT recevoir un `400`
+    (`X-WAF-Reason: host_not_declared`), `/waf/health` excepté. Défaut `false` ;
+    tant qu'il l'est, le durcissement par domaine de FR-06 est contournable par
+    un `Host` non listé qui atteint la même origine, et DOIT être documenté
+    comme tel
+  - Aucune liaison SNI ↔ `Host` n'est exigée
 
 ### Protection de l'endpoint /waf/verify
 - Le WAF DOIT appliquer un rate limit strict sur `POST /waf/verify` : configurable (défaut: 10 req/s par IP)
