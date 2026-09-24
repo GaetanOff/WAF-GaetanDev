@@ -4,11 +4,12 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
-	"sync"
+	"time"
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/ttlcache"
 )
 
 const (
@@ -18,6 +19,10 @@ const (
 	triggerJA3Blacklist        = "ja3_blacklist"
 
 	defaultSwapContribution = 50
+	defaultMaxVisitors      = 100000
+	// lastJA3TTL borne la mémoire d'un JA3 : un swap se compare à la session
+	// précédente, pas à une visite d'il y a des semaines.
+	lastJA3TTL = 24 * time.Hour
 )
 
 // Middleware lit le hash JA3 (header Cloudflare), applique la blacklist JA3
@@ -29,11 +34,17 @@ type Middleware struct {
 	blacklist        map[string]struct{}
 	swapContribution int
 
-	mu      sync.Mutex
-	lastJA3 map[string]string
+	// lastJA3 : dernier JA3 vu par hash d'IP, borné (maxVisitors entrées,
+	// lastJA3TTL). C'était une map nue, conservant chaque IP pour toujours.
+	lastJA3 *ttlcache.Cache[string, string]
 }
 
-func NewMiddleware(cfg config.TLSFingerprint) *Middleware {
+// NewMiddleware construit le middleware ; maxVisitors (trust.max_visitors)
+// borne le nombre d'IP dont le dernier JA3 est retenu.
+func NewMiddleware(cfg config.TLSFingerprint, maxVisitors int) *Middleware {
+	if maxVisitors <= 0 {
+		maxVisitors = defaultMaxVisitors
+	}
 	header := cfg.JA3Header
 	if header == "" {
 		header = "Cf-Bot-Management-Ja3Hash"
@@ -51,7 +62,7 @@ func NewMiddleware(cfg config.TLSFingerprint) *Middleware {
 		header:           header,
 		blacklist:        blacklist,
 		swapContribution: contribution,
-		lastJA3:          make(map[string]string),
+		lastJA3:          ttlcache.New[string, string](maxVisitors, lastJA3TTL),
 	}
 }
 
@@ -93,10 +104,10 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 // detectSwap retourne true si le JA3 du visiteur a changé depuis la dernière
 // session observée (signe d'usurpation / outil tournant).
 func (m *Middleware) detectSwap(ip string, ja3 string) bool {
-	ipHash := trust.HashIP(ip)
-	m.mu.Lock()
-	defer m.mu.Unlock()
-	previous, seen := m.lastJA3[ipHash]
-	m.lastJA3[ipHash] = ja3
-	return seen && previous != ja3
+	swapped := false
+	m.lastJA3.Update(trust.HashIP(ip), func(previous string, seen bool) string {
+		swapped = seen && previous != ja3
+		return ja3
+	})
+	return swapped
 }

@@ -3,6 +3,7 @@ package tlsfp
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 
 	"github.com/gaetandev/waf/internal/config"
@@ -33,7 +34,7 @@ func requestWithJA3(ip string, ja3 string) *http.Request {
 }
 
 func TestBlacklistedJA3SetsDeterministicTrigger(t *testing.T) {
-	m := NewMiddleware(config.TLSFingerprint{Enabled: true, JA3Blacklist: []string{"deadbeef"}})
+	m := NewMiddleware(config.TLSFingerprint{Enabled: true, JA3Blacklist: []string{"deadbeef"}}, 100)
 	var trigger string
 	m.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		trigger = r.Header.Get("X-WAF-Deterministic-Trigger")
@@ -46,7 +47,7 @@ func TestBlacklistedJA3SetsDeterministicTrigger(t *testing.T) {
 }
 
 func TestJA3SwapPublishesContribution(t *testing.T) {
-	m := NewMiddleware(config.TLSFingerprint{Enabled: true, SwapContribution: 50})
+	m := NewMiddleware(config.TLSFingerprint{Enabled: true, SwapContribution: 50}, 100)
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 
 	// Première session : pas de swap.
@@ -65,7 +66,7 @@ func TestJA3SwapPublishesContribution(t *testing.T) {
 }
 
 func TestNoJA3HeaderPassesGracefully(t *testing.T) {
-	m := NewMiddleware(config.TLSFingerprint{Enabled: true, JA3Blacklist: []string{"deadbeef"}})
+	m := NewMiddleware(config.TLSFingerprint{Enabled: true, JA3Blacklist: []string{"deadbeef"}}, 100)
 	called := false
 	m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		called = true
@@ -74,5 +75,16 @@ func TestNoJA3HeaderPassesGracefully(t *testing.T) {
 
 	if !called {
 		t.Fatal("missing JA3 header must pass gracefully")
+	}
+}
+
+// Régression : lastJA3 était une map nue — chaque IP restait en mémoire.
+func TestLastJA3IsBounded(t *testing.T) {
+	m := NewMiddleware(config.TLSFingerprint{Enabled: true}, 10)
+	for i := range 1000 {
+		m.detectSwap("10.0.0."+strconv.Itoa(i%256)+"-"+strconv.Itoa(i), "ja3")
+	}
+	if got := m.lastJA3.Len(); got != 10 {
+		t.Fatalf("tracked IPs = %d, want 10", got)
 	}
 }

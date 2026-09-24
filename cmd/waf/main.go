@@ -259,7 +259,7 @@ func run() error {
 		detectors = append(detectors, geo.NewRules(cfg.Geo).Handler)
 	}
 	if cfg.TLSFingerprint.Enabled {
-		detectors = append(detectors, tlsfp.NewMiddleware(cfg.TLSFingerprint).Handler)
+		detectors = append(detectors, tlsfp.NewMiddleware(cfg.TLSFingerprint, cfg.Trust.MaxVisitors).Handler)
 	}
 	if cfg.Rules.Enabled {
 		ruleSet := rules.NewRuleSet()
