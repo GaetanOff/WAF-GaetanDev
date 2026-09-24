@@ -6,6 +6,47 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Fixed — audit du 2026-09-24 (phase 16)
+
+- **Les décisions CHALLENGE challengent enfin** : le moteur de risque et le trust
+  score posaient `X-WAF-Action=CHALLENGE` puis transmettaient la requête à
+  l'upstream. Un `challenge.Enforcer` sert désormais la page ; le crédit humain
+  (FR-37) est câblé pour éviter la boucle.
+- **Faux positif `asset_absence`** : les assets bypassés (FR-24) n'étaient jamais
+  enregistrés, tout humain ayant vu 5 pages prenait +20.
+- **PoW client** : la page arrondissait la difficulté au chiffre hexadécimal
+  (22 bits → 24, 4× le travail) ; elle hache aussi en synchrone (~37× plus vite).
+- **API admin** : `PATCH /waf/admin/config` s'applique réellement à chaud,
+  `GET /waf/admin/events` n'est plus toujours vide, `GET /waf/stats` compte les
+  requêtes par action.
+- **Cluster (FR-20)** : les nœuds publient enfin leurs décisions (blacklist
+  admin, ouverture de circuit, score critique).
+- **Intégrité** : `--`, `select ` et `/*` isolés ne pénalisent plus des URL
+  légitimes.
+- **Mémoire** : les maps par IP de behavioral, tlsfp, selfprotect, threatintel et
+  verifybot sont bornées (`internal/ttlcache`) ; threatintel et verifybot
+  résolvent sur des pools fixes au lieu d'une goroutine par IP.
+- **Binaire autonome** : `web/challenge.html` est embarqué.
+
+### Security — audit du 2026-09-24
+
+- `whitelist_user_agents` n'est plus un bypass total (« User-Agent: Googlebot »
+  contournait toutes les protections) : exemption du seul challenge proactif.
+- Le circuit breaker ne se réarme plus sur une requête admise (attaque par
+  impulsions).
+- URL de retour du challenge limitée à un chemin de même origine (non
+  exploitable dans la chaîne livrée, durcissement).
+
+### Changed — audit du 2026-09-24
+
+- Rate limiting : mise à jour atomique des buckets (`storage.UpdateBuckets`),
+  2 allers-retours Redis au lieu de 6 (ADR-021 amendé).
+- Reverse proxy : `BufferPool` partagé, hôtes exacts indexés ; slowloris shardé ;
+  moteur de règles sans reparsing de query ni `net.ParseIP` par condition.
+- Contrats : `admin.openapi.yaml` 1.1.0 (audit, effacement RGPD, 503 du PATCH),
+  nouveau `public.openapi.yaml`, schémas `audit-entry` et `cluster-event`,
+  features `reverse-proxy` et `admin-api`.
+
 ### Added
 
 - **Quatre options de configuration qui ne faisaient rien font désormais ce que
