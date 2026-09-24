@@ -1,8 +1,8 @@
 ---
 status: approved
-version: 1.4.1
+version: 1.4.2
 last-reviewed: 2026-09-24
-change: "Phase 18 : paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
+change: "Phase 18 : architecture-advanced.md et architecture-ops.md dépréciés, ce document est la seule architecture de référence ; paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
 ---
 
 # Architecture — WAF Anti-DDoS / Anti-Bot
@@ -459,7 +459,8 @@ waf/
 │   ├── features/                # Specs de comportement Gherkin
 │   ├── decisions/               # ADR
 │   ├── requirements*.md         # FR-01..FR-39, NFR
-│   ├── architecture*.md         # Ce document et ses compléments
+│   ├── architecture.md          # Ce document — seule architecture de référence
+│   │                            # (architecture-advanced/-ops.md : dépréciés)
 │   ├── plan.md, tasks.md        # Découpage en tranches et tâches
 │   ├── validation.md            # Journal des gates et décisions de triage
 │   └── changelog.md             # Keep a Changelog

@@ -1,13 +1,25 @@
 ---
-status: approved
-version: 3.0.0
-last-reviewed: 2026-06-03
+status: deprecated
+version: 3.1.0
+last-reviewed: 2026-09-24
 extends: architecture-advanced.md (v2.0.0)
+superseded-by: architecture.md (v1.4.2)
+change: "Déprécié : les paquets et le pipeline décrits divergent du code ; architecture.md est la seule architecture de référence"
 ---
 
 # Architecture Ops — WAF Anti-DDoS / Anti-Bot (v3)
 
-> Ce document étend `architecture-advanced.md` avec les composants opérationnels manquants.
+> **DÉPRÉCIÉ (2026-09-24) — ne pas utiliser comme référence.** Ce document
+> décrit la conception v3 du 2026-06-03 : des fichiers qui n'ont jamais existé
+> (`internal/assets/bypass.go`, `internal/security/headers.go`, `internal/alerting/manager.go`, `internal/proxy/pool.go`…) et un ordre de pipeline que le code ne suit pas. Il est conservé
+> pour l'historique de conception uniquement.
+>
+> Sources de vérité : [architecture.md](architecture.md) (pipeline réel,
+> paquets, index des ADR), [schemas/config.schema.json](schemas/config.schema.json)
+> et [CONFIG.md](../CONFIG.md) (blocs de configuration), les ADR de
+> [decisions/](decisions/) (décisions).
+>
+> Ce document étendait `architecture-advanced.md` avec les composants opérationnels manquants.
 
 ## Pipeline de requête complet (v3 — final)
 
