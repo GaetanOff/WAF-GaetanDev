@@ -177,7 +177,7 @@ REQUÊTE ENTRANTE
 [3] maintenance                           toujours (inactif si non configuré)
       │ Page de maintenance + pages d'erreur brandées (FR-32).
       ▼
-[3b] cloudflare.Middleware                si cloudflare.trusted
+[3b] cloudflare.Middleware                si cloudflare.trusted (sinon StripUntrusted)
       │ Valide que la source appartient aux plages Cloudflare, puis
       │ retient CF-Connecting-IP comme IP réelle ; 400 si l'en-tête
       │ est présent hors plage Cloudflare (FR-02).
@@ -186,7 +186,10 @@ REQUÊTE ENTRANTE
       │ selfprotect [7] comptent par IP, et lisaient sinon l'IP du point
       │ de présence Cloudflare — un DoS collatéral des visiteurs
       │ légitimes qui partagent ce PoP.
-      │ ⚠ Les autres CF-* ne sont pas validés — cf. ADR-019.
+      │ Tout autre CF-* d'une source hors plage Cloudflare est
+      │ supprimé (ADR-019 option B).
+      │ Non monté (trusted faux) : cloudflare.StripUntrusted supprime
+      │ tout CF-*, quelle que soit la source.
       ▼
 [4] slowloris                             si slowloris.enabled
       │ Borne les requêtes concurrentes par IP réelle (FR-23).

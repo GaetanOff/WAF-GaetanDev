@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.3.0
+version: 3.4.0
 last-reviewed: 2026-09-24
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-30 : principe général — aucune décision de sécurité ne DOIT reposer sur un en-tête dont le WAF ne peut pas prouver l'origine. Les en-têtes d'infrastructure (`CF-*`, `ja3_header`) et `Host` sont renvoyés à ADR-019 et ADR-020, tous deux proposed"
+change: "FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -206,13 +206,17 @@ change: "FR-30 : principe général — aucune décision de sécurité ne DOIT r
 - **Principe général** : aucune décision de sécurité NE DOIT reposer sur un
   en-tête de requête dont le WAF ne peut pas prouver l'origine. Les en-têtes
   internes (`X-WAF-*`) sont couverts par la règle ci-dessus ; les en-têtes
-  **d'infrastructure** posés par un intermédiaire (`CF-*`, `ja3_header`,
-  `X-Forwarded-*`) et l'en-tête `Host` relèvent d'ADR-019 et ADR-020, tous deux
-  `proposed` — leurs options rejetteraient du trafic aujourd'hui accepté et
-  attendent une décision d'opérateur. Tant qu'elles ne sont pas tranchées, les
-  contrôles qui en dépendent (FR-16 géo, FR-11 blacklist JA3, durcissement par
-  domaine de FR-06) DOIVENT être documentés comme des contrôles de réduction de
-  bruit, pas comme des frontières de sécurité
+  **d'infrastructure** posés par un intermédiaire relèvent d'ADR-019 (`accepted`,
+  option B) et l'en-tête `Host` d'ADR-020 :
+  - Le WAF DOIT supprimer tout en-tête `CF-*` (préfixe insensible à la casse)
+    d'une connexion qui ne vient pas d'une plage Cloudflare, et de toute
+    connexion quand `cloudflare.trusted` est faux. Un `CF-Connecting-IP` forgé
+    reste rejeté en `400` (FR-02). La suppression précède tout lecteur de `CF-*`
+    et le proxy
+  - Cette suppression aligne la forge sur l'omission, sans fermer l'omission :
+    FR-16 (géo) et la blacklist JA3 de FR-11 restent des contrôles de réduction
+    de bruit tant que le WAF est joignable hors Cloudflare, et DOIVENT être
+    documentés comme tels. Un `ja3_header` hors espace `CF-` n'est pas couvert
 
 ### Protection de l'endpoint /waf/verify
 - Le WAF DOIT appliquer un rate limit strict sur `POST /waf/verify` : configurable (défaut: 10 req/s par IP)

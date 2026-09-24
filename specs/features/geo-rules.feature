@@ -71,6 +71,24 @@ Feature: Règles Géographiques
     Then les règles géographiques sont ignorées
     And aucune erreur n'est journalisée (comportement gracieux)
 
+  # ADR-019 option B : la forge d'un CF-* est ramenée à son omission.
+  Scenario: CF-IPCountry forgé hors Cloudflare — supprimé et ignoré
+    Given cloudflare.trusted = true
+    And geo.blocked_countries = ["RU"]
+    And une connexion directe depuis 203.0.113.10 (hors plages Cloudflare)
+    When elle envoie une requête avec CF-IPCountry: FR
+    Then l'en-tête CF-IPCountry est supprimé avant les règles géographiques et le proxy
+    And les règles géographiques sont ignorées comme pour un en-tête absent
+    And la requête n'est pas rejetée pour autant
+
+  Scenario: cloudflare.trusted = false — aucun CF-* n'est honoré
+    Given cloudflare.trusted = false
+    And geo.enabled = true
+    When le WAF démarre
+    Then un avertissement signale que les règles géographiques n'ont aucune entrée
+    When une requête arrive avec CF-IPCountry: RU depuis une plage Cloudflare
+    Then l'en-tête est supprimé et la requête n'est pas bloquée par la géo
+
   Scenario: Code pays inconnu — traitement par défaut
     Given une requête avec CF-IPCountry: XX (code inconnu)
     When le WAF traite la règle geo

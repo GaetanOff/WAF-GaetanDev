@@ -512,6 +512,15 @@ geo:
 
 Filtrage basé sur le pays d'origine, fourni par le header `CF-IPCountry` de Cloudflare. Si ce header est absent, les règles géo sont ignorées.
 
+> **Frontière de confiance** ([ADR-019](specs/decisions/ADR-019-infrastructure-header-trust.md)) :
+> `CF-IPCountry` n'est honoré que sur une connexion issue d'une plage Cloudflare
+> avec `cloudflare.trusted: true` ; sinon il est supprimé à l'entrée. Avec
+> `cloudflare.trusted: false`, le filtrage géographique n'a donc aucune entrée
+> (avertissement au démarrage). Un client qui joint le WAF **hors Cloudflare**
+> obtient le même résultat en omettant l'en-tête : tant que l'origine est
+> joignable directement, ces règles réduisent le bruit mais ne sont pas une
+> frontière de sécurité.
+
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `false` | Active le filtrage géographique. **Opt-in.** |
@@ -537,7 +546,7 @@ Le hash JA3 est une empreinte du client TLS (version, ciphers, extensions). Il e
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `true` | Active le fingerprinting TLS. |
-| `ja3_header` | string | `"Cf-Bot-Management-Ja3Hash"` | Nom du header HTTP fourni par Cloudflare contenant le hash JA3. Ne pas modifier sauf si votre proxy utilise un header différent. |
+| `ja3_header` | string | `"Cf-Bot-Management-Ja3Hash"` | Nom du header HTTP fourni par Cloudflare contenant le hash JA3. Ne pas modifier sauf si votre proxy utilise un header différent. Un en-tête `CF-*` n'est honoré que venant d'une plage Cloudflare avec `cloudflare.trusted: true` ([ADR-019](specs/decisions/ADR-019-infrastructure-header-trust.md)) ; un en-tête hors espace `CF-` n'est **pas** vérifié et reste forgeable. |
 | `ja3_blacklist` | liste | `[]` | Hashes JA3 bloqués **de manière déterministe** (sans passer par le moteur de risque). Utile pour bloquer des outils d'attaque connus dont le fingerprint TLS est public. |
 | `swap_contribution` | int [0–100] | `50` | Contribution ajoutée au score de risque si le fingerprint JA3 change entre deux sessions d'un même visiteur (comportement typique de certains scanners). |
 

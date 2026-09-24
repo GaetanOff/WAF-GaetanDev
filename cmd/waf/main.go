@@ -87,6 +87,7 @@ func run() error {
 	if *listenAddress != "" {
 		cfg.Server.Listen = *listenAddress
 	}
+	warnUntrustedInfrastructureHeaders(*cfg)
 
 	readTimeout, err := parseDuration("server.read_timeout", cfg.Server.ReadTimeout)
 	if err != nil {
@@ -486,6 +487,22 @@ func run() error {
 	return <-errs
 }
 
+// warnUntrustedInfrastructureHeaders signale les contrôles privés d'entrée par
+// la suppression des CF-* quand cloudflare.trusted est faux (ADR-019 option B).
+// Un avertissement et non une erreur : ces réglages restaient valides avant la
+// décision, et un déploiement peut les laisser en place le temps de basculer.
+func warnUntrustedInfrastructureHeaders(cfg config.Config) {
+	if cfg.Cloudflare.Trusted {
+		return
+	}
+	if cfg.Geo.Enabled {
+		slog.Warn("geo rules have no input: CF-IPCountry is stripped while cloudflare.trusted is false", "adr", "ADR-019")
+	}
+	if cfg.TLSFingerprint.Enabled && strings.HasPrefix(strings.ToUpper(cfg.TLSFingerprint.JA3Header), "CF-") {
+		slog.Warn("tls_fingerprint.ja3_header is stripped while cloudflare.trusted is false", "header", cfg.TLSFingerprint.JA3Header, "adr", "ADR-019")
+	}
+}
+
 // newStore construit le backend de stockage désigné par `storage.backend`.
 //
 // Cette sélection n'existait pas avant la phase 15 : `redis` était accepté par
@@ -561,8 +578,12 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	// l'auto-protection de /waf/verify et le bypass d'assets lire RemoteAddr,
 	// c'est-à-dire l'IP du point de présence Cloudflare : quelques visiteurs
 	// légitimes derrière le même PoP suffisaient à épuiser la borne par IP.
+	// Les autres CF-* ne sont honorés que venant d'une plage Cloudflare, et
+	// jamais sans cloudflare.trusted (ADR-019 option B).
 	if cfg.Cloudflare.Trusted {
 		handler = cloudflare.Middleware(handler)
+	} else {
+		handler = cloudflare.StripUntrusted(handler)
 	}
 	// Mode maintenance + pages d'erreur brandées (FR-32).
 	handler = maintenance.New(cfg.Maintenance).Handler(handler)

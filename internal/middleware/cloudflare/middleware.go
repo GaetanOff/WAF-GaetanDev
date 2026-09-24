@@ -5,9 +5,14 @@ import (
 	"net"
 	"net/http"
 	"net/netip"
+	"strings"
 )
 
 const connectingIPHeader = "CF-Connecting-IP"
+
+// infrastructureHeaderPrefix est le préfixe des en-têtes posés par Cloudflare
+// (CF-IPCountry, CF-Ray, Cf-Bot-Management-Ja3Hash…), comparé sans casse.
+const infrastructureHeaderPrefix = "CF-"
 
 type realIPContextKey struct{}
 
@@ -20,13 +25,19 @@ func Middleware(next http.Handler) http.Handler {
 		}
 
 		connectingIP := r.Header.Get(connectingIPHeader)
-		if connectingIP == "" {
+		fromCloudflare := IsCloudflareIP(sourceIP)
+		if connectingIP != "" && !fromCloudflare {
+			http.Error(w, "forged CF-Connecting-IP header", http.StatusBadRequest)
+			return
+		}
+		if !fromCloudflare {
+			// ADR-019 option B : un CF-* ne vaut que s'il vient de Cloudflare.
+			stripInfrastructureHeaders(r.Header)
 			next.ServeHTTP(w, withRealIP(r, sourceIP.String()))
 			return
 		}
-
-		if !IsCloudflareIP(sourceIP) {
-			http.Error(w, "forged CF-Connecting-IP header", http.StatusBadRequest)
+		if connectingIP == "" {
+			next.ServeHTTP(w, withRealIP(r, sourceIP.String()))
 			return
 		}
 
@@ -38,6 +49,31 @@ func Middleware(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, withRealIP(r, realIP.String()))
 	})
+}
+
+// StripUntrusted supprime tout en-tête CF-* de la requête. Monté à la place de
+// Middleware quand cloudflare.trusted est faux : le WAF ne reconnaît alors
+// aucun intermédiaire Cloudflare, donc aucun CF-* n'a d'origine prouvable
+// (ADR-019 option B).
+func StripUntrusted(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		stripInfrastructureHeaders(r.Header)
+		next.ServeHTTP(w, r)
+	})
+}
+
+// stripInfrastructureHeaders aligne la forge d'un CF-* sur son omission :
+// CF-IPCountry (géo, règles) ou Cf-Bot-Management-Ja3Hash (blacklist JA3)
+// forgés par un client qui joint le WAF hors Cloudflare se comportent comme
+// absents — chemin déjà spécifié (dégradation gracieuse) et testé. Cela ne
+// ferme PAS le contournement par omission : seul un rejet des connexions hors
+// intermédiaire de confiance le ferait (ADR-019 option D).
+func stripInfrastructureHeaders(header http.Header) {
+	for name := range header {
+		if len(name) >= len(infrastructureHeaderPrefix) && strings.EqualFold(name[:len(infrastructureHeaderPrefix)], infrastructureHeaderPrefix) {
+			delete(header, name)
+		}
+	}
 }
 
 func RealIP(r *http.Request) string {

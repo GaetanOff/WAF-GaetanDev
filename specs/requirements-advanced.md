@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 2.3.0
-last-reviewed: 2026-09-01
+version: 2.4.0
+last-reviewed: 2026-09-24
 reviewed-by: GaetanDev
 extends: requirements.md (v2.0.0)
-change: "FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
+change: "FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)
@@ -91,6 +91,7 @@ change: "FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établi
 - Le WAF DOIT supporter des **listes de pays autorisés** (whitelist — tous les autres → blocage)
 - Les règles géographiques DOIVENT être configurables par domaine
 - En l'absence du header CF-IPCountry (déploiement sans Cloudflare) → règles geo ignorées gracieusement
+- Un `CF-IPCountry` reçu d'une connexion hors plage Cloudflare, ou avec `cloudflare.trusted: false`, est supprimé à l'entrée et traité comme absent (FR-30, ADR-019 option B)
 
 ## FR-17 — Moteur de Règles Personnalisées (Rules Engine)
 
