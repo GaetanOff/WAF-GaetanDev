@@ -18,6 +18,9 @@ import (
 
 const defaultWAFScore = "50"
 
+// sharedBuffers est partagé par tous les reverse proxies du process.
+var sharedBuffers = newBufferPool()
+
 type Handler struct {
 	defaultUpstream *url.URL
 	domains         []domainRoute
@@ -144,7 +147,7 @@ func (r domainRoute) matches(host string) bool {
 }
 
 func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout time.Duration, preserveHost bool) *httputil.ReverseProxy {
-	proxy := &httputil.ReverseProxy{}
+	proxy := &httputil.ReverseProxy{BufferPool: sharedBuffers}
 	// Rewrite remplace Director (déprécié depuis Go 1.26). SetURL route vers
 	// l'upstream (scheme/host/path) et fixe l'hôte sortant ; SetXForwarded
 	// préserve les en-têtes X-Forwarded-* que l'ancien director ajoutait.
