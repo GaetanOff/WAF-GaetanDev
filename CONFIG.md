@@ -1018,42 +1018,30 @@ domains:
   - host: "example.com"
     upstream: "http://10.0.0.1:80"
     challenge_enabled: true
-    protected_paths:
-      - "/api/"
-      - "/account/"
-    public_paths:
-      - "/static/"
-      - "/robots.txt"
 
   - host: "api.example.com"
     upstream: "http://10.0.0.2:8000"
     challenge_enabled: false
-    rate_limit_override:
-      requests_per_second: 20
-      burst: 40
-    trust_override:
-      block_threshold: 20
 ```
 
 Surcharge les paramètres globaux pour un domaine spécifique. Les entrées sont évaluées dans l'ordre ; la première correspondance gagne. Supporte les wildcards (`*.example.com`).
 
 La correspondance d'hôte est insensible à la casse et ignore le port : `Host: API.Example.com:8443` correspond à `api.example.com`. Un wildcard `*.example.com` couvre aussi l'apex `example.com`.
 
-> **Implémenté à ce jour** : `host`, `upstream`, `challenge_enabled`, `tls`.
+> **Clés retirées** ([ADR-022](specs/decisions/ADR-022-remove-inert-domain-overrides.md)) :
 > `protected_paths`, `public_paths`, `rate_limit_override` et `trust_override`
-> sont acceptés par le schéma mais **pas encore câblés** — ils n'ont aucun effet.
+> étaient acceptés puis ignorés. Ils sont désormais **refusés au démarrage**
+> (`domains[N].<clé> is not supported`) : un fichier qui les contient encore doit
+> en être expurgé. Pour exempter des chemins du challenge, voir
+> [`static_assets`](#static_assets--bypass-des-assets-statiques) ; pour
+> durcir un domaine, `challenge_enabled: true` et
+> [`server.strict_host`](#server--serveur-http).
 
 | Clé | Type | Description |
 |---|---|---|
 | `host` | string | Nom de domaine à matcher (exact ou wildcard `*.`). |
 | `upstream` | string | URL de l'upstream pour ce domaine (surcharge `upstream.address`). |
 | `challenge_enabled` | bool | Surcharge `challenge.enabled` pour ce domaine. ⚠ Sans [`server.strict_host`](#server--serveur-http), un `Host` non listé hérite de la politique **globale** et de `upstream.address` : si cet upstream est la même origine, durcir un domaine ne protège rien — il suffit de changer l'en-tête `Host` (ADR-020). **Clé absente = hérite du global** (un domaine déclaré pour son seul `upstream` ou son certificat ne perd pas le challenge). `false` = jamais de challenge JS sur ce domaine, **y compris en mode sous attaque** ([FR-39](#antiddosunder_attack--mode--sous-attaque--fr-39-adr-018)). `true` = challenge servi même si `challenge.enabled` est `false` globalement. |
-| `protected_paths` | liste | Préfixes de chemins qui déclenchent **toujours** le challenge, quelle que soit la valeur du score (utile pour `/api/`, `/admin/`). |
-| `public_paths` | liste | Préfixes de chemins qui ne déclenchent **jamais** le challenge (assets, robots.txt, etc.). |
-| `rate_limit_override.requests_per_second` | float | Limite de débit spécifique à ce domaine (remplace la valeur globale). |
-| `rate_limit_override.burst` | int | Burst spécifique à ce domaine. |
-| `trust_override.challenge_threshold` | int | Seuil de challenge JS spécifique à ce domaine. |
-| `trust_override.block_threshold` | int | Seuil de blocage spécifique à ce domaine. |
 | `tls.cert_file` | string | Chemin du certificat PEM (chaîne complète) présenté pour ce domaine quand `server.tls.enabled: true` (sélection par SNI). |
 | `tls.key_file` | string | Chemin de la clé privée PEM correspondante. |
 

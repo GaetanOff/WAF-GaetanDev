@@ -808,32 +808,6 @@
           "description": "Surcharge de challenge.enabled pour ce domaine. Clé absente = hérite du global. false = jamais de challenge JS sur ce domaine, y compris en mode sous attaque (FR-39). true = challenge servi même si challenge.enabled est false.",
           "default": true
         },
-        "rate_limit_override": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "requests_per_second": { "type": "number" },
-            "burst": { "type": "integer" }
-          }
-        },
-        "trust_override": {
-          "type": "object",
-          "additionalProperties": false,
-          "properties": {
-            "challenge_threshold": { "type": "integer" },
-            "block_threshold": { "type": "integer" }
-          }
-        },
-        "protected_paths": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Paths qui déclenchent systématiquement le challenge"
-        },
-        "public_paths": {
-          "type": "array",
-          "items": { "type": "string" },
-          "description": "Paths qui ne déclenchent jamais le challenge"
-        },
         "tls": {
           "type": "object",
           "additionalProperties": false,

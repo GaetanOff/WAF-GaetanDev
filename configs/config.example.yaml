@@ -366,25 +366,10 @@ domains:
     # tls:
     #   cert_file: "/etc/waf/certs/example.com/fullchain.pem"
     #   key_file: "/etc/waf/certs/example.com/privkey.pem"
-    # Chemins qui déclenchent TOUJOURS le challenge (sensibles)
-    protected_paths:
-      - "/api/"
-      - "/account/"
-    # Chemins qui ne déclenchent JAMAIS le challenge (assets statiques)
-    public_paths:
-      - "/static/"
-      - "/favicon.ico"
-      - "/robots.txt"
-      - "/sitemap.xml"
 
   - host: "api.example.com"
     upstream: "http://10.0.0.2:8000"
     challenge_enabled: false   # API — pas de challenge JS
-    rate_limit_override:
-      requests_per_second: 20  # Plus restrictif pour l'API
-      burst: 40
-    trust_override:
-      block_threshold: 20      # Plus agressif sur l'API
 
   # Pas de clé challenge_enabled : ce domaine hérite de challenge.enabled.
   - host: "*.example.com"

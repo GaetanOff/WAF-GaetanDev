@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -178,5 +180,32 @@ func TestValidateLoggingFormat(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "logging.format") {
 		t.Fatalf("error = %v, want it to name logging.format", err)
+	}
+}
+
+// ADR-022 — les surcharges domains[] jamais appliquées sont refusées avec un
+// message qui nomme la clé et la raison, au lieu d'être acceptées en silence.
+func TestLoadRejectsRemovedDomainOverrides(t *testing.T) {
+	for _, key := range []string{
+		"protected_paths: [\"/admin/\"]",
+		"public_paths: [\"/static/\"]",
+		"rate_limit_override: {requests_per_second: 20, burst: 40}",
+		"trust_override: {block_threshold: 20}",
+	} {
+		name := strings.SplitN(key, ":", 2)[0]
+		t.Run(name, func(t *testing.T) {
+			path := filepath.Join(t.TempDir(), "config.yaml")
+			content := "version: \"1.0\"\nserver:\n  listen: \":8080\"\nupstream:\n  address: \"http://127.0.0.1:3000\"\nchallenge:\n  enabled: false\nadmin:\n  enabled: false\ndomains:\n  - host: example.com\n    upstream: \"http://10.0.0.1\"\n    " + key + "\n"
+			if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+
+			_, err := Load(path)
+
+			want := "domains[0]." + name + " is not supported"
+			if err == nil || !strings.Contains(err.Error(), want) || !strings.Contains(err.Error(), "ADR-022") {
+				t.Fatalf("Load() error = %v, want it to contain %q and ADR-022", err, want)
+			}
+		})
 	}
 }

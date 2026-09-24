@@ -375,22 +375,45 @@ type DomainConfig struct {
 	// pointeur distingue « clé absente » (nil → hérite du global) de la valeur
 	// explicite false : avec un bool nu, toute entrée domains[] déclarée pour son
 	// seul upstream ou son certificat TLS aurait désactivé le challenge en silence.
-	ChallengeEnabled  *bool              `yaml:"challenge_enabled"`
-	RateLimitOverride *RateLimitOverride `yaml:"rate_limit_override"`
-	TrustOverride     *TrustOverride     `yaml:"trust_override"`
-	ProtectedPaths    []string           `yaml:"protected_paths"`
-	PublicPaths       []string           `yaml:"public_paths"`
-	TLS               *DomainTLS         `yaml:"tls"`
+	ChallengeEnabled *bool      `yaml:"challenge_enabled"`
+	TLS              *DomainTLS `yaml:"tls"`
+
+	// Surcharges retirées du contrat (ADR-022) : acceptées puis ignorées par le
+	// pipeline, elles donnaient l'illusion d'une protection. Elles ne sont
+	// désérialisées que pour être refusées par Validate avec un message qui dit
+	// pourquoi, là où le décodeur strict n'afficherait que « field not found ».
+	RateLimitOverride removedKey `yaml:"rate_limit_override" json:"-"`
+	TrustOverride     removedKey `yaml:"trust_override" json:"-"`
+	ProtectedPaths    removedKey `yaml:"protected_paths" json:"-"`
+	PublicPaths       removedKey `yaml:"public_paths" json:"-"`
 }
 
-type RateLimitOverride struct {
-	RequestsPerSecond float64 `yaml:"requests_per_second"`
-	Burst             int     `yaml:"burst"`
+// removedKey marque la présence d'une clé retirée du contrat, quelle que soit
+// sa valeur.
+type removedKey struct{ present bool }
+
+func (k *removedKey) UnmarshalYAML(*yaml.Node) error {
+	k.present = true
+	return nil
 }
 
-type TrustOverride struct {
-	ChallengeThreshold int `yaml:"challenge_threshold"`
-	BlockThreshold     int `yaml:"block_threshold"`
+// removedDomainKeys associe chaque surcharge retirée à son nom de clé.
+func (d DomainConfig) removedDomainKeys() []string {
+	var present []string
+	for _, key := range []struct {
+		name string
+		key  removedKey
+	}{
+		{"rate_limit_override", d.RateLimitOverride},
+		{"trust_override", d.TrustOverride},
+		{"protected_paths", d.ProtectedPaths},
+		{"public_paths", d.PublicPaths},
+	} {
+		if key.key.present {
+			present = append(present, key.name)
+		}
+	}
+	return present
 }
 
 type Logging struct {
@@ -868,6 +891,9 @@ func (c *Config) Validate() error {
 		requireString(&fields, prefix+".host", domain.Host)
 		requireString(&fields, prefix+".upstream", domain.Upstream)
 		validateURL(&fields, prefix+".upstream", domain.Upstream)
+		for _, key := range domain.removedDomainKeys() {
+			fields = append(fields, fmt.Sprintf("%s.%s is not supported: it was accepted but never applied (ADR-022); remove it", prefix, key))
+		}
 	}
 
 	if len(fields) > 0 {
