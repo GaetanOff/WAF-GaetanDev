@@ -71,8 +71,12 @@ type ServerConfig struct {
 	// MaxHeaderValueCount borne le nombre de valeurs d'en-tête acceptées par
 	// requête (FR-23, http.Server.MaxHeaderValueCount — Go 1.27+). 0 laisse le
 	// défaut Go (http.DefaultMaxHeaderValueCount, 500).
-	MaxHeaderValueCount int       `yaml:"max_header_value_count"`
-	TLS                 ServerTLS `yaml:"tls"`
+	MaxHeaderValueCount int `yaml:"max_header_value_count"`
+	// StrictHost refuse en 400 un Host qui ne correspond à aucune entrée
+	// domains[] (ADR-020 option 1C). Opt-in : activé par défaut, il casserait
+	// l'accès par IP et tout déploiement sans domains[].
+	StrictHost bool      `yaml:"strict_host"`
+	TLS        ServerTLS `yaml:"tls"`
 }
 
 // ServerTLS configure la terminaison TLS sur le WAF (FR-33, ADR-017). Les
@@ -371,22 +375,45 @@ type DomainConfig struct {
 	// pointeur distingue « clé absente » (nil → hérite du global) de la valeur
 	// explicite false : avec un bool nu, toute entrée domains[] déclarée pour son
 	// seul upstream ou son certificat TLS aurait désactivé le challenge en silence.
-	ChallengeEnabled  *bool              `yaml:"challenge_enabled"`
-	RateLimitOverride *RateLimitOverride `yaml:"rate_limit_override"`
-	TrustOverride     *TrustOverride     `yaml:"trust_override"`
-	ProtectedPaths    []string           `yaml:"protected_paths"`
-	PublicPaths       []string           `yaml:"public_paths"`
-	TLS               *DomainTLS         `yaml:"tls"`
+	ChallengeEnabled *bool      `yaml:"challenge_enabled"`
+	TLS              *DomainTLS `yaml:"tls"`
+
+	// Surcharges retirées du contrat (ADR-022) : acceptées puis ignorées par le
+	// pipeline, elles donnaient l'illusion d'une protection. Elles ne sont
+	// désérialisées que pour être refusées par Validate avec un message qui dit
+	// pourquoi, là où le décodeur strict n'afficherait que « field not found ».
+	RateLimitOverride removedKey `yaml:"rate_limit_override" json:"-"`
+	TrustOverride     removedKey `yaml:"trust_override" json:"-"`
+	ProtectedPaths    removedKey `yaml:"protected_paths" json:"-"`
+	PublicPaths       removedKey `yaml:"public_paths" json:"-"`
 }
 
-type RateLimitOverride struct {
-	RequestsPerSecond float64 `yaml:"requests_per_second"`
-	Burst             int     `yaml:"burst"`
+// removedKey marque la présence d'une clé retirée du contrat, quelle que soit
+// sa valeur.
+type removedKey struct{ present bool }
+
+func (k *removedKey) UnmarshalYAML(*yaml.Node) error {
+	k.present = true
+	return nil
 }
 
-type TrustOverride struct {
-	ChallengeThreshold int `yaml:"challenge_threshold"`
-	BlockThreshold     int `yaml:"block_threshold"`
+// removedDomainKeys associe chaque surcharge retirée à son nom de clé.
+func (d DomainConfig) removedDomainKeys() []string {
+	var present []string
+	for _, key := range []struct {
+		name string
+		key  removedKey
+	}{
+		{"rate_limit_override", d.RateLimitOverride},
+		{"trust_override", d.TrustOverride},
+		{"protected_paths", d.ProtectedPaths},
+		{"public_paths", d.PublicPaths},
+	} {
+		if key.key.present {
+			present = append(present, key.name)
+		}
+	}
+	return present
 }
 
 type Logging struct {
@@ -582,6 +609,19 @@ func Default() Config {
 			TarpitChunks:     20,
 			TarpitChunkDelay: "1s",
 		},
+		// Défauts documentés (CONFIG.md, config.schema.json) : absents d'ici,
+		// un pool activé sans health_check.interval refusait de démarrer
+		// (« is required ») et les seuils tombaient à 1.
+		UpstreamPool: UpstreamPool{
+			Strategy: "round_robin",
+			HealthCheck: UpstreamHealthCheck{
+				Path:               "/healthz",
+				Interval:           "10s",
+				Timeout:            "2s",
+				HealthyThreshold:   2,
+				UnhealthyThreshold: 3,
+			},
+		},
 		Audit: Audit{
 			Enabled:    true,
 			MaxEntries: 1000,
@@ -655,10 +695,13 @@ func Default() Config {
 			"LinkedInBot",
 			"Twitterbot",
 		},
+		// Aucun chemin qu'un site légitime sert à ses propres utilisateurs :
+		// /wp-admin et /wp-login.php en étaient, et bannissaient (score 0, 403)
+		// l'administrateur de tout site WordPress protégé avec les défauts.
+		// /wp-config.php, jamais servi par WordPress, reste un piège sûr.
 		HoneypotPaths: []string{
 			"/.env",
-			"/wp-admin",
-			"/wp-login.php",
+			"/wp-config.php",
 			"/.git/config",
 			"/phpinfo.php",
 			"/admin.php",
@@ -702,6 +745,10 @@ func (c *Config) Validate() error {
 	// fait la protection FR-23 ; alignée sur config.schema.json.
 	if c.Server.MaxHeaderValueCount < 0 || c.Server.MaxHeaderValueCount > 10000 {
 		fields = append(fields, "server.max_header_value_count must be between 0 and 10000")
+	}
+	if c.Server.StrictHost && len(c.Domains) == 0 {
+		// Sans domains[], strict_host refuserait tout sauf /waf/health.
+		fields = append(fields, "server.strict_host requires at least one domains[] entry")
 	}
 	if c.Upstream.MaxIdleConns < 1 {
 		fields = append(fields, "upstream.max_idle_conns must be >= 1")
@@ -857,6 +904,9 @@ func (c *Config) Validate() error {
 		requireString(&fields, prefix+".host", domain.Host)
 		requireString(&fields, prefix+".upstream", domain.Upstream)
 		validateURL(&fields, prefix+".upstream", domain.Upstream)
+		for _, key := range domain.removedDomainKeys() {
+			fields = append(fields, fmt.Sprintf("%s.%s is not supported: it was accepted but never applied (ADR-022); remove it", prefix, key))
+		}
 	}
 
 	if len(fields) > 0 {

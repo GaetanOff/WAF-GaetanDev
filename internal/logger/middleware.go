@@ -79,11 +79,11 @@ func isAlertable(action string) bool {
 func alertTrigger(action string) string {
 	switch action {
 	case ActionCircuitBreak:
-		return "circuit_breaker"
+		return alert.TriggerCircuitBreaker
 	case ActionHoneypot:
-		return "honeypot"
+		return alert.TriggerHoneypot
 	default:
-		return "block"
+		return alert.TriggerBlock
 	}
 }
 
@@ -181,7 +181,7 @@ func currentTrustScore(r *http.Request, scores *trust.ScoreManager, ip string) i
 	if scores == nil {
 		return 0
 	}
-	return scores.Get(ip, r.Host).Score
+	return scores.Peek(ip, r.Host).Score
 }
 
 // normalizedAction dérive l'action depuis l'en-tête X-WAF-Action. Toutes les

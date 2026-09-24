@@ -1,15 +1,15 @@
 ---
-status: proposed
+status: accepted
 date: 2026-09-01
+decided: 2026-09-24
 deciders: GaetanDev
 relates-to: requirements.md (FR-02), requirements-advanced.md (FR-11, FR-16, FR-17 v2.3.0), requirements-ops.md (FR-30 v3.2.1), features/geo-rules.feature, features/tls-fingerprinting.feature, ADR-005
 ---
 
 # ADR-019 — Frontière de confiance des en-têtes d'infrastructure (`CF-*`, `ja3_header`)
 
-> **Statut : proposed.** Cet ADR expose un constat et des options. La décision
-> appartient à l'opérateur : chaque option a un coût de déploiement réel, et
-> l'option D en particulier rejetterait du trafic aujourd'hui accepté.
+> **Statut : accepted (2026-09-24).** Option B retenue par l'opérateur et
+> implémentée ; C et D restent des suites possibles, non engagées.
 
 ## Context
 
@@ -112,7 +112,27 @@ répondre `403` à toute connexion qui n'en vient pas, hors `/waf/health`.
 
 ## Decision
 
-**À prendre.** Avis de l'auteur de l'audit, à titre de recommandation :
+**Option B, retenue le 2026-09-24** (décision d'opérateur, audit du 2026-09-24,
+point 4.2) :
+
+- `cloudflare.trusted: true` : `cloudflare.Middleware` supprime **tout** en-tête
+  `CF-*` d'une connexion qui ne vient pas d'une plage Cloudflare. Le `400` sur un
+  `CF-Connecting-IP` forgé est conservé (FR-02) ; les autres `CF-*` sont
+  supprimés, pas rejetés.
+- `cloudflare.trusted: false` : `cloudflare.StripUntrusted` supprime tout `CF-*`,
+  quelle que soit la source — le WAF ne reconnaît alors aucun intermédiaire.
+- Le middleware est monté dans l'enveloppe (`architecture.md`, étape [3b]),
+  donc avant tout lecteur de `CF-*` et avant le proxy : l'upstream ne reçoit
+  plus de `CF-*` forgé non plus.
+- Au démarrage, `geo.enabled` ou un `tls_fingerprint.ja3_header` dans l'espace
+  `CF-` combinés à `cloudflare.trusted: false` produisent un avertissement : ces
+  contrôles n'ont alors plus d'entrée.
+
+Limites assumées, conformes à l'analyse de l'option B : l'**omission** reste un
+contournement de FR-16 et de la blacklist JA3 par accès direct (seule D la
+fermerait), et un `ja3_header` hors espace `CF-` n'est pas couvert (C).
+
+Avis initial de l'auteur de l'audit, conservé pour mémoire :
 
 - **B maintenant** : gain net, coût nul, aucune décision de politique à trancher.
   Aligne la forge sur un chemin déjà spécifié et testé.
@@ -121,21 +141,20 @@ répondre `403` à toute connexion qui n'en vient pas, hors `/waf/health`.
 - **D en opt-in seulement**, et pas avant C : sans liste de proxies de confiance
   explicite, un rejet par défaut est un fail-closed sur du trafic légitime.
 
-Aucune de ces options n'est implémentée à ce jour. Ce qui **a** été corrigé dans
+Au moment de la rédaction, aucune de ces options n'était implémentée. Ce qui **a** été corrigé dans
 la même passe d'audit relève d'un autre registre et n'attendait aucune décision :
 la condition `ip` du moteur de règles lisait `X-Real-IP`, un en-tête **client** —
 corrigé en FR-17 v2.3.0, cf. T14.3.
 
 ## Consequences
 
-- Tant qu'aucune option n'est retenue, `blocked_countries`, `allowed_countries` et
-  `ja3_blacklist` DOIVENT être considérés comme des contrôles de **réduction de
-  bruit**, pas comme des frontières de sécurité. À refléter dans `CONFIG.md` au
-  moment de la décision.
-- L'option B, si retenue, se pose naturellement à côté de `ingress.Middleware` :
-  même position dans la chaîne, même logique de préfixe, mais conditionnée à
-  l'origine de la connexion — donc dans `internal/middleware/cloudflare`, qui
-  connaît déjà les plages.
+- L'option B ne fermant pas l'omission, `blocked_countries`, `allowed_countries`
+  et `ja3_blacklist` restent des contrôles de **réduction de bruit**, pas des
+  frontières de sécurité, tant que le WAF est joignable hors Cloudflare. Reflété
+  dans `CONFIG.md` (`geo`, `tls_fingerprint`).
+- L'option B est implémentée dans `internal/middleware/cloudflare`, qui connaît
+  déjà les plages : même logique de préfixe insensible à la casse que
+  `ingress.Middleware`, mais conditionnée à l'origine de la connexion.
 - L'option C rendrait `cloudflare.trusted` redondant et ouvrirait sa dépréciation.
 
 ## Spec References

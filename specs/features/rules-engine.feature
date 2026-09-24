@@ -1,89 +1,78 @@
 Feature: Moteur de Règles Personnalisées
   En tant qu'administrateur du WAF,
-  Je veux définir des règles métier complexes en YAML
+  Je veux définir des règles métier en YAML
   Afin d'adapter le WAF à des besoins spécifiques sans modifier le code.
 
-  Background:
-    Given le WAF est configuré avec rules_engine.enabled = true
-    And les règles sont chargées depuis configs/rules.yaml
+  # Syntaxe : specs/schemas/rule.schema.json v2.0.0. Les scénarios @deferred
+  # décrivent des capacités spécifiées mais NON implémentées (audit du
+  # 2026-09-24, point 2.1) : ils ne sont pas un critère d'acceptation tant que
+  # leur implémentation n'est pas planifiée (specs/tasks.md, T17.x).
 
-  Scenario: Règle de blocage par user-agent — match exact
+  Background:
+    Given le WAF est configuré avec rules.enabled = true
+    And les règles sont chargées depuis le fichier rules.file
+
+  Scenario: Règle de blocage par user-agent
     Given la règle suivante est active:
       name: "block-sqlmap"
       priority: 10
+      enabled: true
       conditions:
-        operator: OR
-        items:
-          - field: user_agent, op: contains, value: "sqlmap"
-          - field: user_agent, op: contains, value: "nikto"
+        - {field: user_agent, operator: contains, value: "sqlmap"}
       actions:
-        - type: block, params: {status: 403}
+        - {type: block, value: "rule_sqlmap"}
     When une requête arrive avec User-Agent "sqlmap/1.7.2"
-    Then la règle "block-sqlmap" est matchée
-    And la requête reçoit HTTP 403
-    And waf_rule_matches_total{rule_name="block-sqlmap"} est incrémenté
+    Then la requête reçoit HTTP 403
+    And X-WAF-Reason vaut "rule_sqlmap"
 
-  Scenario: Règle combinant path ET pays (AND)
+  Scenario: Conditions combinées en ET — path et pays
     Given la règle:
-      name: "challenge-sensitive-from-highrisks"
+      name: "penalize-admin-from-highrisk"
       priority: 20
+      enabled: true
       conditions:
-        operator: AND
-        items:
-          - field: path, op: starts_with, value: "/admin/"
-          - field: country, op: in_list, value: ["CN", "RU"]
+        - {field: path, operator: starts_with, value: "/admin/"}
+        - {field: country, operator: in_list, values: ["CN", "RU"]}
       actions:
-        - type: challenge
-        - type: score_delta, params: {value: -15}
-    When une requête de Chine arrive sur "/admin/dashboard"
-    Then la règle matche
-    And le challenge JS est déclenché
-    And le trust score est décrémenté de 15
+        - {type: score_delta, delta: -15}
+    When une requête dont CF-IPCountry est "CN", prouvé Cloudflare, arrive sur "/admin/dashboard"
+    Then la règle matche et le trust score est décrémenté de 15
+    When la même requête arrive sur "/public"
+    Then la règle ne matche pas (toutes les conditions doivent être vraies)
 
-  Scenario: Règle avec opérateur NOT
-    Given la règle:
-      name: "allow-internal-only"
-      conditions:
-        operator: NOT
-        items:
-          - field: ip_cidr, op: in_cidr, value: "10.0.0.0/8"
-      actions:
-        - type: block
-    When une requête arrive de "8.8.8.8" (non interne)
-    Then la règle matche (NOT IN 10.0.0.0/8 → vrai)
-    And la requête est bloquée
-
-  Scenario: Priorité des règles — règle de plus haute priorité évaluée en premier
+  Scenario: Priorité des règles — premier match, short-circuit
     Given deux règles actives:
-      - Règle A: priority=5, conditions: ip=1.2.3.4, action: allow
+      - Règle A: priority=5, conditions: ip equals 1.2.3.4, action: log "trusted_partner"
       - Règle B: priority=10, conditions: user_agent contains "curl", action: block
     When une requête arrive de "1.2.3.4" avec User-Agent "curl/7.88"
-    Then la Règle A (priority 5) est évaluée en premier
-    And l'action "allow" est exécutée
+    Then la Règle A (priority 5) est évaluée en premier et journalise "trusted_partner"
     And la Règle B n'est pas évaluée (short-circuit, continue=false)
 
   Scenario: Règle avec continue=true — plusieurs règles matchent
-    Given deux règles avec continue=true:
-      - Règle A: priority=5, conditions: country=US, action: add_header "X-Country: US", continue: true
-      - Règle B: priority=10, conditions: path starts_with /api/, action: rate_limit(10/s)
-    When une requête US arrive sur "/api/data"
-    Then la Règle A matche et ajoute le header (continue → évalue suivante)
-    And la Règle B matche et applique le rate limit
-    And les deux actions sont exécutées
+    Given deux règles:
+      - Règle A: priority=5, conditions: path starts_with /api/, action: add_header "X-API: 1", continue: true
+      - Règle B: priority=10, conditions: method equals POST, action: score_delta -5
+    When une requête POST arrive sur "/api/data"
+    Then la Règle A ajoute l'en-tête de réponse et l'évaluation continue
+    And la Règle B décrémente le trust score de 5
 
   Scenario: Règle basée sur le trust_score courant
     Given la règle:
-      name: "extra-challenge-low-trust"
+      name: "tarpit-low-trust-checkout"
+      enabled: true
       conditions:
-        operator: AND
-        items:
-          - field: trust_score, op: lt, value: 25
-          - field: path, op: starts_with, value: "/checkout/"
+        - {field: trust_score, operator: lt, value: "25"}
+        - {field: path, operator: starts_with, value: "/checkout/"}
       actions:
-        - type: challenge
+        - {type: tarpit}
     Given un visiteur avec trust_score = 20
     When il accède à "/checkout/payment"
-    Then la règle matche et le challenge est déclenché
+    Then la requête est classée TARPIT
+
+  Scenario: Règle non activée — ignorée
+    Given une règle sans clé enabled
+    When le WAF charge les règles
+    Then la règle n'est ni compilée ni évaluée
 
   # ── Résolution de l'IP de règle ──────────────────────────────────────────────
 
@@ -110,43 +99,64 @@ Feature: Moteur de Règles Personnalisées
     # Même résolution que la whitelist, la blacklist, le rate limit et le trust
     # score : un seul chemin d'IP pour toutes les décisions.
 
+  # ── Chargement fail-fast ────────────────────────────────────────────────────
+
+  Scenario: Champ de condition inconnu — démarrage refusé
+    Given une règle "bad-rule" avec une condition field: "unknown_field"
+    When le WAF charge les règles au démarrage
+    Then le démarrage échoue avec: rule "bad-rule": unsupported condition field "unknown_field"
+    And aucune règle n'est chargée
+
+  Scenario: Action non implémentée — démarrage refusé
+    Given une règle "r" avec une action type: "challenge"
+    When le WAF charge les règles au démarrage
+    Then le démarrage échoue avec: rule "r": unsupported action type "challenge"
+    # Chargée puis ignorée, l'action donnait l'illusion d'une protection.
+
+  Scenario: Clé inconnue — démarrage refusé
+    Given une règle écrite avec "op: equals" au lieu de "operator: equals"
+    When le WAF charge les règles au démarrage
+    Then le démarrage échoue (décodage strict du fichier de règles)
+
+  # ── Différés : spécifiés, non implémentés ───────────────────────────────────
+
+  @deferred
+  Scenario: Opérateurs booléens OR et NOT
+    Given une règle dont les conditions sont un groupe {operator: OR, items: [...]}
+    When une requête satisfait une seule des conditions du groupe
+    Then la règle matche
+
+  @deferred
+  Scenario: Actions challenge, rate_limit, redirect et allow
+    Given une règle d'action challenge, rate_limit(10/s), redirect(302) ou allow
+    When elle matche
+    Then l'action correspondante est appliquée
+
+  @deferred
+  Scenario: Métrique par règle
+    When une règle matche
+    Then waf_rule_matches_total{rule_name} est incrémenté
+
+  @deferred
   Scenario: Hot-reload des règles sans redémarrage
     Given le WAF est en cours d'exécution
-    When l'administrateur modifie configs/rules.yaml et envoie SIGHUP
-    Then dans les 100ms, les nouvelles règles sont actives
-    And les règles en cours d'évaluation sur les requêtes existantes ne sont pas interrompues
+    When l'administrateur modifie rules.file et envoie SIGHUP
+    Then les nouvelles règles sont actives sans redémarrage
+    # RuleSet.Load est un échange atomique, mais aucun signal ni endpoint ne le
+    # déclenche : aujourd'hui les règles sont lues au démarrage seulement.
 
+  @deferred
   Scenario: API admin — lister les règles avec hit counts
     When GET /waf/admin/rules
-    Then la réponse liste toutes les règles actives avec:
-      | name           | nom de la règle  |
-      | priority       | priorité         |
-      | enabled        | true/false       |
-      | match_count    | nombre de matchs |
-      | last_match_at  | dernier match    |
+    Then la réponse liste les règles avec name, priority, enabled, match_count, last_match_at
 
+  @deferred
   Scenario: API admin — désactiver une règle sans reload
     When PATCH /waf/admin/rules/block-sqlmap avec body {"enabled": false}
     Then la règle est immédiatement désactivée
-    And les requêtes sqlmap ne sont plus bloquées par cette règle
 
-  Scenario: Règle invalide — compilation échoue avec message clair
-    Given une règle avec un champ "field" inconnu: "unknown_field"
-    When le WAF charge les règles au démarrage
-    Then le démarrage échoue avec un message d'erreur: "règle 'bad-rule': champ inconnu 'unknown_field'"
-    And aucune règle n'est chargée (fail-fast)
-
-  Scenario: Règle temporelle — active seulement la nuit
-    Given la règle:
-      name: "strict-night-protection"
-      conditions:
-        operator: AND
-        items:
-          - field: hour_of_day, op: between, value: [22, 6]
-          - field: trust_score, op: lt, value: 60
-      actions:
-        - type: challenge
-    When il est 23h00 et un visiteur score=55 envoie une requête
-    Then la règle matche et le challenge est déclenché
-    When il est 14h00 le lendemain
-    Then la règle ne matche pas (hors plage horaire)
+  @deferred
+  Scenario: Règle temporelle — hour_of_day between
+    Given une règle avec la condition {field: hour_of_day, operator: between, values: ["22", "6"]}
+    When il est 23h00
+    Then la règle matche

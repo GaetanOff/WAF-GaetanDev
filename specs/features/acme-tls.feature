@@ -3,6 +3,12 @@ Feature: TLS Termination & ACME / Let's Encrypt
   Je veux que le WAF gère automatiquement les certificats TLS
   Afin de ne jamais avoir d'expiration de certificat causant une interruption de service.
 
+  # Les scénarios @deferred sont spécifiés mais NON implémentés (audit du
+  # 2026-09-24, point 2.6) : ils ne sont pas un critère d'acceptation tant
+  # que leur implémentation n'est pas planifiée (specs/tasks.md).
+  # Expiration : seule la jauge waf_tls_cert_expiry_seconds (timestamp
+  # NotAfter des certificats statiques, publiée au démarrage) existe.
+
   Background:
     Given le WAF est configuré avec server.tls.enabled = true
     And server.tls.acme.enabled = true
@@ -38,6 +44,7 @@ Feature: TLS Termination & ACME / Let's Encrypt
     And la réponse ACME correcte est retournée
     And le certificat est obtenu avec succès
 
+  @deferred
   Scenario: Alerte certificat expirant dans moins de 7 jours
     Given le certificat expire dans 5 jours
     And le renouvellement automatique a échoué (Let's Encrypt indisponible)
@@ -54,6 +61,7 @@ Feature: TLS Termination & ACME / Let's Encrypt
     Then il charge les certificats depuis les fichiers configurés
     And aucune requête ACME n'est effectuée
 
+  @deferred
   Scenario: Hot-reload des certificats statiques (SIGHUP)
     Given les fichiers cert.pem et key.pem ont été mis à jour manuellement
     When le WAF reçoit SIGHUP

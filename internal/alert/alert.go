@@ -5,7 +5,9 @@ package alert
 
 import (
 	"bytes"
+	"crypto/rand"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strconv"
 	"sync"
@@ -38,8 +40,19 @@ type Event struct {
 	Immediate bool
 }
 
-// Alert est le payload d'alerte enrichi (cf. schemas/alert.schema.json).
+// Triggers émis (enum `trigger` de specs/schemas/alert.schema.json).
+const (
+	TriggerBlock            = "block"
+	TriggerCircuitBreaker   = "circuit_breaker"
+	TriggerHoneypot         = "honeypot"
+	TriggerUnderAttackStart = "under_attack_start"
+	TriggerUnderAttackEnd   = "under_attack_end"
+)
+
+// Alert est le payload d'alerte enrichi, envoyé tel quel au sink générique :
+// son contrat est specs/schemas/alert.schema.json.
 type Alert struct {
+	ID         string `json:"id"`
 	Timestamp  string `json:"timestamp"`
 	Trigger    string `json:"trigger"`
 	Severity   string `json:"severity"`
@@ -114,7 +127,20 @@ func (n *Notifier) worker() {
 
 // Notify construit et dispatche une alerte enrichie à partir d'un événement WAF.
 func (n *Notifier) Notify(ev Event) {
-	alert := Alert{
+	alert := n.alertFor(ev)
+	if ev.Immediate {
+		// Transition d'état : toujours livrée, sans passer par le cooldown.
+		n.enqueue(alert)
+		return
+	}
+	n.Dispatch(alert)
+}
+
+// alertFor dérive l'alerte enrichie (identifiant, sévérité, titre, message)
+// d'un événement WAF.
+func (n *Notifier) alertFor(ev Event) Alert {
+	return Alert{
+		ID:         newAlertID(),
 		Timestamp:  n.now().UTC().Format(time.RFC3339),
 		Trigger:    ev.Trigger,
 		Severity:   severityFor(ev.Trigger),
@@ -130,12 +156,17 @@ func (n *Notifier) Notify(ev Event) {
 		Country:    ev.Country,
 		TrustScore: ev.TrustScore,
 	}
-	if ev.Immediate {
-		// Transition d'état : toujours livrée, sans passer par le cooldown.
-		n.enqueue(alert)
-		return
-	}
-	n.Dispatch(alert)
+}
+
+// newAlertID retourne un UUID v4 (RFC 9562) : l'identifiant requis par le
+// schéma, qui permet au destinataire de dédoublonner une alerte relivrée par
+// le retry.
+func newAlertID() string {
+	var raw [16]byte
+	_, _ = rand.Read(raw[:]) // ne peut pas échouer (crypto/rand, Go 1.24+)
+	raw[6] = raw[6]&0x0f | 0x40
+	raw[8] = raw[8]&0x3f | 0x80
+	return fmt.Sprintf("%x-%x-%x-%x-%x", raw[0:4], raw[4:6], raw[6:8], raw[8:10], raw[10:16])
 }
 
 // Dispatch enfile une alerte si le cooldown (par trigger+domaine) est écoulé.
@@ -350,17 +381,15 @@ func footerText(a Alert) string {
 // titleFor produit un titre lisible (avec emoji) à partir du trigger.
 func titleFor(trigger string) string {
 	switch trigger {
-	case "honeypot":
+	case TriggerHoneypot:
 		return "🍯 Honeypot déclenché"
-	case "circuit_breaker":
+	case TriggerCircuitBreaker:
 		return "🔌 Circuit breaker ouvert"
-	case "degraded_mode":
-		return "🌊 Mode dégradé (anti-DDoS)"
-	case "under_attack_start":
+	case TriggerUnderAttackStart:
 		return "🚨 Mode sous attaque activé"
-	case "under_attack_end":
+	case TriggerUnderAttackEnd:
 		return "✅ Mode sous attaque levé"
-	case "block":
+	case TriggerBlock:
 		return "⛔ Requête bloquée"
 	default:
 		return "🛡️ Alerte WAF"
@@ -370,17 +399,15 @@ func titleFor(trigger string) string {
 // messageFor produit une phrase de description lisible pour l'embed.
 func messageFor(ev Event) string {
 	switch ev.Trigger {
-	case "honeypot":
+	case TriggerHoneypot:
 		return "Accès à un chemin piège (honeypot) — IP marquée et bloquée."
-	case "circuit_breaker":
+	case TriggerCircuitBreaker:
 		return "Trop de violations consécutives : circuit ouvert pour cette IP."
-	case "degraded_mode":
-		return "Pression de trafic élevée : mitigations renforcées."
-	case "under_attack_start":
+	case TriggerUnderAttackStart:
 		return "Pression critique : challenge JS forcé pour les requêtes sans clearance (FR-39)."
-	case "under_attack_end":
+	case TriggerUnderAttackEnd:
 		return "Pression retombée : sortie du mode sous attaque, challenge forcé désactivé."
-	case "block":
+	case TriggerBlock:
 		return "Requête bloquée par le pare-feu applicatif."
 	default:
 		return ""
@@ -389,9 +416,9 @@ func messageFor(ev Event) string {
 
 func severityFor(trigger string) string {
 	switch trigger {
-	case "circuit_breaker", "degraded_mode", "honeypot", "under_attack_start":
+	case TriggerCircuitBreaker, TriggerHoneypot, TriggerUnderAttackStart:
 		return "critical"
-	case "block":
+	case TriggerBlock:
 		return "warning"
 	default:
 		return "info"

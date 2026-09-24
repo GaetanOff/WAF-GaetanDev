@@ -92,6 +92,32 @@ Feature: Challenge JavaScript
     # Correspondance insensible à la casse, port ignoré ; "*.example.com" couvre
     # aussi l'apex "example.com". Première entrée domains[] correspondante gagne.
 
+  # ADR-020 option 1C : un Host non listé hérite de la politique globale.
+  Scenario: Host non listé — contournement du durcissement par domaine sans strict_host
+    Given le WAF est configuré avec challenge.enabled = false et server.strict_host = false
+    And le domaine "boxaria.fr" est configuré avec challenge_enabled = true vers la même origine que upstream.address
+    When un visiteur sans cookie envoie une requête GET avec l'en-tête Host "peu-importe.test" et Accept "text/html"
+    Then le WAF ne sert PAS la page de challenge et proxifie vers upstream.address
+    # Comportement documenté (CONFIG.md, domains[].challenge_enabled) : c'est ce
+    # que strict_host ferme.
+
+  Scenario: Host non listé — refusé avec server.strict_host
+    Given le WAF est configuré avec server.strict_host = true
+    And le domaine "boxaria.fr" est déclaré dans domains[]
+    When un client envoie une requête GET avec l'en-tête Host "peu-importe.test"
+    Then le WAF retourne HTTP 400 avec X-WAF-Reason "host_not_declared"
+    And la requête n'est PAS transmise à l'upstream
+
+  Scenario: server.strict_host — les sondes de santé restent servies
+    Given le WAF est configuré avec server.strict_host = true
+    When une sonde envoie GET "/waf/health" avec l'en-tête Host "10.0.0.5:8080"
+    Then le WAF retourne HTTP 200
+
+  Scenario: server.strict_host sans domains[] — refusé au démarrage
+    Given le WAF est configuré avec server.strict_host = true et aucune entrée domains[]
+    When le WAF démarre
+    Then le démarrage échoue avec "server.strict_host requires at least one domains[] entry"
+
   Scenario: Mode sous attaque — challenge_enabled = false reste respecté
     Given le mode « sous attaque » (FR-39) est actif sur le domaine "api.example.com"
     And le domaine "api.example.com" est configuré avec challenge_enabled = false

@@ -31,9 +31,9 @@ Fixing a bug?
 | 1 — Specification | OpenAPI, JSON Schema, Gherkin — status: draft → approved | Spec review approved |
 | 2 — Architecture | ADRs, C4 diagrams, data model | ADRs accepted |
 | 3 — Planning | Epics → slices → tasks with spec references | Slices defined |
-| 4 — Scaffolding | Project structure, tooling, stubs from specs | spec:lint passes |
+| 4 — Scaffolding | Project structure, tooling, stubs from specs | spec-lint passes |
 | 5 — Implementation | Types → migration → failing test → code | Conformance tests pass |
-| 6 — Gates | spec:lint, typecheck, conformance, behavior, security, perf, PR checklist | All 7 gates pass |
+| 6 — Gates | spec-lint, typecheck, conformance, behavior, security, perf, PR checklist | All 7 gates pass |
 | 7 — Iteration | Spec change → version bump → code → gate → changelog → release | Release ready |
 
 ---
@@ -87,14 +87,16 @@ draft → reviewed → approved → implemented → validated → deprecated
 
 ## Quality Gates Summary
 
-| Gate | Tool | Blocks |
+This project is Go: each gate has a `make` target running the same tools as CI.
+
+| Gate | Tool (`make` target) | Blocks |
 |---|---|---|
-| G1 — Spec lint | `spectral lint` | Merge |
-| G2 — Type check | `tsc --noEmit` | Merge |
-| G3 — API conformance | `dredd` / `prism` | Merge |
-| G4 — Behavior tests | `cucumber-js` | Merge |
-| G5 — Security | `npm audit` + SAST | Merge |
-| G6 — Performance | `k6` vs SLO thresholds | Release |
+| G1 — Spec lint | `spectral lint` on the OpenAPI contracts (`make spec-lint`) | Merge |
+| G2 — Type check | `go vet` + `go build` (`make typecheck`), `golangci-lint` (`make lint`) | Merge |
+| G3 — API conformance | contract/schema conformance tests in `go test` (`make conformance`) | Merge |
+| G4 — Behavior tests | Gherkin scenarios implemented as Go tests, `go test -race` (`make behavior`) — no Gherkin runner; `@deferred` scenarios are out of scope | Merge |
+| G5 — Security | `govulncheck` (`make security`) + Semgrep and Trivy in CI | Merge |
+| G6 — Performance | `k6` vs SLO thresholds, `tests/load/basic.js` (`make perf`) | Release |
 | G7 — PR checklist | Human review | Merge |
 
 ---
@@ -145,7 +147,7 @@ Follow SDD order: types → migration → failing test → data → logic → co
 
 ### Gate Check
 ```
-"Run the full gate check: spec:lint, typecheck, test:conformance, test:behavior, security:audit.
+"Run the full gate check: make spec-lint typecheck conformance behavior security (make gates).
 Report each gate. Apply the spec-fix workflow for any failure."
 ```
 
@@ -232,7 +234,7 @@ Never start coding before specs are written and approved. Specs are the single s
 - Create `specs/` directory at project root with: `api/`, `schemas/`, `features/`, `contracts/`, `decisions/`.
 - Generate initial spec skeleton: OpenAPI, shared error schema, pagination schema, first ADR.
 - Set up spec linting (`spectral`), conformance testing (`dredd`/`prism`), code generation (`openapi-generator`).
-- Package.json scripts: `spec:lint`, `spec:test`, `spec:generate`.
+- Makefile targets: `spec-lint`, `typecheck`, `conformance`, `behavior`, `security`, `perf` (one per gate).
 
 ### Spec-First Implementation
 

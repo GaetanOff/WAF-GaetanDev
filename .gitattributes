@@ -1,2 +1,9 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Go sources are always checked out with LF, whatever core.autocrlf says:
+# gofmt (and golangci-lint's gofmt/goimports formatters) reject CRLF, so a
+# Windows checkout with core.autocrlf=true flagged every file of the project.
+*.go text eol=lf
+go.mod text eol=lf
+go.sum text eol=lf

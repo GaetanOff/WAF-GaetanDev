@@ -16,12 +16,13 @@ import (
 	"github.com/gaetandev/waf/internal/storage"
 )
 
-// Types d'événements propagés (FR-20).
+// Types d'événements propagés (FR-20). `degraded_mode`, réservé par
+// cluster-event.schema.json, n'a pas de constante : aucun nœud ne le publie ni
+// ne l'applique (coordination de la pression globale différée, cf. tasks.md).
 const (
 	EventBlacklistAdd  = "blacklist_add"
 	EventScoreCritical = "score_critical"
 	EventCircuitOpen   = "circuit_open"
-	EventDegradedMode  = "degraded_mode"
 )
 
 const (
@@ -57,12 +58,15 @@ type Bus interface {
 // Syncer applique les événements entrants à l'état local et publie les
 // événements locaux.
 type Syncer struct {
-	bus    Bus
-	store  storage.Store
-	rules  *access.RuleSet
-	now    func() time.Time
-	node   string
-	outbox chan Event
+	bus   Bus
+	store storage.Store
+	// addBlacklist applique une entrée de blacklist propagée. Par défaut elle va
+	// directement au RuleSet ; avec l'API admin active, elle doit passer par
+	// l'état admin (WithBlacklistApplier), seul propriétaire de la blacklist.
+	addBlacklist func(value string) error
+	now          func() time.Time
+	node         string
+	outbox       chan Event
 
 	mu      sync.Mutex
 	applied int
@@ -70,7 +74,19 @@ type Syncer struct {
 }
 
 func NewSyncer(bus Bus, store storage.Store, rules *access.RuleSet) *Syncer {
-	return &Syncer{bus: bus, store: store, rules: rules, now: time.Now, node: newNodeID(), outbox: make(chan Event, outboxSize)}
+	syncer := &Syncer{bus: bus, store: store, now: time.Now, node: newNodeID(), outbox: make(chan Event, outboxSize)}
+	if rules != nil {
+		syncer.addBlacklist = rules.AddBlacklist
+	}
+	return syncer
+}
+
+// WithBlacklistApplier remplace la destination des entrées de blacklist
+// propagées. L'API admin réécrit le RuleSet entier depuis sa propre liste à
+// chaque modification : une entrée posée directement dans le RuleSet en était
+// effacée au premier ajout ou retrait admin local.
+func (s *Syncer) WithBlacklistApplier(apply func(value string) error) {
+	s.addBlacklist = apply
 }
 
 func newNodeID() string {
@@ -92,8 +108,8 @@ func (s *Syncer) Apply(event Event) bool {
 	}
 	switch event.Type {
 	case EventBlacklistAdd:
-		if s.rules != nil && event.Value != "" {
-			_ = s.rules.AddBlacklist(event.Value)
+		if s.addBlacklist != nil && event.Value != "" {
+			_ = s.addBlacklist(event.Value)
 		}
 	case EventScoreCritical:
 		s.applyScoreCritical(event)

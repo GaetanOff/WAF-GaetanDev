@@ -42,6 +42,7 @@ server:
   write_timeout: "30s"
   idle_timeout: "60s"
   graceful_shutdown_timeout: "15s"
+  strict_host: false
 ```
 
 | Clé | Type | Défaut | Description |
@@ -52,6 +53,7 @@ server:
 | `write_timeout` | durée | `"30s"` | Délai max pour envoyer la réponse complète au client. |
 | `idle_timeout` | durée | `"60s"` | Délai max d'inactivité sur une connexion keep-alive avant fermeture. |
 | `graceful_shutdown_timeout` | durée | `"15s"` | Délai accordé aux connexions en cours pour se terminer proprement lors d'un arrêt (SIGTERM). |
+| `strict_host` | bool | `false` | Répond `400` (`X-WAF-Reason: host_not_declared`) à toute requête dont le `Host` ne correspond à aucune entrée [`domains`](#domains--configuration-par-domaine), `/waf/health` excepté ([ADR-020](specs/decisions/ADR-020-host-header-routing-trust.md)). Exige au moins une entrée `domains[]`. `/waf/metrics` n'est **pas** exempté : un scraper Prometheus doit alors présenter un `Host` déclaré. **Opt-in** : activé, il coupe l'accès par IP. |
 
 ### `server.tls` — Terminaison TLS par domaine (SNI)
 
@@ -512,6 +514,15 @@ geo:
 
 Filtrage basé sur le pays d'origine, fourni par le header `CF-IPCountry` de Cloudflare. Si ce header est absent, les règles géo sont ignorées.
 
+> **Frontière de confiance** ([ADR-019](specs/decisions/ADR-019-infrastructure-header-trust.md)) :
+> `CF-IPCountry` n'est honoré que sur une connexion issue d'une plage Cloudflare
+> avec `cloudflare.trusted: true` ; sinon il est supprimé à l'entrée. Avec
+> `cloudflare.trusted: false`, le filtrage géographique n'a donc aucune entrée
+> (avertissement au démarrage). Un client qui joint le WAF **hors Cloudflare**
+> obtient le même résultat en omettant l'en-tête : tant que l'origine est
+> joignable directement, ces règles réduisent le bruit mais ne sont pas une
+> frontière de sécurité.
+
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `false` | Active le filtrage géographique. **Opt-in.** |
@@ -537,7 +548,7 @@ Le hash JA3 est une empreinte du client TLS (version, ciphers, extensions). Il e
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `true` | Active le fingerprinting TLS. |
-| `ja3_header` | string | `"Cf-Bot-Management-Ja3Hash"` | Nom du header HTTP fourni par Cloudflare contenant le hash JA3. Ne pas modifier sauf si votre proxy utilise un header différent. |
+| `ja3_header` | string | `"Cf-Bot-Management-Ja3Hash"` | Nom du header HTTP fourni par Cloudflare contenant le hash JA3. Ne pas modifier sauf si votre proxy utilise un header différent. Un en-tête `CF-*` n'est honoré que venant d'une plage Cloudflare avec `cloudflare.trusted: true` ([ADR-019](specs/decisions/ADR-019-infrastructure-header-trust.md)) ; un en-tête hors espace `CF-` n'est **pas** vérifié et reste forgeable. |
 | `ja3_blacklist` | liste | `[]` | Hashes JA3 bloqués **de manière déterministe** (sans passer par le moteur de risque). Utile pour bloquer des outils d'attaque connus dont le fingerprint TLS est public. |
 | `swap_contribution` | int [0–100] | `50` | Contribution ajoutée au score de risque si le fingerprint JA3 change entre deux sessions d'un même visiteur (comportement typique de certains scanners). |
 
@@ -577,7 +588,7 @@ Moteur de règles DSL YAML pour définir des politiques de filtrage personnalis�
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `false` | Active le moteur de règles. **Opt-in.** |
-| `file` | string | `""` | Chemin vers le fichier YAML de règles (rechargeable à chaud sans redémarrage). **Obligatoire si `enabled: true`.** Voir `specs/schemas/rule.schema.json` pour la syntaxe. |
+| `file` | string | `""` | Chemin vers le fichier YAML de règles, lu **au démarrage** (pas de rechargement à chaud à ce jour). **Obligatoire si `enabled: true`.** Syntaxe : `specs/schemas/rule.schema.json` ; le décodage est strict et une action, un champ ou une clé non supportés font échouer le démarrage. |
 
 ---
 
@@ -720,7 +731,12 @@ Remplace l'`upstream` unique par un pool load-balancé avec health checks. **Pre
 | `health_check.interval` | durée | `"10s"` | Fréquence des sondes. |
 | `health_check.timeout` | durée | `"2s"` | Délai max d'une sonde avant échec. |
 | `health_check.healthy_threshold` | int | `2` | Nombre de sondes réussies consécutives pour marquer un upstream comme sain. |
-| `health_check.unhealthy_threshold` | int | `3` | Nombre de sondes échouées consécutives pour marquer un upstream comme hors service. |
+| `health_check.unhealthy_threshold` | int | `3` | Nombre de sondes échouées consécutives pour marquer un upstream comme hors service. Une erreur de proxy sur une requête le retire aussitôt, sans attendre ce seuil. |
+
+> **Non implémenté à ce jour** : aucun retry d'une requête sur un autre membre
+> (le client reçoit `502`, le membre est retiré pour les requêtes suivantes) ;
+> quand aucun membre n'est sain, la réponse est `502 no healthy upstream` et non
+> une page de maintenance ; pas d'endpoint `GET /waf/admin/upstreams`.
 
 ---
 
@@ -984,11 +1000,19 @@ Ce n'est **pas** un bypass : un `User-Agent` se forge. La blacklist, l'anti-DDoS
 ```yaml
 honeypot_paths:
   - "/.env"
-  - "/wp-admin"
+  - "/wp-config.php"
   - "/.git/config"
 ```
 
-Chemins qui ne devraient jamais être accédés par un visiteur légitime. Toute requête vers un chemin honeypot déclenche : score de confiance → 0, log d'événement de sécurité, blocage immédiat.
+Chemins qui ne devraient jamais être accédés par un visiteur légitime. Toute requête vers un chemin honeypot (correspondance **exacte** du chemin) déclenche : score de confiance → 0, log d'événement de sécurité, blocage immédiat.
+
+Défaut : `/.env`, `/wp-config.php`, `/.git/config`, `/phpinfo.php`, `/admin.php`.
+
+> ⚠ Ne jamais y mettre un chemin que l'application protégée **sert réellement** :
+> le visiteur qui l'atteint est banni. La liste est globale — elle s'applique à
+> tous les domaines. Pour un site WordPress, `/wp-admin`, `/wp-login.php` et
+> `/xmlrpc.php` sont légitimes ; ils ne figurent plus dans les défauts, qui
+> bannissaient l'administrateur de tout WordPress protégé.
 
 ---
 
@@ -999,42 +1023,30 @@ domains:
   - host: "example.com"
     upstream: "http://10.0.0.1:80"
     challenge_enabled: true
-    protected_paths:
-      - "/api/"
-      - "/account/"
-    public_paths:
-      - "/static/"
-      - "/robots.txt"
 
   - host: "api.example.com"
     upstream: "http://10.0.0.2:8000"
     challenge_enabled: false
-    rate_limit_override:
-      requests_per_second: 20
-      burst: 40
-    trust_override:
-      block_threshold: 20
 ```
 
 Surcharge les paramètres globaux pour un domaine spécifique. Les entrées sont évaluées dans l'ordre ; la première correspondance gagne. Supporte les wildcards (`*.example.com`).
 
 La correspondance d'hôte est insensible à la casse et ignore le port : `Host: API.Example.com:8443` correspond à `api.example.com`. Un wildcard `*.example.com` couvre aussi l'apex `example.com`.
 
-> **Implémenté à ce jour** : `host`, `upstream`, `challenge_enabled`, `tls`.
+> **Clés retirées** ([ADR-022](specs/decisions/ADR-022-remove-inert-domain-overrides.md)) :
 > `protected_paths`, `public_paths`, `rate_limit_override` et `trust_override`
-> sont acceptés par le schéma mais **pas encore câblés** — ils n'ont aucun effet.
+> étaient acceptés puis ignorés. Ils sont désormais **refusés au démarrage**
+> (`domains[N].<clé> is not supported`) : un fichier qui les contient encore doit
+> en être expurgé. Pour exempter des chemins du challenge, voir
+> [`static_assets`](#static_assets--bypass-des-assets-statiques) ; pour
+> durcir un domaine, `challenge_enabled: true` et
+> [`server.strict_host`](#server--serveur-http).
 
 | Clé | Type | Description |
 |---|---|---|
 | `host` | string | Nom de domaine à matcher (exact ou wildcard `*.`). |
 | `upstream` | string | URL de l'upstream pour ce domaine (surcharge `upstream.address`). |
-| `challenge_enabled` | bool | Surcharge `challenge.enabled` pour ce domaine. **Clé absente = hérite du global** (un domaine déclaré pour son seul `upstream` ou son certificat ne perd pas le challenge). `false` = jamais de challenge JS sur ce domaine, **y compris en mode sous attaque** ([FR-39](#antiddosunder_attack--mode--sous-attaque--fr-39-adr-018)). `true` = challenge servi même si `challenge.enabled` est `false` globalement. |
-| `protected_paths` | liste | Préfixes de chemins qui déclenchent **toujours** le challenge, quelle que soit la valeur du score (utile pour `/api/`, `/admin/`). |
-| `public_paths` | liste | Préfixes de chemins qui ne déclenchent **jamais** le challenge (assets, robots.txt, etc.). |
-| `rate_limit_override.requests_per_second` | float | Limite de débit spécifique à ce domaine (remplace la valeur globale). |
-| `rate_limit_override.burst` | int | Burst spécifique à ce domaine. |
-| `trust_override.challenge_threshold` | int | Seuil de challenge JS spécifique à ce domaine. |
-| `trust_override.block_threshold` | int | Seuil de blocage spécifique à ce domaine. |
+| `challenge_enabled` | bool | Surcharge `challenge.enabled` pour ce domaine. ⚠ Sans [`server.strict_host`](#server--serveur-http), un `Host` non listé hérite de la politique **globale** et de `upstream.address` : si cet upstream est la même origine, durcir un domaine ne protège rien — il suffit de changer l'en-tête `Host` (ADR-020). **Clé absente = hérite du global** (un domaine déclaré pour son seul `upstream` ou son certificat ne perd pas le challenge). `false` = jamais de challenge JS sur ce domaine, **y compris en mode sous attaque** ([FR-39](#antiddosunder_attack--mode--sous-attaque--fr-39-adr-018)). `true` = challenge servi même si `challenge.enabled` est `false` globalement. |
 | `tls.cert_file` | string | Chemin du certificat PEM (chaîne complète) présenté pour ce domaine quand `server.tls.enabled: true` (sélection par SNI). |
 | `tls.key_file` | string | Chemin de la clé privée PEM correspondante. |
 

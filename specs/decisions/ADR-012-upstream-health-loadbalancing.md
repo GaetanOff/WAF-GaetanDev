@@ -113,3 +113,15 @@ En cas d'erreur réseau lors du proxying (pas de timeout de health check) :
 - [requirements-ops.md](../requirements-ops.md) FR-25, FR-26
 - [features/upstream-health.feature](../features/upstream-health.feature)
 - [schemas/upstream-pool.schema.json](../schemas/upstream-pool.schema.json)
+
+## Suivi 2026-09-24 — écart entre la décision et l'implémentation
+
+L'audit du 2026-09-24 (point 2.3) a constaté que le retry sur un autre membre,
+l'endpoint `GET /waf/admin/upstreams`, la sonde configurable (méthode, statut,
+corps) et l'observabilité des upstreams n'ont jamais été implémentés, et que
+`upstream-pool.schema.json` nommait les seuils `success_threshold` /
+`failure_threshold` quand la configuration chargée utilise `healthy_threshold` /
+`unhealthy_threshold`. Le schéma (v2.0.0), `upstream-health.feature`, FR-25 et
+FR-26 sont réalignés sur l'implémentation ; le reste de cette décision est
+différé (scénarios `@deferred`). Les défauts de sonde documentés (`/healthz`,
+`10s`, `2s`, 2, 3) sont désormais réellement appliqués par `config.Default()`.

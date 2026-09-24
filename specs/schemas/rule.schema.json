@@ -2,144 +2,96 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/GaetanDev/WAF/schemas/rule.schema.json",
   "title": "WAFRule",
-  "description": "Règle personnalisée du moteur de règles WAF — DSL YAML/JSON",
+  "description": "Règle personnalisée du moteur de règles (FR-17). Le fichier rules.file a pour racine {\"rules\": [WAFRule, …]} et est décodé strictement : toute clé absente de ce schéma est refusée au chargement. Une règle matche quand TOUTES ses conditions sont vraies (ET implicite) ; les règles sont évaluées par priorité croissante et la première qui matche exécute ses actions, sauf continue: true.",
+  "$comment": "Version 2.0.0 (2026-09-24) — schéma réaligné sur le contrat réellement chargé par internal/rules (audit du 2026-09-24, point 2.1). La v1 décrivait un groupe hiérarchique AND/OR/NOT, des clés op/header_name/param_name, des params d'action et des champs/actions sans implémentation. Différés, sans implémentation : opérateurs OR/NOT, champs ip_cidr, body_param, asn, asn_type, behavioral_score, ja3_hash, request_size, content_type, hour_of_day, referer ; opérateurs not_equals, not_contains, not_in_list, not_exists, between, in_asn ; actions challenge, rate_limit, redirect, remove_header, allow ; clés description, domains, case_sensitive ; statut et message configurables du block.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["name", "priority", "conditions", "actions"],
+  "required": ["name", "conditions", "actions"],
   "properties": {
     "name": {
       "type": "string",
-      "description": "Identifiant unique de la règle (snake_case recommandé)",
-      "pattern": "^[a-z0-9_-]+$",
-      "maxLength": 64
-    },
-    "description": {
-      "type": "string",
-      "description": "Description humaine de la règle"
+      "description": "Identifiant de la règle, repris dans les erreurs de chargement"
     },
     "priority": {
       "type": "integer",
-      "minimum": 1,
-      "maximum": 10000,
-      "description": "Ordre d'évaluation — plus petit = évalué en premier"
+      "default": 0,
+      "description": "Ordre d'évaluation — plus petit = évalué en premier ; à priorité égale, l'ordre du fichier"
     },
     "enabled": {
       "type": "boolean",
-      "default": true
+      "default": false,
+      "description": "Une règle sans enabled: true n'est ni compilée ni évaluée"
     },
     "continue": {
       "type": "boolean",
       "default": false,
-      "description": "Si true, continuer l'évaluation des règles suivantes même après match"
-    },
-    "domains": {
-      "type": "array",
-      "items": { "type": "string" },
-      "description": "Domaines auxquels cette règle s'applique. Vide = tous les domaines",
-      "default": []
+      "description": "Si true, l'évaluation continue avec les règles suivantes après un match (leurs actions s'ajoutent)"
     },
     "conditions": {
-      "$ref": "#/definitions/ConditionGroup"
+      "type": "array",
+      "minItems": 1,
+      "description": "Conditions combinées en ET. Une règle sans condition ne matche jamais.",
+      "items": { "$ref": "#/definitions/Condition" }
     },
     "actions": {
       "type": "array",
       "minItems": 1,
-      "items": {
-        "$ref": "#/definitions/Action"
-      }
+      "items": { "$ref": "#/definitions/Action" }
     }
   },
   "definitions": {
-    "ConditionGroup": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["operator", "items"],
-      "properties": {
-        "operator": {
-          "type": "string",
-          "enum": ["AND", "OR", "NOT"],
-          "description": "Opérateur logique entre les conditions du groupe"
-        },
-        "items": {
-          "type": "array",
-          "minItems": 1,
-          "items": {
-            "oneOf": [
-              { "$ref": "#/definitions/Condition" },
-              { "$ref": "#/definitions/ConditionGroup" }
-            ]
-          }
-        }
-      }
-    },
     "Condition": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["field", "op"],
+      "required": ["field", "operator"],
       "properties": {
         "field": {
           "type": "string",
-          "enum": [
-            "ip",
-            "ip_cidr",
-            "user_agent",
-            "path",
-            "method",
-            "header",
-            "query_param",
-            "body_param",
-            "country",
-            "asn",
-            "asn_type",
-            "trust_score",
-            "behavioral_score",
-            "ja3_hash",
-            "request_size",
-            "content_type",
-            "hour_of_day",
-            "referer"
-          ],
-          "description": "Champ de la requête à évaluer"
+          "enum": ["ip", "user_agent", "path", "method", "country", "header", "query_param", "trust_score"],
+          "description": "ip = IP réelle établie par le WAF (jamais un en-tête client) ; country = CF-IPCountry, supprimé s'il n'est pas prouvé Cloudflare (ADR-019) ; trust_score = score courant (X-WAF-Score), condition fausse s'il n'est pas encore connu"
         },
-        "op": {
+        "operator": {
           "type": "string",
-          "enum": [
-            "equals",
-            "not_equals",
-            "contains",
-            "not_contains",
-            "starts_with",
-            "ends_with",
-            "matches_regex",
-            "in_list",
-            "not_in_list",
-            "in_cidr",
-            "lt",
-            "lte",
-            "gt",
-            "gte",
-            "exists",
-            "not_exists",
-            "between"
-          ]
+          "enum": ["equals", "contains", "starts_with", "ends_with", "exists", "in_list", "matches_regex", "in_cidr", "lt", "lte", "gt", "gte"]
         },
         "value": {
-          "description": "Valeur de comparaison (string, number, array ou object selon l'op)"
-        },
-        "header_name": {
           "type": "string",
-          "description": "Nom du header HTTP (requis si field=header)"
+          "description": "Valeur comparée (sensible à la casse). Pour matches_regex : expression RE2. Pour trust_score : entier en chaîne. Pour in_cidr : un CIDR, cumulable avec values."
         },
-        "param_name": {
+        "values": {
+          "type": "array",
+          "items": { "type": "string" },
+          "description": "Liste pour in_list et in_cidr"
+        },
+        "name": {
           "type": "string",
-          "description": "Nom du paramètre (requis si field=query_param ou body_param)"
-        },
-        "case_sensitive": {
-          "type": "boolean",
-          "default": false,
-          "description": "Comparaison sensible à la casse (s'applique à contains, equals, starts_with, etc.)"
+          "description": "Nom de l'en-tête (field: header) ou du paramètre de query (field: query_param)"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "field": { "const": "ip" } } },
+          "then": { "properties": { "operator": { "enum": ["equals", "in_list", "in_cidr"] } } }
+        },
+        {
+          "if": { "properties": { "field": { "const": "trust_score" } } },
+          "then": {
+            "required": ["value"],
+            "properties": {
+              "operator": { "enum": ["lt", "lte", "gt", "gte"] },
+              "value": { "pattern": "^-?[0-9]+$" }
+            }
+          }
+        },
+        {
+          "if": { "properties": { "field": { "enum": ["user_agent", "path", "method", "country", "header", "query_param"] } } },
+          "then": { "properties": { "operator": { "enum": ["equals", "contains", "starts_with", "ends_with", "exists", "in_list", "matches_regex"] } } }
+        },
+        {
+          "if": { "properties": { "field": { "enum": ["header", "query_param"] } } },
+          "then": { "required": ["name"] }
+        }
+      ]
     },
     "Action": {
       "type": "object",
@@ -148,54 +100,20 @@
       "properties": {
         "type": {
           "type": "string",
-          "enum": [
-            "block",
-            "challenge",
-            "score_delta",
-            "rate_limit",
-            "redirect",
-            "add_header",
-            "remove_header",
-            "log",
-            "tarpit",
-            "allow"
-          ]
+          "enum": ["block", "tarpit", "score_delta", "add_header", "log"],
+          "description": "block = 403 « forbidden » immédiat ; tarpit = requête classée TARPIT (FR-15) ; score_delta = ajuste le trust score de delta ; add_header = en-tête header: value sur la réponse ; log = raison journalisée si aucune n'est déjà posée"
         },
-        "params": {
-          "type": "object",
-          "description": "Paramètres spécifiques à l'action",
-          "properties": {
-            "status": {
-              "type": "integer",
-              "description": "Code HTTP (block: 403, redirect: 301/302)"
-            },
-            "message": {
-              "type": "string",
-              "description": "Message dans la réponse (block) ou log"
-            },
-            "value": {
-              "description": "Valeur delta pour score_delta (int), URL pour redirect, valeur header"
-            },
-            "header_name": {
-              "type": "string"
-            },
-            "level": {
-              "type": "string",
-              "enum": ["debug", "info", "warn", "error"],
-              "description": "Niveau de log (action log)"
-            },
-            "requests_per_second": {
-              "type": "number",
-              "description": "Limite req/s pour l'action rate_limit"
-            },
-            "burst": {
-              "type": "integer"
-            },
-            "delay_ms": {
-              "type": "integer",
-              "description": "Délai entre chunks pour le tarpit (ms)"
-            }
-          }
+        "value": {
+          "type": "string",
+          "description": "block, tarpit, log : raison journalisée (X-WAF-Reason ; défauts rule_block, rule_tarpit, rule_log). add_header : valeur de l'en-tête."
+        },
+        "delta": {
+          "type": "integer",
+          "description": "score_delta : variation appliquée au trust score, borné à [0, 100]"
+        },
+        "header": {
+          "type": "string",
+          "description": "add_header : nom de l'en-tête de réponse"
         }
       }
     }

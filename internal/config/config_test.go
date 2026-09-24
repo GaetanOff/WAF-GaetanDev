@@ -447,3 +447,20 @@ domains:
 		t.Fatalf("challenge_enabled: true must decode to an explicit true")
 	}
 }
+
+// ADR-020 option 1C : sans domains[], strict_host refuserait tout sauf
+// /waf/health — une configuration qui ne dit pas ce que l'opérateur croit.
+func TestValidateStrictHostRequiresDomains(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.Server.StrictHost = true
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "server.strict_host") {
+		t.Fatalf("Validate() error = %v, want it to name server.strict_host", err)
+	}
+
+	cfg.Domains = []DomainConfig{{Host: "boxaria.fr", Upstream: "http://10.0.0.1"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() unexpected error = %v", err)
+	}
+}

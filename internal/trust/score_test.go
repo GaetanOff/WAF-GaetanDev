@@ -206,3 +206,71 @@ func TestScoreManagerSetThresholdsAppliesAtRuntime(t *testing.T) {
 		t.Fatalf("state(20) = %s, want BLOCKED with block_threshold = 20", state)
 	}
 }
+
+// countingStore compte les écritures de visiteurs : chacune est un SET Redis
+// synchrone (ou le verrou global du store mémoire) sur le chemin de requête.
+type countingStore struct {
+	storage.Store
+	writes int
+}
+
+func (s *countingStore) SetVisitor(key string, visitor storage.VisitorState) {
+	s.writes++
+	s.Store.SetVisitor(key, visitor)
+}
+
+func TestGetRewritesAKnownVisitorOncePerTouchInterval(t *testing.T) {
+	manager, store, clock := newTestManager(t)
+	defer store.Close()
+	counting := &countingStore{Store: store}
+	manager.store = counting
+	manager.Set("1.2.3.4", "example.test", 60)
+	counting.writes = 0
+
+	for range 10 {
+		manager.Get("1.2.3.4", "example.test")
+	}
+	if counting.writes != 0 {
+		t.Fatalf("writes within the touch interval = %d, want 0", counting.writes)
+	}
+
+	clock.advance(maxTouchInterval)
+	visitor := manager.Get("1.2.3.4", "example.test")
+
+	if counting.writes != 1 {
+		t.Fatalf("writes after the touch interval = %d, want 1", counting.writes)
+	}
+	if want := clock.now().Add(time.Hour); !visitor.ExpiresAt.Equal(want) {
+		t.Fatalf("ExpiresAt = %v, want the TTL slid to %v", visitor.ExpiresAt, want)
+	}
+}
+
+func TestPeekNeverWrites(t *testing.T) {
+	manager, store, clock := newTestManager(t)
+	defer store.Close()
+	counting := &countingStore{Store: store}
+	manager.store = counting
+
+	unknown := manager.Peek("5.5.5.5", "example.test")
+	if unknown.Score != 50 {
+		t.Fatalf("unknown visitor score = %d, want the initial score 50", unknown.Score)
+	}
+	if _, ok := store.GetVisitor(HashIP("5.5.5.5")); ok {
+		t.Fatal("Peek created the visitor, want a read-only lookup")
+	}
+
+	manager.Set("1.2.3.4", "example.test", 20)
+	counting.writes = 0
+	clock.advance(maxTouchInterval)
+	if known := manager.Peek("1.2.3.4", "example.test"); known.Score != 20 {
+		t.Fatalf("known visitor score = %d, want 20", known.Score)
+	}
+	if counting.writes != 0 {
+		t.Fatalf("Peek wrote %d times, want 0", counting.writes)
+	}
+
+	clock.advance(2 * time.Hour) // au-delà du score_ttl
+	if expired := manager.Peek("1.2.3.4", "example.test"); expired.Score != 50 {
+		t.Fatalf("expired visitor score = %d, want the initial score 50", expired.Score)
+	}
+}

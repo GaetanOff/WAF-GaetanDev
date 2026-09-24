@@ -2,6 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/GaetanDev/WAF/schemas/behavioral-profile.schema.json",
   "title": "BehavioralProfile",
+  "$comment": "Statut : draft — NON implémenté (audit du 2026-09-24, point 2.5). Aucun type Go, aucun endpoint et aucun journal ne produit ce document : internal/behavioral ne tient qu'un historique borné et un score par visiteur, publié au moteur de risque en X-WAF-Risk-behavioral. Ce schéma décrit l'exposition différée du profil détaillé (signaux, statistiques, classification) ; il n'est pas un contrat en vigueur.",
   "description": "Profil comportemental d'un visiteur calculé par le module d'analyse comportementale",
   "type": "object",
   "additionalProperties": false,

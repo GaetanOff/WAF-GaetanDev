@@ -33,6 +33,14 @@ const (
 	// (FR-05) : les sous-requêtes refusées d'un même chargement de page comptent
 	// pour UNE pénalité, pas une par 429.
 	RateLimitPenaltyWindow = 10 * time.Second
+
+	// maxTouchInterval borne la fréquence à laquelle Get réécrit un visiteur
+	// connu pour faire glisser son TTL. Réécrire à CHAQUE lecture coûtait, par
+	// requête, un SET Redis synchrone et le verrou global du store mémoire pour
+	// chacun des appels à Get du pipeline. Le TTL glisse donc par pas : un
+	// visiteur actif expire au plus maxTouchInterval plus tôt qu'à la seconde
+	// près, ce qui est sans effet pratique pour un score_ttl d'une heure.
+	maxTouchInterval = 30 * time.Second
 )
 
 type ScoreManager struct {
@@ -41,6 +49,7 @@ type ScoreManager struct {
 	challengeThreshold atomic.Int64 // modifiable à chaud (SetThresholds)
 	blockThreshold     atomic.Int64
 	scoreTTL           time.Duration
+	touchInterval      time.Duration
 	onCritical         func(storage.VisitorState)
 	now                func() time.Time
 }
@@ -64,10 +73,11 @@ func NewScoreManager(store storage.Store, cfg config.Config) (*ScoreManager, err
 	}
 
 	manager := &ScoreManager{
-		store:        store,
-		initialScore: cfg.Trust.InitialScore,
-		scoreTTL:     scoreTTL,
-		now:          time.Now,
+		store:         store,
+		initialScore:  cfg.Trust.InitialScore,
+		scoreTTL:      scoreTTL,
+		touchInterval: min(maxTouchInterval, scoreTTL/4),
+		now:           time.Now,
 	}
 	manager.SetThresholds(cfg.Trust.ChallengeThreshold, cfg.Trust.BlockThreshold)
 	return manager, nil
@@ -81,25 +91,54 @@ func (m *ScoreManager) SetThresholds(challengeThreshold int, blockThreshold int)
 	m.blockThreshold.Store(int64(blockThreshold))
 }
 
+// Get retourne l'état du visiteur, en le créant s'il est inconnu ou expiré, et
+// fait glisser son TTL. La réécriture du TTL n'a lieu qu'une fois par
+// touchInterval : les lectures suivantes ne coûtent qu'un GetVisitor.
 func (m *ScoreManager) Get(ip string, domain string) storage.VisitorState {
 	now := m.now()
 	ipHash := HashIP(ip)
 	if visitor, ok := m.store.GetVisitor(ipHash); ok {
-		if !visitor.ExpiresAt.IsZero() && !visitor.ExpiresAt.After(now) {
+		if isExpired(*visitor, now) {
 			m.store.DeleteVisitor(ipHash)
 			return m.create(ipHash, domain, now)
 		}
-		visitor.LastSeen = now
-		visitor.ExpiresAt = now.Add(m.scoreTTL)
-		m.store.SetVisitor(ipHash, *visitor)
+		if now.Sub(visitor.LastSeen) >= m.touchInterval {
+			visitor.LastSeen = now
+			visitor.ExpiresAt = now.Add(m.scoreTTL)
+			m.store.SetVisitor(ipHash, *visitor)
+		}
 		return *visitor
 	}
 
 	return m.create(ipHash, domain, now)
 }
 
+// Peek retourne l'état du visiteur SANS rien écrire : ni création, ni
+// glissement du TTL. Un visiteur inconnu ou expiré est rendu à son score
+// initial, tel que Get le créerait. Réservé aux observateurs (journal,
+// métriques, lectures de décision) : seul le middleware de décision doit
+// payer l'écriture.
+func (m *ScoreManager) Peek(ip string, domain string) storage.VisitorState {
+	now := m.now()
+	ipHash := HashIP(ip)
+	if visitor, ok := m.store.GetVisitor(ipHash); ok && !isExpired(*visitor, now) {
+		return *visitor
+	}
+	return m.initialVisitor(ipHash, domain, now)
+}
+
+func isExpired(visitor storage.VisitorState, now time.Time) bool {
+	return !visitor.ExpiresAt.IsZero() && !visitor.ExpiresAt.After(now)
+}
+
 func (m *ScoreManager) create(ipHash string, domain string, now time.Time) storage.VisitorState {
-	visitor := storage.VisitorState{
+	visitor := m.initialVisitor(ipHash, domain, now)
+	m.store.SetVisitor(ipHash, visitor)
+	return visitor
+}
+
+func (m *ScoreManager) initialVisitor(ipHash string, domain string, now time.Time) storage.VisitorState {
+	return storage.VisitorState{
 		IPHash:    ipHash,
 		Domain:    domain,
 		Score:     m.initialScore,
@@ -107,8 +146,11 @@ func (m *ScoreManager) create(ipHash string, domain string, now time.Time) stora
 		LastSeen:  now,
 		ExpiresAt: now.Add(m.scoreTTL),
 	}
-	m.store.SetVisitor(ipHash, visitor)
-	return visitor
+}
+
+// TTL retourne la durée de vie d'un score sans activité (trust.score_ttl).
+func (m *ScoreManager) TTL() time.Duration {
+	return m.scoreTTL
 }
 
 func (m *ScoreManager) Set(ip string, domain string, score int) storage.VisitorState {

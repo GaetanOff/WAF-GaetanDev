@@ -1,8 +1,8 @@
 ---
 status: approved
-version: 1.3.0
-last-reviewed: 2026-09-02
-change: "Phase 15 : le backend Redis existe réellement (ADR-021, écriture traversante + mode dégradé), le rafraîchissement des plages Cloudflare est une tâche de fond montée par cloudflare.auto_update_ranges, et le logger porte deux formats de sortie au contrat distinct (FR-09)"
+version: 1.4.0
+last-reviewed: 2026-09-24
+change: "Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
 ---
 
 # Architecture — WAF Anti-DDoS / Anti-Bot
@@ -46,13 +46,14 @@ change: "Phase 15 : le backend Redis existe réellement (ADR-021, écriture trav
 │  ┌───────────────────────┐    ┌──────────────────────────────────┐  │
 │  │  Listener public      │    │      Middleware Pipeline         │  │
 │  │  :443 HTTPS (SNI)     │───▶│  ingress → secheaders →          │  │
-│  │  :80  redirect + ACME │    │  maintenance → slowloris → mux   │  │
+│  │  :80  redirect + ACME │    │  maintenance → cloudflare →      │  │
+│  │                       │    │  slowloris → mux                 │  │
 │  └───────────────────────┘    │    ├── /waf/health               │  │
 │                               │    ├── /waf/metrics              │  │
 │  ┌───────────────────────┐    │    ├── /waf/origin/verify        │  │
 │  │  Admin API :9090      │    │    └── "/" → staticassets →      │  │
-│  │  (privée, token)      │    │        selfprotect → cloudflare →│  │
-│  └───────────┬───────────┘    │        metrics → logger →        │  │
+│  │  (privée, token)      │    │        selfprotect → metrics →   │  │
+│  └───────────┬───────────┘    │        logger →                  │  │
 │              │                │        access → antiddos →       │  │
 │              │                │        challenge → ratelimit →   │  │
 │              │                │        antibot → détecteurs →    │  │
@@ -176,8 +177,26 @@ REQUÊTE ENTRANTE
 [3] maintenance                           toujours (inactif si non configuré)
       │ Page de maintenance + pages d'erreur brandées (FR-32).
       ▼
+[3b] cloudflare.Middleware                si cloudflare.trusted (sinon StripUntrusted)
+      │ Valide que la source appartient aux plages Cloudflare, puis
+      │ retient CF-Connecting-IP comme IP réelle ; 400 si l'en-tête
+      │ est présent hors plage Cloudflare (FR-02).
+      │ Non monté : l'IP réelle est celle de la connexion.
+      │ Dans l'enveloppe et non dans la chaîne "/" : slowloris [4] et
+      │ selfprotect [7] comptent par IP, et lisaient sinon l'IP du point
+      │ de présence Cloudflare — un DoS collatéral des visiteurs
+      │ légitimes qui partagent ce PoP.
+      │ Tout autre CF-* d'une source hors plage Cloudflare est
+      │ supprimé (ADR-019 option B).
+      │ Non monté (trusted faux) : cloudflare.StripUntrusted supprime
+      │ tout CF-*, quelle que soit la source.
+      ▼
 [4] slowloris                             si slowloris.enabled
-      │ Borne les requêtes concurrentes par IP (FR-23).
+      │ Borne les requêtes concurrentes par IP réelle (FR-23).
+      ▼
+[4b] proxy.StrictHost                     si server.strict_host
+      │ 400 host_not_declared sur un Host sans entrée domains[]
+      │ (correspondance du routage), /waf/health excepté (ADR-020 1C).
       ▼
 [5] http.ServeMux
       │ /waf/health          → healthHandler
@@ -197,12 +216,7 @@ REQUÊTE ENTRANTE
 [7] selfprotect.PathGuard("/waf/verify")  si self_protection.enabled
       │ Limite le flood de POST /waf/verify par IP (FR-30).
       ▼
-[8] cloudflare.Middleware                 si cloudflare.trusted
-      │ Valide que la source appartient aux plages Cloudflare, puis
-      │ retient CF-Connecting-IP comme IP réelle ; 400 si l'en-tête
-      │ est présent hors plage Cloudflare (FR-02).
-      │ Non monté : l'IP réelle est celle de la connexion.
-      │ ⚠ Les autres CF-* ne sont pas validés — cf. ADR-019.
+[8] (vacant : cloudflare.Middleware est remonté en [3b], numérotation conservée)
       ▼
 [9] metrics.Middleware                    toujours
       │ Compteurs et histogrammes Prometheus (RED).

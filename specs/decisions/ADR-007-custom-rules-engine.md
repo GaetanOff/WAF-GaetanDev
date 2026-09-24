@@ -140,3 +140,17 @@ Les regex compilées et les maps de lookup garantissent des évaluations O(1) po
 
 - [requirements-advanced.md](../requirements-advanced.md) FR-17
 - [schemas/rule.schema.json](../schemas/rule.schema.json)
+
+## Suivi 2026-09-24 — écart entre la décision et l'implémentation
+
+L'audit du 2026-09-24 (point 2.1) a constaté que l'implémentation n'avait livré
+qu'un sous-ensemble de cette décision : conditions en liste combinée en ET (pas
+de groupe AND/OR/NOT), clés `operator`/`name` au lieu de `op`/`header_name`/
+`param_name`, actions `block`, `tarpit`, `score_delta`, `add_header`, `log`
+seulement, aucun hot-reload déclenchable, aucune métrique ni endpoint admin.
+
+La décision de principe (DSL YAML compilé, évaluation par priorité, swap
+atomique) reste valide. Le **contrat** est réaligné sur l'implémentation :
+`rule.schema.json` v2.0.0 et FR-17 décrivent ce qui est chargé, le chargement
+refuse désormais toute action ou clé non supportée, et le reste de cette
+décision est différé (`rules-engine.feature`, scénarios `@deferred`).

@@ -6,7 +6,10 @@
 package rules
 
 import (
+	"bytes"
+	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"net/netip"
 	"net/url"
@@ -45,6 +48,18 @@ type Action struct {
 	Value  string `yaml:"value"`
 	Delta  int    `yaml:"delta"`
 	Header string `yaml:"header"`
+}
+
+// supportedActions est l'ensemble des actions exécutées par Middleware.Handler.
+// Une action hors de cet ensemble était chargée sans erreur puis ignorée : une
+// règle `type: challenge` ou `type: rate_limit` ne protégeait rien, sans que
+// l'opérateur le sache.
+var supportedActions = map[string]struct{}{
+	"block":       {},
+	"tarpit":      {},
+	"score_delta": {},
+	"add_header":  {},
+	"log":         {},
 }
 
 // compiledRule précompile les regex/CIDR pour une évaluation O(1) par requête.
@@ -100,6 +115,9 @@ func (rs *RuleSet) Load(rules []Rule) error {
 		if !rule.Enabled {
 			continue
 		}
+		if err := validateActions(rule.Actions); err != nil {
+			return fmt.Errorf("rule %q: %w", rule.Name, err)
+		}
 		matchers, err := compileConditions(rule.Conditions)
 		if err != nil {
 			return fmt.Errorf("rule %q: %w", rule.Name, err)
@@ -114,6 +132,11 @@ func (rs *RuleSet) Load(rules []Rule) error {
 }
 
 // LoadFile lit un fichier YAML de règles et l'installe.
+//
+// Le décodage est strict, comme celui de la configuration principale : une clé
+// inconnue était ignorée, si bien qu'une règle écrite avec `op:` au lieu de
+// `operator:`, ou avec un groupe `conditions: {operator: OR, items: …}`,
+// perdait une partie de sa définition en silence.
 func (rs *RuleSet) LoadFile(path string) error {
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -122,10 +145,24 @@ func (rs *RuleSet) LoadFile(path string) error {
 	var doc struct {
 		Rules []Rule `yaml:"rules"`
 	}
-	if err := yaml.Unmarshal(raw, &doc); err != nil {
+	decoder := yaml.NewDecoder(bytes.NewReader(raw))
+	decoder.KnownFields(true)
+	if err := decoder.Decode(&doc); err != nil && !errors.Is(err, io.EOF) {
 		return fmt.Errorf("parse rules yaml: %w", err)
 	}
 	return rs.Load(doc.Rules)
+}
+
+func validateActions(actions []Action) error {
+	if len(actions) == 0 {
+		return errors.New("at least one action is required")
+	}
+	for _, action := range actions {
+		if _, ok := supportedActions[action.Type]; !ok {
+			return fmt.Errorf("unsupported action type %q (supported: block, tarpit, score_delta, add_header, log)", action.Type)
+		}
+	}
+	return nil
 }
 
 // Match retourne les actions à appliquer pour la requête (première règle qui

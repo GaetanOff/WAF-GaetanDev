@@ -250,3 +250,36 @@ func TestAdminBlacklistAddNotifiesObserver(t *testing.T) {
 		t.Fatalf("published = %v, want [5.5.5.5]", published)
 	}
 }
+
+// FR-20 : une entrée reçue du cluster ne doit pas être effacée par la
+// modification admin locale suivante, qui réécrit le RuleSet entier.
+func TestClusterBlacklistEntrySurvivesLocalAdminChanges(t *testing.T) {
+	server := newTestServer(t)
+	handler := server.Handler()
+	if err := server.ApplyClusterBlacklist("9.9.9.9"); err != nil {
+		t.Fatalf("ApplyClusterBlacklist() error = %v", err)
+	}
+
+	for _, request := range []*http.Request{
+		requestWithAuth(http.MethodPost, "/waf/admin/blacklist", `{"ip":"1.2.3.4"}`),
+		requestWithAuth(http.MethodDelete, "/waf/admin/blacklist/1.2.3.4", ""),
+	} {
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+		if ok, _ := server.accessRules.IsBlacklisted("9.9.9.9"); !ok {
+			t.Fatalf("cluster entry purged by %s %s", request.Method, request.URL.Path)
+		}
+	}
+
+	var published []string
+	server.WithBlacklistObserver(func(value string) { published = append(published, value) })
+	if err := server.ApplyClusterBlacklist("8.8.8.8"); err != nil {
+		t.Fatalf("ApplyClusterBlacklist() error = %v", err)
+	}
+	if len(published) != 0 {
+		t.Fatalf("published = %v, want a propagated entry never re-published", published)
+	}
+	entries := server.state.ListBlacklist()
+	if len(entries) != 2 || entries[0].Reason != clusterBlacklistReason {
+		t.Fatalf("blacklist = %+v, want both cluster entries listed with reason %q", entries, clusterBlacklistReason)
+	}
+}

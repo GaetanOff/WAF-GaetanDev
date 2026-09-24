@@ -87,6 +87,7 @@ func run() error {
 	if *listenAddress != "" {
 		cfg.Server.Listen = *listenAddress
 	}
+	warnUntrustedInfrastructureHeaders(*cfg)
 
 	readTimeout, err := parseDuration("server.read_timeout", cfg.Server.ReadTimeout)
 	if err != nil {
@@ -194,6 +195,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	metrics.WithVisitorBounds(scoreManager.TTL(), cfg.Trust.MaxVisitors)
 	antiDDoS, err := antiddos.NewFromConfig(store, *cfg)
 	if err != nil {
 		return err
@@ -331,9 +333,9 @@ func run() error {
 			if notifier == nil {
 				return
 			}
-			trigger := "under_attack_end"
+			trigger := alert.TriggerUnderAttackEnd
 			if active {
-				trigger = "under_attack_start"
+				trigger = alert.TriggerUnderAttackStart
 			}
 			// Immediate: une transition est un événement discret (déjà débouncé par
 			// l'hystérésis du contrôleur) ; elle ne doit pas être avalée par le
@@ -353,6 +355,7 @@ func run() error {
 		securityLogger.Recorder = adminServer.EventRecorder()
 		if syncer != nil {
 			adminServer.WithBlacklistObserver(syncer.PublishBlacklistAdd)
+			syncer.WithBlacklistApplier(adminServer.ApplyClusterBlacklist)
 		}
 		// PATCH /waf/admin/config (hot-reload) : la configuration validée est
 		// poussée aux composants qui la lisent par requête.
@@ -484,6 +487,22 @@ func run() error {
 	return <-errs
 }
 
+// warnUntrustedInfrastructureHeaders signale les contrôles privés d'entrée par
+// la suppression des CF-* quand cloudflare.trusted est faux (ADR-019 option B).
+// Un avertissement et non une erreur : ces réglages restaient valides avant la
+// décision, et un déploiement peut les laisser en place le temps de basculer.
+func warnUntrustedInfrastructureHeaders(cfg config.Config) {
+	if cfg.Cloudflare.Trusted {
+		return
+	}
+	if cfg.Geo.Enabled {
+		slog.Warn("geo rules have no input: CF-IPCountry is stripped while cloudflare.trusted is false", "adr", "ADR-019")
+	}
+	if cfg.TLSFingerprint.Enabled && strings.HasPrefix(strings.ToUpper(cfg.TLSFingerprint.JA3Header), "CF-") {
+		slog.Warn("tls_fingerprint.ja3_header is stripped while cloudflare.trusted is false", "header", cfg.TLSFingerprint.JA3Header, "adr", "ADR-019")
+	}
+}
+
 // newStore construit le backend de stockage désigné par `storage.backend`.
 //
 // Cette sélection n'existait pas avant la phase 15 : `redis` était accepté par
@@ -536,14 +555,8 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	proxyHandler = challengeMiddleware.Handler(proxyHandler)
 	proxyHandler = antiDDoS.Handler(proxyHandler)
 	proxyHandler = access.Middleware(accessRules, proxyHandler)
-	if cfg.Cloudflare.Trusted {
-		proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
-		proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
-		proxyHandler = cloudflare.Middleware(proxyHandler)
-	} else {
-		proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
-		proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
-	}
+	proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
+	proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
 	// Auto-protection (FR-30) : limite le flood de POST /waf/verify par IP.
 	if cfg.SelfProtection.Enabled {
 		verifyWindow := selfprotect.NewWindow(cfg.SelfProtection.VerifyMaxPerMinute, time.Minute)
@@ -556,9 +569,27 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	}
 	mux.Handle("/", proxyHandler)
 	var handler http.Handler = mux
+	// Host non déclaré refusé (ADR-020 option 1C, opt-in) : un Host non listé
+	// hériterait sinon de la politique globale, y compris vers la même origine
+	// qu'un domaine durci. /waf/health reste servi aux sondes par IP.
+	if cfg.Server.StrictHost {
+		handler = proxy.StrictHost(cfg.Domains, handler)
+	}
 	// Protection Slowloris (FR-23) : limite les requêtes concurrentes par IP.
 	if cfg.Slowloris.Enabled {
 		handler = slowloris.New(cfg.Slowloris.MaxConnsPerIP).Handler(handler)
+	}
+	// Extraction de l'IP réelle (FR-02) : en amont de tout ce qui compte par IP.
+	// Montée plus bas (autour du seul pipeline de proxy), elle laissait slowloris,
+	// l'auto-protection de /waf/verify et le bypass d'assets lire RemoteAddr,
+	// c'est-à-dire l'IP du point de présence Cloudflare : quelques visiteurs
+	// légitimes derrière le même PoP suffisaient à épuiser la borne par IP.
+	// Les autres CF-* ne sont honorés que venant d'une plage Cloudflare, et
+	// jamais sans cloudflare.trusted (ADR-019 option B).
+	if cfg.Cloudflare.Trusted {
+		handler = cloudflare.Middleware(handler)
+	} else {
+		handler = cloudflare.StripUntrusted(handler)
 	}
 	// Mode maintenance + pages d'erreur brandées (FR-32).
 	handler = maintenance.New(cfg.Maintenance).Handler(handler)

@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.3.0
+version: 3.5.0
 last-reviewed: 2026-09-24
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-30 : principe général — aucune décision de sécurité ne DOIT reposer sur un en-tête dont le WAF ne peut pas prouver l'origine. Les en-têtes d'infrastructure (`CF-*`, `ja3_header`) et `Host` sont renvoyés à ADR-019 et ADR-020, tous deux proposed"
+change: "FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -80,39 +80,49 @@ change: "FR-30 : principe général — aucune décision de sécurité ne DOIT r
 
 ## FR-25 — Upstream Health Checks & Failover
 
+- Contrat de configuration : bloc `upstream_pool` (`schemas/upstream-pool.schema.json`
+  v2.0.0, identique à `config.schema.json`)
 - Le WAF DOIT effectuer des **health checks actifs** sur chaque upstream configuré :
-  - Méthode : HTTP GET ou HEAD sur un path configurable (défaut: `/`)
-  - Intervalle configurable (défaut: `10s`)
-  - Timeout du health check : configurable (défaut: `3s`)
-  - Nombre de succès requis pour marquer un upstream sain (défaut: 1)
-  - Nombre d'échecs consécutifs pour marquer un upstream indisponible (défaut: 3)
-- Quand un upstream est marqué **indisponible** :
-  - Les nouvelles requêtes reçoivent une page de maintenance configurable (HTTP 503) — voir FR-32
-  - Si un **upstream de secours** (`backup`) est configuré, basculer automatiquement
-  - Un log event est émis : `action=UPSTREAM_DOWN` + métrique `waf_upstream_health{domain, status}`
-- Quand l'upstream redevient disponible (N succès consécutifs) :
-  - Reprendre le proxying normalement
-  - Log event : `action=UPSTREAM_UP`
-- Le WAF DOIT exposer l'état des upstreams via `GET /waf/admin/upstreams`
+  - Méthode : HTTP GET sur `health_check.path` (défaut: `/healthz`) ; 2xx ou 3xx = succès
+  - Intervalle configurable (`interval`, défaut: `10s`)
+  - Timeout du health check : configurable (`timeout`, défaut: `2s`)
+  - Succès consécutifs pour remettre un upstream en service (`healthy_threshold`, défaut: 2)
+  - Échecs consécutifs pour le retirer du service (`unhealthy_threshold`, défaut: 3)
+- Une erreur de proxy sur une requête DOIT retirer le membre du service
+  immédiatement (le client reçoit `502`) ; les sondes le remettent en service
+- Quand un upstream est retiré du service :
+  - Si un **upstream de secours** (`backup`) est configuré et qu'aucun principal
+    n'est sain, basculer automatiquement
+  - Si aucun membre n'est sain : `502 no healthy upstream`
+- **Différé** (spécifié, non implémenté — `upstream-health.feature`, scénarios
+  `@deferred`) : page de maintenance `503` quand tout est hors service (FR-32) ;
+  log events `UPSTREAM_DOWN`/`UPSTREAM_UP`, métrique `waf_upstream_health` et
+  webhooks associés ; `GET /waf/admin/upstreams` ; sonde HEAD, statut ou corps
+  attendus ; **retry** d'une requête idempotente sur un autre membre
 
 ## FR-26 — Load Balancing Multi-Upstream
 
-- Le WAF DOIT supporter un **pool d'upstreams** par domaine avec plusieurs stratégies :
+- Le WAF DOIT supporter un **pool d'upstreams** global (prioritaire sur
+  `upstream.address` et `domains[].upstream`) avec plusieurs stratégies :
   - `round_robin` : rotation à tour de rôle (défaut)
-  - `least_conn` : upstream avec le moins de connexions actives
-  - `random` : sélection aléatoire uniforme
-  - `ip_hash` : même IP toujours routée vers le même upstream (sticky sessions)
-- Chaque upstream du pool DOIT avoir un **poids** configurable (`weight: N`)
-- Le WAF DOIT exclure automatiquement les upstreams indisponibles (intégré avec FR-25)
-- Si tous les upstreams sont indisponibles → page de maintenance (FR-32)
-- Le WAF DOIT exposer les métriques par upstream : `waf_upstream_requests_total{upstream}`, `waf_upstream_response_time_seconds{upstream}`
+  - `least_conn` : upstream avec le moins de requêtes en cours
+  - `ip_hash` : même IP réelle toujours routée vers le même upstream sain
+  - `weighted` : répartition selon le **poids** (`weight: N`, défaut 1), lu par
+    cette seule stratégie
+- Le WAF DOIT exclure automatiquement les upstreams hors service (intégré avec FR-25)
+- **Différé** : stratégie `random`, pool par domaine, page de maintenance quand
+  tout est hors service, métriques `waf_upstream_requests_total{upstream}` et
+  `waf_upstream_response_time_seconds{upstream}`
 
 ## FR-27 — Audit Trail des Actions Admin
 
 - Le WAF DOIT maintenir un **journal d'audit immuable** de toutes les actions sur l'API admin :
   - Champs : `timestamp`, `action`, `endpoint`, `method`, `request_body` (secrets masqués), `response_status`, `client_ip`
   - Exemples : ajout en blacklist, modification config, reset visiteur, activation/désactivation règle
-- Le journal DOIT être accessible via `GET /waf/admin/audit?since=&limit=`
+- Le journal DOIT être accessible via `GET /waf/admin/audit` (pagination
+  `page`/`limit`, de la plus ancienne à la plus récente entrée)
+- **Différé** : filtres `since`, `until` et `action` (`audit-trail.feature`,
+  scénarios `@deferred`)
 - Le journal DOIT être **append-only** en mémoire (pas de suppression via API)
 - La taille max du journal en mémoire DOIT être configurable (défaut: 10 000 entrées, rotation FIFO)
 - En option, le journal DOIT pouvoir être écrit sur disque (fichier JSON-lines configurable)
@@ -139,16 +149,19 @@ change: "FR-30 : principe général — aucune décision de sécurité ne DOIT r
   - Format : HTTP POST vers une URL configurée, body JSON (voir `schemas/alert.schema.json`)
   - Retry : 3 tentatives avec backoff exponentiel (1s, 5s, 25s)
   - Timeout par appel : 5s
-- **Triggers configurables** :
+- **Triggers émis** (enum `trigger` de `schemas/alert.schema.json`) :
   | Trigger | Description |
   |---------|-------------|
-  | `ddos_detected` | Taux de trafic > seuil configurable |
-  | `upstream_down` | Upstream passe indisponible |
-  | `circuit_breaker_open` | Circuit-breaker ouvert pour une IP |
-  | `honeypot_triggered` | Visite d'un chemin honeypot |
-  | `score_flood` | > N visiteurs en état BLOCKED en X secondes |
-  | `challenge_flood` | > N soumissions /waf/verify en X secondes |
-  | `rule_triggered` | Match d'une règle configurée comme alertante |
+  | `block` | Requête bloquée par une décision WAF (sévérité warning) |
+  | `circuit_breaker` | Circuit-breaker ouvert pour une IP |
+  | `honeypot` | Visite d'un chemin honeypot |
+  | `under_attack_start` / `under_attack_end` | Entrée / sortie du mode sous attaque (FR-39), hors cooldown |
+- Chaque alerte porte un `id` UUID v4 unique, qui permet au destinataire de
+  dédoublonner une alerte relivrée par le retry
+- **Triggers différés** — spécifiés, sans émetteur à ce jour : `ddos_detected`,
+  `upstream_down`, `upstream_recovered`, `score_flood`, `challenge_flood`,
+  `rule_triggered`, `tls_cert_expiring`. Ils rejoindront l'enum du schéma avec
+  leur émetteur
 - **Intégrations prêtes à l'emploi** :
   - Slack (format Slack Incoming Webhook)
   - Discord (format Discord Webhook)
@@ -206,13 +219,24 @@ change: "FR-30 : principe général — aucune décision de sécurité ne DOIT r
 - **Principe général** : aucune décision de sécurité NE DOIT reposer sur un
   en-tête de requête dont le WAF ne peut pas prouver l'origine. Les en-têtes
   internes (`X-WAF-*`) sont couverts par la règle ci-dessus ; les en-têtes
-  **d'infrastructure** posés par un intermédiaire (`CF-*`, `ja3_header`,
-  `X-Forwarded-*`) et l'en-tête `Host` relèvent d'ADR-019 et ADR-020, tous deux
-  `proposed` — leurs options rejetteraient du trafic aujourd'hui accepté et
-  attendent une décision d'opérateur. Tant qu'elles ne sont pas tranchées, les
-  contrôles qui en dépendent (FR-16 géo, FR-11 blacklist JA3, durcissement par
-  domaine de FR-06) DOIVENT être documentés comme des contrôles de réduction de
-  bruit, pas comme des frontières de sécurité
+  **d'infrastructure** posés par un intermédiaire relèvent d'ADR-019 (`accepted`,
+  option B) et l'en-tête `Host` d'ADR-020 (`accepted`, options 1C et 2A) :
+  - Le WAF DOIT supprimer tout en-tête `CF-*` (préfixe insensible à la casse)
+    d'une connexion qui ne vient pas d'une plage Cloudflare, et de toute
+    connexion quand `cloudflare.trusted` est faux. Un `CF-Connecting-IP` forgé
+    reste rejeté en `400` (FR-02). La suppression précède tout lecteur de `CF-*`
+    et le proxy
+  - Cette suppression aligne la forge sur l'omission, sans fermer l'omission :
+    FR-16 (géo) et la blacklist JA3 de FR-11 restent des contrôles de réduction
+    de bruit tant que le WAF est joignable hors Cloudflare, et DOIVENT être
+    documentés comme tels. Un `ja3_header` hors espace `CF-` n'est pas couvert
+  - Avec `server.strict_host: true`, une requête dont le `Host` ne correspond à
+    aucune entrée `domains[]` DOIT recevoir un `400`
+    (`X-WAF-Reason: host_not_declared`), `/waf/health` excepté. Défaut `false` ;
+    tant qu'il l'est, le durcissement par domaine de FR-06 est contournable par
+    un `Host` non listé qui atteint la même origine, et DOIT être documenté
+    comme tel
+  - Aucune liaison SNI ↔ `Host` n'est exigée
 
 ### Protection de l'endpoint /waf/verify
 - Le WAF DOIT appliquer un rate limit strict sur `POST /waf/verify` : configurable (défaut: 10 req/s par IP)
@@ -255,11 +279,16 @@ change: "FR-30 : principe général — aucune décision de sécurité ne DOIT r
   - Le WAF DOIT supporter **ACME/Let's Encrypt** avec renouvellement automatique (≥ 30 jours avant expiration)
   - Le défi ACME `HTTP-01` DOIT être géré automatiquement (bypass du challenge WAF pour les paths `/.well-known/acme-challenge/`)
   - Le défi ACME `TLS-ALPN-01` DOIT être optionnellement supporté
-  - Les certificats DOIVENT être stockés sur disque (path configurable) et rechargés sans redémarrage
+  - Les certificats DOIVENT être stockés sur disque (path configurable) ; les
+    certificats ACME renouvelés sont pris en compte sans redémarrage
+    (autocert). **Différé** : rechargement des certificats statiques sans
+    redémarrage (`SIGHUP`, cf. FR-33)
   - Une métrique `waf_tls_cert_expiry_seconds{domain}` DOIT être exposée
 - Le WAF DOIT supporter **TLS 1.2 et 1.3** côté client, configurable
 - Le WAF DOIT supporter la configuration des cipher suites (liste configurable avec défaut sécurisé)
-- Certificat expirant dans < 7 jours → alert webhook (FR-29)
+- **Différé** : certificat expirant dans < 7 jours → alert webhook (FR-29) ;
+  aujourd'hui seule la jauge `waf_tls_cert_expiry_seconds{domain}` (timestamp
+  NotAfter des certificats statiques, publiée au démarrage) est exposée
 
 ## FR-32 — Page de Maintenance & Erreurs Custom
 

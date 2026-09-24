@@ -18,6 +18,10 @@ server:
   # Un navigateur en envoie ~20-30 ; 100 laisse de la marge tout en coupant les
   # requêtes à des milliers de lignes d'en-tête. 0 = défaut Go (500).
   max_header_value_count: 100
+  # ADR-020 — 400 sur un Host qui ne correspond à aucune entrée domains[]
+  # (/waf/health excepté). Opt-in : laisse à false pour un upstream unique sans
+  # domains[] ou un accès par IP. Voir CONFIG.md avant de durcir un domaine.
+  strict_host: false
   # Terminaison TLS par domaine (FR-33) : opt-in, si le WAF n'est PAS derrière
   # un terminateur TLS amont. Le certificat est choisi par SNI via domains[].tls.
   tls:
@@ -328,22 +332,26 @@ whitelist_user_agents:
   - "Applebot"
   - "UptimeRobot"            # Monitoring
 
-# Chemins honeypot : toute requête → score = 0 + log + bloc
+# Chemins honeypot : toute requête → score = 0 + log + bloc (correspondance exacte)
+# Ne JAMAIS y mettre un chemin que l'application protégée sert réellement : le
+# visiteur qui l'atteint est banni. Pour un site WordPress, /wp-admin,
+# /wp-login.php et /xmlrpc.php (Jetpack, applications mobiles) sont légitimes.
 honeypot_paths:
   - "/.env"
   - "/.env.local"
   - "/.env.production"
-  - "/wp-admin"
-  - "/wp-login.php"
   - "/wp-config.php"
   - "/.git/config"
   - "/phpinfo.php"
   - "/admin.php"
   - "/config.php"
   - "/.htaccess"
-  - "/xmlrpc.php"
   - "/shell.php"
   - "/c99.php"
+  # Uniquement si AUCUN domaine protégé n'est un WordPress :
+  # - "/wp-admin"
+  # - "/wp-login.php"
+  # - "/xmlrpc.php"
 
 # Configuration par domaine (surcharge les valeurs globales)
 # La clé challenge_enabled est une surcharge à trois états de challenge.enabled :
@@ -358,25 +366,10 @@ domains:
     # tls:
     #   cert_file: "/etc/waf/certs/example.com/fullchain.pem"
     #   key_file: "/etc/waf/certs/example.com/privkey.pem"
-    # Chemins qui déclenchent TOUJOURS le challenge (sensibles)
-    protected_paths:
-      - "/api/"
-      - "/account/"
-    # Chemins qui ne déclenchent JAMAIS le challenge (assets statiques)
-    public_paths:
-      - "/static/"
-      - "/favicon.ico"
-      - "/robots.txt"
-      - "/sitemap.xml"
 
   - host: "api.example.com"
     upstream: "http://10.0.0.2:8000"
     challenge_enabled: false   # API — pas de challenge JS
-    rate_limit_override:
-      requests_per_second: 20  # Plus restrictif pour l'API
-      burst: 40
-    trust_override:
-      block_threshold: 20      # Plus agressif sur l'API
 
   # Pas de clé challenge_enabled : ce domaine hérite de challenge.enabled.
   - host: "*.example.com"

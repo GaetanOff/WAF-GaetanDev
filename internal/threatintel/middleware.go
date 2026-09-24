@@ -63,7 +63,7 @@ func (m Middleware) applyCeiling(ip string, domain string, ceiling int) {
 	if m.scores == nil {
 		return
 	}
-	if current := m.scores.Get(ip, domain).Score; current > ceiling {
+	if current := m.scores.Peek(ip, domain).Score; current > ceiling {
 		m.scores.Set(ip, domain, ceiling)
 	}
 }

@@ -19,18 +19,13 @@
     "trigger": {
       "type": "string",
       "enum": [
-        "ddos_detected",
-        "upstream_down",
-        "upstream_recovered",
-        "circuit_breaker_open",
-        "honeypot_triggered",
-        "score_flood",
-        "challenge_flood",
-        "rule_triggered",
-        "tls_cert_expiring",
-        "cluster_node_lost",
-        "admin_auth_failed_flood"
-      ]
+        "block",
+        "circuit_breaker",
+        "honeypot",
+        "under_attack_start",
+        "under_attack_end"
+      ],
+      "description": "Événement source. Seuls les triggers réellement émis sont énumérés : block, circuit_breaker et honeypot (événements de sécurité à forte sévérité, logger), under_attack_start / under_attack_end (transitions FR-39). Les triggers envisagés par FR-29 (ddos_detected, upstream_down, upstream_recovered, score_flood, challenge_flood, rule_triggered, tls_cert_expiring, cluster_node_lost, admin_auth_failed_flood) sont différés : ils rejoindront l'enum quand un émetteur existera."
     },
     "severity": {
       "type": "string",

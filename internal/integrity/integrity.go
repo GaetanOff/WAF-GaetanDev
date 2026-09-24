@@ -22,6 +22,11 @@ const (
 	contribNullByte  = 60
 	contribInjection = 40
 	contribTooLong   = 25
+
+	// maxDecodePasses borne le décodage récursif : au-delà de trois couches
+	// d'encodage, l'obfuscation elle-même est anormale, et la borne interdit
+	// qu'une entrée construite fasse boucler le décodage.
+	maxDecodePasses = 3
 )
 
 // Reasons exposés pour l'observabilité.
@@ -58,15 +63,17 @@ func NewAnalyzer(cfg config.Config) Analyzer {
 }
 
 // Evaluate inspecte path + query string et retourne la contribution cumulée.
+//
+// Chaque motif est cherché dans toutes les couches de décodage (%xx et `+`),
+// jusqu'à maxDecodePasses : un seul décodage laissait passer un
+// `%25252e%25252e%25252f` triplement encodé. Les injections sont en plus
+// cherchées sur une forme normalisée (blancs repliés, commentaires SQL retirés,
+// blancs autour de `=` supprimés), sans quoi `union%0aselect` ou `onload =`
+// échappaient aux motifs à espacement fixe.
 func (a Analyzer) Evaluate(r *http.Request) Result {
 	rawPath := r.URL.EscapedPath()
 	rawQuery := r.URL.RawQuery
-	raw := strings.ToLower(rawPath + "?" + rawQuery)
-	// Forme décodée (%xx + `+`→espace) pour défaire l'obfuscation simple.
-	decoded := raw
-	if u, err := url.QueryUnescape(rawPath + "?" + rawQuery); err == nil {
-		decoded = strings.ToLower(u)
-	}
+	layers := decodeLayers(rawPath + "?" + rawQuery)
 
 	contribution := 0
 	reason := ""
@@ -77,13 +84,13 @@ func (a Analyzer) Evaluate(r *http.Request) Result {
 		}
 	}
 
-	if containsNullByte(raw) || containsNullByte(decoded) {
+	if anyLayer(layers, containsNullByte) {
 		add(contribNullByte, ReasonNullByte)
 	}
-	if containsTraversal(raw) || containsTraversal(decoded) {
+	if anyLayer(layers, containsTraversal) {
 		add(contribTraversal, ReasonPathTraversal)
 	}
-	if containsInjection(raw) || containsInjection(decoded) {
+	if anyLayer(layers, containsInjection) || anyLayer(layers, containsNormalizedInjection) {
 		add(contribInjection, ReasonInjection)
 	}
 	if len(rawPath) > a.maxPathLength || len(rawQuery) > a.maxQueryLength {
@@ -124,6 +131,72 @@ func (a Analyzer) Handler(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// decodeLayers retourne la valeur brute puis chacune de ses formes décodées,
+// en minuscules, jusqu'à ce qu'un décodage ne change plus rien ou échoue.
+func decodeLayers(value string) []string {
+	layers := make([]string, 1, maxDecodePasses+1)
+	layers[0] = strings.ToLower(value)
+	current := value
+	for range maxDecodePasses {
+		decoded, err := url.QueryUnescape(current)
+		if err != nil || decoded == current {
+			break
+		}
+		layers = append(layers, strings.ToLower(decoded))
+		current = decoded
+	}
+	return layers
+}
+
+func anyLayer(layers []string, match func(string) bool) bool {
+	for _, layer := range layers {
+		if match(layer) {
+			return true
+		}
+	}
+	return false
+}
+
+func containsNormalizedInjection(value string) bool {
+	return containsInjection(normalizeForMatching(value))
+}
+
+// normalizeForMatching replie toute suite de blancs (espace, tabulation, saut
+// de ligne, caractères de contrôle) en un espace, remplace un commentaire
+// SQL /*…*/ par un espace et retire les blancs autour de `=`. Les motifs
+// d'injection, écrits avec un espacement canonique, retrouvent ainsi
+// `union\nselect`, `union/**/select` ou `onload =`.
+func normalizeForMatching(value string) string {
+	var normalized strings.Builder
+	normalized.Grow(len(value))
+	pendingSpace, afterEquals := false, false
+	for i := 0; i < len(value); i++ {
+		c := value[i]
+		if c == '/' && i+1 < len(value) && value[i+1] == '*' {
+			if end := strings.Index(value[i+2:], "*/"); end >= 0 {
+				i += end + 3
+				pendingSpace = true
+				continue
+			}
+		}
+		if c <= ' ' && c != 0 {
+			pendingSpace = true
+			continue
+		}
+		if c == '=' {
+			normalized.WriteByte(c)
+			pendingSpace, afterEquals = false, true
+			continue
+		}
+		if pendingSpace && !afterEquals && normalized.Len() > 0 {
+			normalized.WriteByte(' ')
+		}
+		normalized.WriteByte(c)
+		pendingSpace, afterEquals = false, false
+	}
+	return normalized.String()
 }
 
 func containsNullByte(value string) bool {
