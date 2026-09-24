@@ -31,6 +31,9 @@ type Logger struct {
 	// déclencher des alertes webhook (FR-29). Optionnel.
 	Alerter Alerter
 
+	// Recorder, si défini, reçoit chaque événement de sécurité (API admin).
+	Recorder EventRecorder
+
 	// async, non-nil en production (New), réalise l'écriture stdout hors du
 	// chemin de requête. nil avec NewWithWriter (écriture synchrone, tests).
 	async *asyncWriter
@@ -40,6 +43,12 @@ type Logger struct {
 // satisfaite par internal/alert.Notifier).
 type Alerter interface {
 	Notify(alert.Event)
+}
+
+// EventRecorder reçoit chaque événement de sécurité, après sa journalisation
+// (flux GET /waf/admin/events, FR-10). Optionnel.
+type EventRecorder interface {
+	RecordSecurityEvent(SecurityEvent)
 }
 
 func New(cfg config.Logging) Logger {

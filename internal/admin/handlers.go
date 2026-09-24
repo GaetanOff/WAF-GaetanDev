@@ -317,8 +317,19 @@ func (s *Server) deleteVisitor(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
+// listEvents sert les événements de sécurité récents. Le flux était toujours
+// vide : rien n'écrivait dans le tampon d'événements.
 func (s *Server) listEvents(w http.ResponseWriter, r *http.Request) {
-	events := s.state.Events()
+	var since time.Time
+	if raw := r.URL.Query().Get("since"); raw != "" {
+		parsed, err := time.Parse(time.RFC3339, raw)
+		if err != nil {
+			writeJSON(w, http.StatusBadRequest, errorResponse{Error: "invalid_since", Message: "since must be an RFC 3339 date-time"})
+			return
+		}
+		since = parsed
+	}
+	events := s.events.Recent(since)
 	domain := r.URL.Query().Get("domain")
 	action := r.URL.Query().Get("action")
 	filtered := events[:0]

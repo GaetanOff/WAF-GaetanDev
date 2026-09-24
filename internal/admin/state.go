@@ -24,7 +24,6 @@ type State struct {
 	whitelist    map[string]IPEntry
 	blacklist    map[string]IPEntry
 	userAgents   []string
-	recentEvents []SecurityEventSummary
 	now          func() time.Time
 }
 
@@ -35,7 +34,6 @@ func NewState(cfg config.Config, accessRules *access.RuleSet) (*State, error) {
 		whitelist:    make(map[string]IPEntry),
 		blacklist:    make(map[string]IPEntry),
 		userAgents:   append([]string(nil), cfg.WhitelistUserAgents...),
-		recentEvents: []SecurityEventSummary{},
 		now:          time.Now,
 	}
 	for _, ip := range cfg.Whitelist {
@@ -102,13 +100,6 @@ func (s *State) ApplyConfigUpdate(update ConfigUpdate) (config.Config, []string,
 	}
 	s.cfg = next
 	return next, fields, nil
-}
-
-func (s *State) Events() []SecurityEventSummary {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
-	events := append([]SecurityEventSummary(nil), s.recentEvents...)
-	return events
 }
 
 func (s *State) addEntry(target map[string]IPEntry, entry IPEntry, whitelist bool) (IPEntry, bool, error) {

@@ -342,6 +342,31 @@ func run() error {
 		})
 	}
 
+	// L'API admin est construite avant la chaîne publique : son flux
+	// d'événements (GET /waf/admin/events) est alimenté par le logger.
+	var adminServer *admin.Server
+	if cfg.Admin.Enabled {
+		adminServer, err = admin.NewServer(*cfg, store, scoreManager, accessRules, startedAt)
+		if err != nil {
+			return err
+		}
+		securityLogger.Recorder = adminServer.EventRecorder()
+		if syncer != nil {
+			adminServer.WithBlacklistObserver(syncer.PublishBlacklistAdd)
+		}
+		// PATCH /waf/admin/config (hot-reload) : la configuration validée est
+		// poussée aux composants qui la lisent par requête.
+		adminServer.WithConfigApplier(func(next config.Config) {
+			rateLimiter.Configure(next.RateLimit)
+			scoreManager.SetThresholds(next.Trust.ChallengeThreshold, next.Trust.BlockThreshold)
+			challengeMiddleware.Configure(next.Challenge)
+			if adaptiveController != nil {
+				adaptiveController.SetBaseDifficulty(next.Challenge.PowDifficulty)
+			}
+			slog.Info("runtime configuration updated")
+		})
+	}
+
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
 		Handler:           routes(*cfg, accessRules, securityLogger, metrics, antiDDoS, rateLimiter, antiBot, riskMiddleware, challengeMiddleware, scoreManager, detectors, originHandler),
@@ -377,27 +402,6 @@ func run() error {
 		}
 	}
 	tlsEnabled := acmeManager != nil || tlsManager != nil
-	var adminServer *admin.Server
-	if cfg.Admin.Enabled {
-		adminServer, err = admin.NewServer(*cfg, store, scoreManager, accessRules, startedAt)
-		if err != nil {
-			return err
-		}
-		if syncer != nil {
-			adminServer.WithBlacklistObserver(syncer.PublishBlacklistAdd)
-		}
-		// PATCH /waf/admin/config (hot-reload) : la configuration validée est
-		// poussée aux composants qui la lisent par requête.
-		adminServer.WithConfigApplier(func(next config.Config) {
-			rateLimiter.Configure(next.RateLimit)
-			scoreManager.SetThresholds(next.Trust.ChallengeThreshold, next.Trust.BlockThreshold)
-			challengeMiddleware.Configure(next.Challenge)
-			if adaptiveController != nil {
-				adaptiveController.SetBaseDifficulty(next.Challenge.PowDifficulty)
-			}
-			slog.Info("runtime configuration updated")
-		})
-	}
 
 	errs := make(chan error, 1)
 	go func() {

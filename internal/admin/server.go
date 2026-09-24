@@ -9,6 +9,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/audit"
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/logger"
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/selfprotect"
 	"github.com/gaetandev/waf/internal/storage"
@@ -21,12 +22,19 @@ type Server struct {
 	scores      *trust.ScoreManager
 	accessRules *access.RuleSet
 	state       *State
+	events      *eventLog
 	trail       *audit.Trail
 	brute       *selfprotect.Window
 	startedAt   time.Time
 	httpServer  *http.Server
 	onBlacklist func(value string)
 	applyConfig ConfigApplier
+}
+
+// EventRecorder retourne le puits d'événements de sécurité à brancher sur le
+// logger (logger.Logger.Recorder) pour alimenter GET /waf/admin/events.
+func (s *Server) EventRecorder() logger.EventRecorder {
+	return s.events
 }
 
 // WithConfigApplier branche l'application à chaud de PATCH /waf/admin/config
@@ -71,6 +79,7 @@ func NewServer(cfg config.Config, store storage.Store, scores *trust.ScoreManage
 		scores:      scores,
 		accessRules: accessRules,
 		state:       state,
+		events:      newEventLog(),
 		trail:       trail,
 		brute:       brute,
 		startedAt:   startedAt,
