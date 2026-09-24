@@ -2,6 +2,7 @@ package admin
 
 import (
 	"net/netip"
+	"slices"
 	"sort"
 	"strings"
 	"sync"
@@ -13,6 +14,9 @@ import (
 
 // clusterBlacklistReason marque les entrées de blacklist reçues d'un autre nœud.
 const clusterBlacklistReason = "cluster_sync"
+
+// maskedSecret remplace un secret dans GET /waf/admin/config (admin.openapi.yaml).
+const maskedSecret = "***"
 
 type IPEntry struct {
 	IP      string `json:"ip"`
@@ -190,15 +194,34 @@ func keys(entries map[string]IPEntry) []string {
 	return values
 }
 
+// sanitizedConfig masque les secrets exposés par GET /waf/admin/config. Le
+// secret HMAC de l'origine et la clé AbuseIPDB étaient rendus en clair : un
+// lecteur de l'API admin pouvait forger X-WAF-Origin-Token et joindre l'origine
+// sans passer par le WAF. Une URL de webhook porte son jeton d'accès.
+//
+// cfg est une copie, mais Storage.Redis et Alerting.Webhooks sont partagés avec
+// la configuration active : ils sont copiés avant masquage, sans quoi le
+// premier GET écrasait le mot de passe Redis de la configuration en vigueur.
 func sanitizedConfig(cfg config.Config) config.Config {
-	if cfg.Challenge.SecretKey != "" {
-		cfg.Challenge.SecretKey = "***"
+	mask(&cfg.Challenge.SecretKey)
+	mask(&cfg.Admin.Token)
+	mask(&cfg.OriginProtection.Secret)
+	mask(&cfg.ThreatIntel.AbuseIPDB.APIKey)
+	if cfg.Storage.Redis != nil {
+		redis := *cfg.Storage.Redis
+		mask(&redis.Password)
+		cfg.Storage.Redis = &redis
 	}
-	if cfg.Admin.Token != "" {
-		cfg.Admin.Token = "***"
+	webhooks := slices.Clone(cfg.Alerting.Webhooks)
+	for i := range webhooks {
+		mask(&webhooks[i].URL)
 	}
-	if cfg.Storage.Redis != nil && cfg.Storage.Redis.Password != "" {
-		cfg.Storage.Redis.Password = "***"
-	}
+	cfg.Alerting.Webhooks = webhooks
 	return cfg
+}
+
+func mask(secret *string) {
+	if *secret != "" {
+		*secret = maskedSecret
+	}
 }

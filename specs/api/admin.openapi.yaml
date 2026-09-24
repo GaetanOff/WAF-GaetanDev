@@ -6,7 +6,7 @@ info:
     API d'administration du WAF Anti-DDoS/Anti-Bot.
     Exposée sur un port séparé (défaut: 9090), protégée par Bearer token.
     Ne jamais exposer ce port publiquement.
-  version: 1.1.0
+  version: 1.1.1
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -316,7 +316,11 @@ paths:
     get:
       operationId: getConfig
       summary: Récupérer la configuration active
-      description: Retourne la configuration courante du WAF, secrets masqués par "***".
+      description: >-
+        Retourne la configuration courante du WAF, secrets masqués par "***" :
+        challenge.secret_key, admin.token, origin_protection.secret,
+        threat_intel.abuseipdb.api_key, storage.redis.password et
+        alerting.webhooks[].url (une URL de webhook porte son jeton d'accès).
       tags: [Configuration]
       responses:
         "200":

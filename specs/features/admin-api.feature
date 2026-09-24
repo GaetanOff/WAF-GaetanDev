@@ -95,6 +95,8 @@ Feature: API d'administration (FR-10)
   Scenario: Configuration consultée — secrets masqués
     When GET /waf/admin/config
     Then challenge.secret_key, admin.token et storage.redis.password valent "***"
+    And origin_protection.secret, threat_intel.abuseipdb.api_key et alerting.webhooks[].url valent "***"
+    And la configuration active garde ses secrets (seule la réponse est masquée)
 
   Scenario: Modification à chaud de la configuration
     When PATCH /waf/admin/config avec {"rate_limit": {"burst": 40}}
