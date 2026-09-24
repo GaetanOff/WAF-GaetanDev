@@ -56,3 +56,39 @@ func TestDispatchReturns429WhenSemaphoreFull(t *testing.T) {
 		t.Fatalf("status = %d, want 429 when tarpit pool is full", response.Code)
 	}
 }
+
+// FR-15 : chaque chunk est poussé au client, même à travers les wrappers de
+// ResponseWriter des middlewares en amont, qui n'implémentent que Unwrap.
+func TestTarpitFlushesEachChunkThroughWrappedWriters(t *testing.T) {
+	const chunks = 4
+	tarpit := NewTarpit(1, chunks, time.Millisecond)
+	handler := tarpit.Dispatch(http.NotFoundHandler())
+	request := httptest.NewRequest(http.MethodGet, "/", nil)
+	request.Header.Set(tarpitActionHeader, "TARPIT")
+	flusher := &countingFlusher{ResponseRecorder: httptest.NewRecorder()}
+
+	handler.ServeHTTP(unwrapOnlyWriter{flusher}, request)
+
+	if flusher.flushes != chunks {
+		t.Fatalf("flushes = %d, want %d (one per chunk)", flusher.flushes, chunks)
+	}
+}
+
+// unwrapOnlyWriter reproduit les statusRecorder du pipeline : ni Flush ni
+// autre interface optionnelle, seulement Unwrap.
+type unwrapOnlyWriter struct{ w http.ResponseWriter }
+
+func (u unwrapOnlyWriter) Header() http.Header         { return u.w.Header() }
+func (u unwrapOnlyWriter) Write(b []byte) (int, error) { return u.w.Write(b) }
+func (u unwrapOnlyWriter) WriteHeader(code int)        { u.w.WriteHeader(code) }
+func (u unwrapOnlyWriter) Unwrap() http.ResponseWriter { return u.w }
+
+type countingFlusher struct {
+	*httptest.ResponseRecorder
+	flushes int
+}
+
+func (c *countingFlusher) Flush() {
+	c.flushes++
+	c.ResponseRecorder.Flush()
+}
