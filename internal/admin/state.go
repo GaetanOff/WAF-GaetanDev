@@ -18,23 +18,23 @@ type IPEntry struct {
 }
 
 type State struct {
-	mu           sync.RWMutex
-	cfg          config.Config
-	accessRules  *access.RuleSet
-	whitelist    map[string]IPEntry
-	blacklist    map[string]IPEntry
-	userAgents   []string
-	now          func() time.Time
+	mu          sync.RWMutex
+	cfg         config.Config
+	accessRules *access.RuleSet
+	whitelist   map[string]IPEntry
+	blacklist   map[string]IPEntry
+	userAgents  []string
+	now         func() time.Time
 }
 
 func NewState(cfg config.Config, accessRules *access.RuleSet) (*State, error) {
 	state := &State{
-		cfg:          cfg,
-		accessRules:  accessRules,
-		whitelist:    make(map[string]IPEntry),
-		blacklist:    make(map[string]IPEntry),
-		userAgents:   append([]string(nil), cfg.WhitelistUserAgents...),
-		now:          time.Now,
+		cfg:         cfg,
+		accessRules: accessRules,
+		whitelist:   make(map[string]IPEntry),
+		blacklist:   make(map[string]IPEntry),
+		userAgents:  append([]string(nil), cfg.WhitelistUserAgents...),
+		now:         time.Now,
 	}
 	for _, ip := range cfg.Whitelist {
 		normalized, err := normalizeIPRule(ip)
