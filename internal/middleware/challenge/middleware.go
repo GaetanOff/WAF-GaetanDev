@@ -256,10 +256,7 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	if m.humanCredit != nil {
 		m.humanCredit(ip, r.Host, fpHash)
 	}
-	redirectURL := payload.RedirectURL
-	if redirectURL == "" {
-		redirectURL = "/"
-	}
+	redirectURL := sameOriginPath(payload.RedirectURL)
 	w.Header().Set("Content-Type", "application/json")
 	setNoStore(w)
 	w.WriteHeader(http.StatusOK)
@@ -281,7 +278,7 @@ func (m Middleware) clearance(r *http.Request) (*Payload, bool) {
 }
 
 func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
-	redirectURL := r.URL.RequestURI()
+	redirectURL := sameOriginPath(r.URL.RequestURI())
 	difficulty := m.currentDifficulty()
 	token, err := m.tokenIssuer.GenerateForRedirectWithDifficulty(cloudflare.RealIP(r), r.Host, redirectURL, difficulty)
 	if err != nil {
@@ -299,6 +296,24 @@ func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
 		Difficulty:  difficulty,
 		RedirectURL: redirectURL,
 	})
+}
+
+// sameOriginPath ramène l'URL de retour du challenge à un chemin de même
+// origine, "/" à défaut. La page l'affecte à window.location : "//evil.com" ou
+// "/\evil.com" y valent une URL absolue vers un tiers (open redirect).
+// Aujourd'hui le ServeMux nettoie "//" en amont ; le middleware ne dépend plus
+// de ce filtrage externe.
+func sameOriginPath(target string) string {
+	if !strings.HasPrefix(target, "/") || strings.HasPrefix(target, "//") {
+		return "/"
+	}
+	for _, char := range target {
+		// Les navigateurs lisent '\' comme '/' et suppriment tab/CR/LF des URL.
+		if char == '\\' || char < ' ' || char == 0x7f {
+			return "/"
+		}
+	}
+	return target
 }
 
 // shouldChallenge décide si une requête sans clearance doit recevoir un challenge.

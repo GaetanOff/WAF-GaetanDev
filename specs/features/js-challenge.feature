@@ -194,6 +194,13 @@ Feature: Challenge JavaScript
     When il passe le challenge avec succès
     Then il est redirigé vers "/articles/mon-article?ref=newsletter" (URL originale complète)
 
+  Scenario: URL de retour hors origine neutralisée (open redirect)
+    Given une URL de retour "//evil.com/path" ou "/\evil.com" atteint le middleware challenge
+    When il passe le challenge avec succès
+    Then il est redirigé vers "/"
+    # Le navigateur lit ces formes comme une URL absolue vers un tiers. Le ServeMux
+    # nettoie déjà "//" en amont ; le middleware ne dépend plus de ce filtrage.
+
   Scenario: Difficulté non multiple de 4 — le client exige exactement les bits demandés
     Given la difficulté adaptative vaut 22 bits (base 16 + 6 en pression "high")
     When le navigateur résout le proof-of-work de la page de challenge
