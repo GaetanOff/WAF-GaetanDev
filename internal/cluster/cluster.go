@@ -16,12 +16,13 @@ import (
 	"github.com/gaetandev/waf/internal/storage"
 )
 
-// Types d'événements propagés (FR-20).
+// Types d'événements propagés (FR-20). `degraded_mode`, réservé par
+// cluster-event.schema.json, n'a pas de constante : aucun nœud ne le publie ni
+// ne l'applique (coordination de la pression globale différée, cf. tasks.md).
 const (
 	EventBlacklistAdd  = "blacklist_add"
 	EventScoreCritical = "score_critical"
 	EventCircuitOpen   = "circuit_open"
-	EventDegradedMode  = "degraded_mode"
 )
 
 const (
