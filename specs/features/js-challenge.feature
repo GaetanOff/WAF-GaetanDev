@@ -194,6 +194,14 @@ Feature: Challenge JavaScript
     When il passe le challenge avec succès
     Then il est redirigé vers "/articles/mon-article?ref=newsletter" (URL originale complète)
 
+  Scenario: Difficulté non multiple de 4 — le client exige exactement les bits demandés
+    Given la difficulté adaptative vaut 22 bits (base 16 + 6 en pression "high")
+    When le navigateur résout le proof-of-work de la page de challenge
+    Then il cherche 22 bits nuls de tête, la règle exacte du serveur
+    And le nonce trouvé est le premier que le serveur accepte
+    # Régression : le client arrondissait au chiffre hexadécimal supérieur (24 bits),
+    # soit 4× plus de hashes que demandé.
+
   Scenario: Page challenge — branding et chronomètre présents
     When le WAF sert la page de challenge
     Then la page contient le texte "Protected by GaetanDev.fr"

@@ -227,18 +227,35 @@
   }
 
   // ── Proof-of-Work ──────────────────────────────────────────────────────────
-  // Find integer N ≥ 0 such that SHA-256(CHALLENGE_TOKEN + N)
-  // starts with POW_DIFFICULTY / 4 leading hex zeros (each hex = 4 bits).
+  // Find integer N ≥ 0 such that SHA-256(CHALLENGE_TOKEN + N) starts with
+  // POW_DIFFICULTY leading zero BITS — the exact rule the server applies
+  // (internal/middleware/challenge/pow.go). Rounding up to whole hex digits
+  // would demand up to 3 extra bits: 22 bits became 24, 4x the work.
+
+  function hasLeadingZeroBits(bytes, difficultyBits) {
+    var fullBytes = Math.floor(difficultyBits / 8);
+    var remainingBits = difficultyBits % 8;
+    for (var i = 0; i < fullBytes; i++) {
+      if (bytes[i] !== 0) return false;
+    }
+    if (remainingBits === 0) return true;
+    var mask = (0xFF << (8 - remainingBits)) & 0xFF;
+    return (bytes[fullBytes] & mask) === 0;
+  }
+
+  function sha256bytes(str) {
+    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)).then(function (buf) {
+      return new Uint8Array(buf);
+    });
+  }
 
   function solvePow(token, difficultyBits) {
-    var zeroCount = Math.ceil(difficultyBits / 4);
-    var prefix    = '0'.repeat(zeroCount);
-    var n         = 0;
+    var n = 0;
 
     function tryNext() {
-      return sha256hex(token + n).then(function (hash) {
-        if (hash.startsWith(prefix)) {
-          return { nonce: String(n), hash: hash };
+      return sha256bytes(token + n).then(function (hash) {
+        if (hasLeadingZeroBits(hash, difficultyBits)) {
+          return { nonce: String(n) };
         }
         n++;
         // Yield to event loop every 500 iterations to keep page responsive
