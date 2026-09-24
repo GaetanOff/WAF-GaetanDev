@@ -20,6 +20,12 @@ import (
 
 const (
 	headerRiskBehavioral = "X-WAF-Risk-behavioral"
+	headerAction         = "X-WAF-Action"
+	headerReason         = "X-WAF-Reason"
+	actionPass           = "PASS"
+	// reasonStaticAsset est posé par internal/staticassets (FR-24) sur les
+	// requêtes d'assets qu'il marque PASS.
+	reasonStaticAsset = "static_asset"
 
 	defaultMaxRecords = 50
 	minRecords        = 5
@@ -35,12 +41,16 @@ const (
 type record struct {
 	path string
 	at   time.Time
+	// asset marque une requête d'asset statique reconnue par le bypass FR-24,
+	// dont l'extension peut sortir de la liste de isAssetPath.
+	asset bool
 }
 
 type event struct {
 	ipHash string
 	path   string
 	at     time.Time
+	asset  bool
 }
 
 // Tracker maintient un ring buffer par visiteur et un score d'anomalie courant.
@@ -88,8 +98,18 @@ func (t *Tracker) worker() {
 
 // Observe enfile la requête courante pour traitement asynchrone (non bloquant).
 func (t *Tracker) Observe(ipHash string, path string) {
+	t.enqueue(event{ipHash: ipHash, path: path, at: t.now()})
+}
+
+// ObserveAsset enfile une requête d'asset statique. Elle ne sert qu'au signal
+// d'absence d'assets : les autres signaux ne portent que sur les pages.
+func (t *Tracker) ObserveAsset(ipHash string, path string) {
+	t.enqueue(event{ipHash: ipHash, path: path, at: t.now(), asset: true})
+}
+
+func (t *Tracker) enqueue(e event) {
 	select {
-	case t.queue <- event{ipHash: ipHash, path: path, at: t.now()}:
+	case t.queue <- e:
 	default:
 		// File pleine : on laisse tomber l'événement plutôt que de bloquer la
 		// requête (NFR-07 : ne jamais bloquer le pipeline).
@@ -108,7 +128,7 @@ func (t *Tracker) ingest(e event) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	buffer := append(t.buffers[e.ipHash], record{path: e.path, at: e.at})
+	buffer := append(t.buffers[e.ipHash], record{path: e.path, at: e.at, asset: e.asset})
 	if len(buffer) > t.max {
 		buffer = buffer[len(buffer)-t.max:]
 	}
@@ -133,9 +153,16 @@ func (t *Tracker) Close() {
 
 // Handler publie la contribution `behavioral` (score précédent) et enfile la
 // requête courante pour le calcul suivant.
+//
+// Les assets statiques arrivent marqués PASS par le bypass FR-24, monté en
+// amont. Ils sont tout de même enregistrés : sans eux, le signal d'absence
+// d'assets classait tout humain ayant vu 5 pages comme navigateur headless.
 func (t *Tracker) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-WAF-Action") == "PASS" {
+		if r.Header.Get(headerAction) == actionPass {
+			if r.Header.Get(headerReason) == reasonStaticAsset {
+				t.ObserveAsset(trust.HashIP(cloudflare.RealIP(r)), r.URL.Path)
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -148,28 +175,33 @@ func (t *Tracker) Handler(next http.Handler) http.Handler {
 	})
 }
 
-// computeAnomaly évalue les 6 signaux comportementaux et retourne un score
-// [0..100] (0 = humain, 100 = bot). Sous minRecords, retourne 0 (confiance
-// insuffisante).
+// computeAnomaly évalue les signaux comportementaux et retourne un score
+// [0..100] (0 = humain, 100 = bot). Sous minRecords pages, retourne 0
+// (confiance insuffisante).
+//
+// Seule l'absence d'assets regarde les assets : les rafales de sous-requêtes
+// d'un chargement de page fausseraient la régularité, la vélocité et l'ordre
+// alphabétique, qui décrivent la navigation entre pages.
 func computeAnomaly(records []record) int {
-	if len(records) < minRecords {
+	pages := pageRecords(records)
+	if len(pages) < minRecords {
 		return 0
 	}
 
 	score := 0
-	if isTimeUniform(records) {
+	if isTimeUniform(pages) {
 		score += contribTimeUniformity
 	}
-	if maxConsecutiveRepeat(records) > 10 {
+	if maxConsecutiveRepeat(pages) > 10 {
 		score += contribPathRepetition
 	}
-	if isHighVelocity(records) {
+	if isHighVelocity(pages) {
 		score += contribVelocity
 	}
 	if isAssetAbsent(records) {
 		score += contribAssetAbsence
 	}
-	if isAlphabetical(records) {
+	if isAlphabetical(pages) {
 		score += contribAlphabetical
 	}
 
@@ -230,11 +262,21 @@ func isHighVelocity(records []record) bool {
 	return len(unique) >= 20 && span < 5
 }
 
+func pageRecords(records []record) []record {
+	pages := make([]record, 0, len(records))
+	for _, r := range records {
+		if !r.isAsset() {
+			pages = append(pages, r)
+		}
+	}
+	return pages
+}
+
 // isAssetAbsent : requêtes HTML sans requêtes d'assets associées → headless.
 func isAssetAbsent(records []record) bool {
 	htmlCount, assetCount := 0, 0
 	for _, r := range records {
-		if isAssetPath(r.path) {
+		if r.isAsset() {
 			assetCount++
 		} else {
 			htmlCount++
@@ -259,6 +301,10 @@ func isAlphabetical(records []record) bool {
 		return false
 	}
 	return sort.SliceIsSorted(paths, func(i, j int) bool { return paths[i] < paths[j] })
+}
+
+func (r record) isAsset() bool {
+	return r.asset || isAssetPath(r.path)
 }
 
 func isAssetPath(path string) bool {

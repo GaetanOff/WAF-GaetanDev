@@ -46,6 +46,16 @@ Feature: Analyse Comportementale Séquentielle
     Then le signal asset_absence est élevé
     And le anomaly_score augmente de +20
 
+  Scenario: Humain chargeant ses assets — les assets bypassés comptent
+    Given static_assets.enabled = true (les assets sont marqués PASS en amont)
+    And un visiteur navigue sur 6 pages en chargeant le CSS/JS de chaque page
+    When l'analyseur calcule le ratio assets
+    Then les requêtes d'assets marquées PASS "static_asset" sont enregistrées
+    And le signal asset_absence n'est PAS déclenché
+    And les rafales d'assets n'entrent pas dans time_uniformity, page_velocity ni l'ordre alphabétique
+    # Régression : sans cet enregistrement, tout humain ayant vu 5 pages recevait +20
+    # (les assets PASS n'étaient jamais observés par l'analyseur).
+
   Scenario: Bot sophistiqué — combinaison de signaux
     Given un visiteur avec cookie valide (score = 70)
     When il déclenche simultanément:

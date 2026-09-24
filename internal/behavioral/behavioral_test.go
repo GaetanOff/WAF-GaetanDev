@@ -122,3 +122,61 @@ func TestHandlerSkipsWhenPassMarked(t *testing.T) {
 		w.WriteHeader(http.StatusNoContent)
 	})).ServeHTTP(httptest.NewRecorder(), request)
 }
+
+// Régression : le bypass FR-24 marque les assets PASS en amont. Ils doivent
+// quand même compter pour le signal d'absence d'assets, sinon tout humain qui
+// visite 5 pages est classé headless.
+func TestHandlerRecordsStaticAssetsMarkedPass(t *testing.T) {
+	tracker := New(50)
+	defer tracker.Close()
+	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
+	handler := tracker.Handler(next)
+
+	serve := func(path string, staticAsset bool) {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test"+path, nil)
+		request.RemoteAddr = "1.2.3.4:1234"
+		if staticAsset {
+			request.Header.Set("X-WAF-Action", "PASS")
+			request.Header.Set("X-WAF-Reason", "static_asset")
+		}
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+	}
+	for i := range 6 {
+		serve(fmt.Sprintf("/page-%d", i), false)
+		serve(fmt.Sprintf("/assets/app-%d.webp", i), true) // extension hors isAssetPath
+	}
+
+	ipHash := trust.HashIP("1.2.3.4")
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		tracker.mu.RLock()
+		recorded := len(tracker.buffers[ipHash])
+		tracker.mu.RUnlock()
+		if recorded == 12 || time.Now().After(deadline) {
+			break
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+	tracker.mu.RLock()
+	buffer := append([]record(nil), tracker.buffers[ipHash]...)
+	tracker.mu.RUnlock()
+	if isAssetAbsent(buffer) {
+		t.Fatalf("assets marked PASS were not recorded (buffer=%d records)", len(buffer))
+	}
+}
+
+func TestComputeAnomalyIgnoresAssetBurstsForNavigationSignals(t *testing.T) {
+	base := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
+	var records []record
+	pageTimes := []time.Duration{0, 7 * time.Second, 19 * time.Second, 26 * time.Second, 41 * time.Second, 53 * time.Second}
+	for i, at := range pageTimes {
+		records = append(records, record{path: fmt.Sprintf("/articles/%d", 10-i), at: base.Add(at)})
+		// Rafale de 20 sous-requêtes en quelques millisecondes : un chargement de page.
+		for j := range 20 {
+			records = append(records, record{path: fmt.Sprintf("/static/%c%d", 'a'+j, i), at: base.Add(at + time.Duration(j)*time.Millisecond), asset: true})
+		}
+	}
+	if got := computeAnomaly(records); got != 0 {
+		t.Fatalf("anomaly = %d, want 0 for a human loading pages with their assets", got)
+	}
+}
