@@ -43,6 +43,18 @@ Feature: Analyse d'Intégrité des Requêtes
     And la requête est QUAND MÊME transmise à l'upstream (la détection contribue au score, ne bloque pas)
     Note: le blocage final dépend du trust score resultant, pas de la détection seule
 
+  Scenario: URL légitimes — pas de faux positif d'injection
+    Given une requête GET vers l'une des URL suivantes :
+      | /blog/my--first-post                 |
+      | /docs?flags=--verbose                |
+      | /search?q=please+select+your+size    |
+      | /files/*/list                        |
+    When le WAF analyse les query params
+    Then aucun pattern d'injection n'est détecté
+    And aucune contribution "integrity" n'est publiée
+    # Régression : les sous-chaînes isolées "--", "select " et "/*" ajoutaient +40.
+    # Le commentaire SQL n'est retenu que derrière une quote ("'--").
+
   Scenario: Paramètre XSS pattern détecté
     Given une requête GET "/page?name=<script>alert(1)</script>"
     When le WAF analyse les query params

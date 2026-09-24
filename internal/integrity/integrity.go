@@ -138,10 +138,18 @@ func containsTraversal(value string) bool {
 	)
 }
 
+// containsInjection cherche des motifs d'injection caractérisés. Les mots-clés
+// ou ponctuations isolés ("select ", "--", "/*") en étaient exclus : ils
+// apparaissent dans des URL légitimes (slug "mon--article", flag "--verbose",
+// recherche "select a size", glob "/files/*") qui recevaient +40 de risque.
+// Le commentaire SQL n'est retenu que derrière une quote, là où il tronque une
+// requête injectée.
 func containsInjection(value string) bool {
 	return containsAny(value,
 		// SQL
-		"union select", "select ", " or 1=1", "' or '", "drop table", "; drop", "/*", "--",
+		"union select", "union all select", " or 1=1", "' or '", "\" or \"", "' or 1",
+		"drop table", "; drop ", "'--", "' --", "'#", "/**/", "information_schema",
+		"xp_cmdshell", "waitfor delay",
 		// Script / XSS
 		"<script", "javascript:", "onerror=", "onload=",
 	)
