@@ -718,7 +718,7 @@ upstream_pool:
     unhealthy_threshold: 3
 ```
 
-Remplace l'`upstream` unique par un pool load-balancé avec health checks. **Prend la priorité sur `upstream` et `domains[].upstream`** quand activé.
+Remplace l'`upstream` unique par un pool load-balancé avec health checks. **Prend la priorité sur `upstream` et `domains[].upstream`** quand activé : le pool est global et sert tous les hôtes (pas de pool par domaine). Un `domains[].upstream` différent de `upstream.address` est alors ignoré, et signalé par un avertissement au démarrage.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|

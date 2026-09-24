@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.5.1
+version: 3.5.2
 last-reviewed: 2026-09-24
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+change: "FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -110,6 +110,9 @@ change: "FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou san
   - `weighted` : répartition selon le **poids** (`weight: N`, défaut 1), lu par
     cette seule stratégie
 - Le WAF DOIT exclure automatiquement les upstreams hors service (intégré avec FR-25)
+- Pool actif, un `domains[].upstream` distinct de `upstream.address` ne reçoit
+  aucune requête : le WAF DOIT l'avertir au démarrage (un avertissement par hôte)
+  plutôt que de laisser croire à un routage par domaine
 - **Différé** : stratégie `random`, pool par domaine, page de maintenance quand
   tout est hors service, métriques `waf_upstream_requests_total{upstream}` et
   `waf_upstream_response_time_seconds{upstream}`

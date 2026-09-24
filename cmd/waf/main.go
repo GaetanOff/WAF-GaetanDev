@@ -89,6 +89,9 @@ func run() error {
 		cfg.Server.Listen = *listenAddress
 	}
 	warnUntrustedInfrastructureHeaders(*cfg)
+	for _, host := range poolShadowedDomains(*cfg) {
+		slog.Warn("domains[].upstream is ignored while upstream_pool is enabled: the pool serves every host", "host", host, "requirement", "FR-26")
+	}
 
 	readTimeout, err := parseDuration("server.read_timeout", cfg.Server.ReadTimeout)
 	if err != nil {
@@ -502,6 +505,24 @@ func warnUntrustedInfrastructureHeaders(cfg config.Config) {
 	if cfg.TLSFingerprint.Enabled && strings.HasPrefix(strings.ToUpper(cfg.TLSFingerprint.JA3Header), "CF-") {
 		slog.Warn("tls_fingerprint.ja3_header is stripped while cloudflare.trusted is false", "header", cfg.TLSFingerprint.JA3Header, "adr", "ADR-019")
 	}
+}
+
+// poolShadowedDomains retourne les hôtes dont domains[].upstream diffère de
+// upstream.address alors que upstream_pool est actif. Le pool, global, sert
+// alors tous les hôtes (FR-26 ; pool par domaine différé) : ces upstreams ne
+// reçoivent aucune requête. Un avertissement et non une erreur — la clé est
+// obligatoire dans domains[], et la configuration reste celle que FR-26 décrit.
+func poolShadowedDomains(cfg config.Config) []string {
+	if !cfg.UpstreamPool.Enabled {
+		return nil
+	}
+	var hosts []string
+	for _, domain := range cfg.Domains {
+		if domain.Upstream != cfg.Upstream.Address {
+			hosts = append(hosts, domain.Host)
+		}
+	}
+	return hosts
 }
 
 // domainHosts retourne les hôtes déclarés dans domains[].

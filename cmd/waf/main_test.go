@@ -1024,3 +1024,22 @@ func TestRedirectToHTTPSNormalizesTheHost(t *testing.T) {
 		}
 	}
 }
+
+// FR-26 : un domains[].upstream distinct de upstream.address est inerte sous
+// upstream_pool ; il est signalé au démarrage.
+func TestPoolShadowedDomains(t *testing.T) {
+	cfg := config.Default()
+	cfg.Upstream.Address = "http://10.0.0.1"
+	cfg.Domains = []config.DomainConfig{
+		{Host: "www.example.com", Upstream: "http://10.0.0.1"},
+		{Host: "api.example.com", Upstream: "http://10.0.0.2"},
+	}
+	if got := poolShadowedDomains(cfg); got != nil {
+		t.Fatalf("pool disabled: got %v, want none", got)
+	}
+	cfg.UpstreamPool.Enabled = true
+	got := poolShadowedDomains(cfg)
+	if len(got) != 1 || got[0] != "api.example.com" {
+		t.Fatalf("got %v, want [api.example.com]", got)
+	}
+}
