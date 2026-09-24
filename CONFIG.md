@@ -588,7 +588,7 @@ Moteur de règles DSL YAML pour définir des politiques de filtrage personnalis�
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `false` | Active le moteur de règles. **Opt-in.** |
-| `file` | string | `""` | Chemin vers le fichier YAML de règles (rechargeable à chaud sans redémarrage). **Obligatoire si `enabled: true`.** Voir `specs/schemas/rule.schema.json` pour la syntaxe. |
+| `file` | string | `""` | Chemin vers le fichier YAML de règles, lu **au démarrage** (pas de rechargement à chaud à ce jour). **Obligatoire si `enabled: true`.** Syntaxe : `specs/schemas/rule.schema.json` ; le décodage est strict et une action, un champ ou une clé non supportés font échouer le démarrage. |
 
 ---
 

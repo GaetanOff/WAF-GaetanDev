@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 2.4.0
+version: 2.5.0
 last-reviewed: 2026-09-24
 reviewed-by: GaetanDev
 extends: requirements.md (v2.0.0)
-change: "FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
+change: "FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)
@@ -97,27 +97,28 @@ change: "FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'ent
 
 - Le WAF DOIT implémenter un moteur de règles basé sur un DSL YAML (cf. `schemas/rule.schema.json`)
 - Chaque règle DOIT avoir : `name`, `priority`, `conditions[]`, `actions[]`, `enabled`
-- **Conditions supportées** :
-  - `ip` : equals, in_list, in_cidr, in_asn
-  - `user_agent` : contains, matches_regex, equals
-  - `path` : equals, starts_with, ends_with, matches_regex
-  - `method` : equals, in_list
-  - `header` : exists, equals, contains (header name + value)
-  - `query_param` : exists, equals, matches_regex (param name + value)
-  - `country` : equals, in_list
-  - `trust_score` : lt, gt, lte, gte
-  - `ja3_hash` : equals, in_list
-  - `behavioral_score` : lt, gt
-  - `hour_of_day` : between (pour règles temporelles)
+- Les conditions d'une règle sont une **liste combinée en ET** ; il n'y a pas de
+  groupe booléen. Le contrat exact est `schemas/rule.schema.json` v2.0.0
+- **Conditions supportées** (valeurs sensibles à la casse) :
+  - `ip` : equals, in_list, in_cidr
+  - `user_agent`, `path`, `method`, `country`, `header` (clé `name`),
+    `query_param` (clé `name`) : equals, contains, starts_with, ends_with,
+    exists, in_list, matches_regex
+  - `trust_score` : lt, lte, gt, gte (condition fausse tant que le score n'est
+    pas connu)
 - **Actions supportées** :
-  - `block` : HTTP 403 avec message configurable
-  - `challenge` : forcer le challenge JS
-  - `score_delta` : modifier le trust score
-  - `rate_limit` : appliquer une limite spécifique
-  - `redirect` : redirection HTTP 301/302
-  - `add_header` : ajouter un header à la réponse
-  - `log` : forcer un log event avec niveau et message
-  - `tarpit` : activer le tarpit
+  - `block` : HTTP 403, raison configurable (`value`)
+  - `tarpit` : classer la requête TARPIT (FR-15)
+  - `score_delta` : modifier le trust score (`delta`)
+  - `add_header` : ajouter un header à la réponse (`header`, `value`)
+  - `log` : poser la raison journalisée (`value`)
+- Le chargement DOIT échouer (fail-fast) sur un champ, un opérateur ou une
+  action non supportés, sur une règle sans action, et sur toute clé YAML
+  inconnue : une règle partiellement comprise ne DOIT jamais être chargée
+- **Différé** (spécifié, non implémenté — `rules-engine.feature`, scénarios
+  `@deferred`) : groupes OR/NOT ; conditions `in_asn`, `ja3_hash`,
+  `behavioral_score`, `hour_of_day` ; actions `challenge`, `rate_limit`,
+  `redirect`, `allow` ; statut et message configurables du `block`
 - La condition `ip` DOIT être évaluée sur l'**IP réelle établie par le WAF**
   (`CF-Connecting-IP` validée contre les plages Cloudflare quand
   `cloudflare.trusted`, sinon l'adresse de la connexion), et jamais sur un
@@ -130,8 +131,10 @@ change: "FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'ent
     sa présence en entrée n'a aucune signification
 - Les règles DOIVENT être évaluées par ordre de priorité (plus petit = évalué en premier)
 - Le premier match DOIT exécuter les actions (short-circuit configurable avec `continue: true`)
-- Hot-reload sans redémarrage (SIGHUP ou API admin)
-- Le WAF DOIT exposer via l'API admin : liste des règles, hit count par règle, last match timestamp
+- **Différé** : hot-reload sans redémarrage (SIGHUP ou API admin) — les règles
+  sont lues au démarrage ; `RuleSet.Load` est déjà un échange atomique
+- **Différé** : exposition via l'API admin de la liste des règles, du hit count
+  par règle et du last match timestamp (`GET/PATCH /waf/admin/rules`)
 
 ## FR-18 — Analyse d'Intégrité des Requêtes
 
