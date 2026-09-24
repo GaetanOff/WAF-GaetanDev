@@ -37,6 +37,21 @@ Feature: Challenge JavaScript
     When il envoie une requête GET "/page" avec Accept "text/html"
     Then le WAF sert la page de challenge
 
+  Scenario: Décision CHALLENGE du moteur de risque — page servie (FR-34)
+    Given un visiteur avec un cookie waf_session valide
+    And le moteur de risque (hors shadow) conclut à la décision "CHALLENGE"
+    When il envoie une requête GET "/page" avec Accept "text/html"
+    Then le WAF sert la page de challenge
+    And la requête n'est PAS transmise à l'upstream
+    # Régression : la décision posait X-WAF-Action=CHALLENGE puis transmettait la
+    # requête ; le challenge est désormais appliqué en aval du moteur de risque.
+
+  Scenario: Challenge réussi — la preuve humaine évite la boucle (FR-37)
+    Given un visiteur re-challengé sur décision "CHALLENGE" du moteur de risque
+    When il réussit le challenge JS
+    Then la preuve humaine (challenge réussi + fingerprint du cookie) est enregistrée
+    And sa requête suivante avec ce cookie reçoit la décision "ALLOW"
+
   Scenario: Appel API/XHR — challenge contourné (pas de navigation navigateur)
     Given un visiteur sans cookie sous le seuil de confiance
     When il envoie une requête GET "/api/v1/users" avec Accept "application/json"

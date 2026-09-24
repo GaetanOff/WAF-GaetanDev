@@ -17,7 +17,16 @@ import (
 	"github.com/gaetandev/waf/internal/trust"
 )
 
-const verifyPath = "/waf/verify"
+const (
+	verifyPath = "/waf/verify"
+
+	headerAction    = "X-WAF-Action"
+	actionPass      = "PASS"
+	actionChallenge = "CHALLENGE"
+	// headerFingerprintHash transmet au moteur de risque le fingerprint lié au
+	// cookie de clearance (preuve « fingerprint stable », FR-37).
+	headerFingerprintHash = "X-WAF-Fingerprint-Hash"
+)
 
 type Middleware struct {
 	tokenIssuer  TokenIssuer
@@ -30,6 +39,15 @@ type Middleware struct {
 	difficultyFn func() int
 	minElapsedMS int
 	maxElapsedMS int
+	humanCredit  func(ip string, domain string, fpHash string)
+}
+
+// WithHumanCredit branche l'enregistrement de la preuve humaine (FR-37) sur un
+// challenge réussi. Sans elle, le moteur de risque ne voit jamais la preuve et
+// un humain challengé par lui le serait de nouveau après avoir réussi.
+func (m Middleware) WithHumanCredit(fn func(ip string, domain string, fpHash string)) Middleware {
+	m.humanCredit = fn
+	return m
 }
 
 // WithDifficultyProvider branche un fournisseur de difficulté adaptative
@@ -138,11 +156,12 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.Header.Get("X-WAF-Action") == "PASS" {
+		if r.Header.Get(headerAction) == actionPass {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if m.hasValidCookie(r) {
+		if clearance, ok := m.clearance(r); ok {
+			r.Header.Set(headerFingerprintHash, clearance.FPHash)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -150,6 +169,34 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		// HTML de premier niveau). Les appels API/XHR (fetch, axios, mobile…) ne
 		// peuvent pas exécuter le JS : on ne les challenge pas, sinon ils cassent.
 		// Ils restent couverts par le reste de la chaîne (rate-limit, risk engine…).
+		underAttack := r.Header.Get("X-WAF-Under-Attack-Enforce") == "true"
+		if !shouldChallenge(r, underAttack) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		m.servePage(w, r)
+	})
+}
+
+// Enforcer sert la page de challenge aux requêtes que le moteur de risque
+// (FR-34) ou le trust score (FR-04) ont classées CHALLENGE. Il se monte en aval
+// de ces décisions, juste avant l'origine : Handler, lui, s'exécute avant elles
+// et ne peut challenger que sur l'absence de clearance.
+//
+// Sans lui, une décision CHALLENGE n'était qu'un en-tête posé sur une requête
+// transmise à l'upstream. Le visiteur sans clearance est déjà challengé par
+// Handler : l'Enforcer vise donc le porteur d'un cookie valide que le moteur
+// de risque ou le trust score jugent de nouveau suspect. Il est re-vérifié ;
+// son succès alimente le crédit humain (WithHumanCredit), qui ramène la
+// décision suivante à ALLOW et évite la boucle challenge → redirection →
+// challenge. Comme devant Handler, un appel API/XHR n'est pas challengé : il
+// ne peut pas exécuter le JS.
+func (m Middleware) Enforcer(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(headerAction) != actionChallenge || !m.domains.enabledFor(r.Host) {
+			next.ServeHTTP(w, r)
+			return
+		}
 		underAttack := r.Header.Get("X-WAF-Under-Attack-Enforce") == "true"
 		if !shouldChallenge(r, underAttack) {
 			next.ServeHTTP(w, r)
@@ -211,12 +258,16 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	visitor := m.scores.Apply(ip, r.Host, trust.DeltaChallengePassed)
-	cookie, err := m.cookieIssuer.Issue(ip, r.Host, browserfp.Hash(parsedFingerprint), visitor.Score, m.cookieTTL)
+	fpHash := fingerprintHash(browserfp.Hash(parsedFingerprint))
+	cookie, err := m.cookieIssuer.Issue(ip, r.Host, fpHash, visitor.Score, m.cookieTTL)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cookie_issue_failed")
 		return
 	}
 	http.SetCookie(w, &cookie)
+	if m.humanCredit != nil {
+		m.humanCredit(ip, r.Host, fpHash)
+	}
 	redirectURL := payload.RedirectURL
 	if redirectURL == "" {
 		redirectURL = "/"
@@ -227,13 +278,18 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(verifyResponse{RedirectURL: redirectURL})
 }
 
-func (m Middleware) hasValidCookie(r *http.Request) bool {
+// clearance retourne le cookie de clearance de la requête s'il est valide
+// (HMAC, TTL, IP, domaine).
+func (m Middleware) clearance(r *http.Request) (*Payload, bool) {
 	cookie, err := r.Cookie(m.cookieIssuer.Name)
 	if err != nil {
-		return false
+		return nil, false
 	}
-	_, err = m.cookieIssuer.Validate(cookie.Value, cloudflare.RealIP(r), r.Host)
-	return err == nil
+	payload, err := m.cookieIssuer.Validate(cookie.Value, cloudflare.RealIP(r), r.Host)
+	if err != nil {
+		return nil, false
+	}
+	return payload, true
 }
 
 func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {

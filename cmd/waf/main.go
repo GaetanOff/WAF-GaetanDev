@@ -274,6 +274,9 @@ func run() error {
 	if adaptiveController != nil {
 		challengeMiddleware = challengeMiddleware.WithDifficultyProvider(adaptiveController.Difficulty)
 	}
+	if cfg.RiskEngine.Enabled {
+		challengeMiddleware = challengeMiddleware.WithHumanCredit(riskMiddleware.GrantChallengePass)
+	}
 	// Synchronisation multi-nœuds (FR-20) : applique les événements entrants
 	// (blacklist, scores critiques) à l'état local. Fallback autonome si Redis
 	// est indisponible.
@@ -485,6 +488,11 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 		signer := origin.NewSigner(cfg.OriginProtection.Secret)
 		mux.HandleFunc("/waf/origin/verify", signer.VerifyHandler)
 		proxyHandler = signer.Injector(proxyHandler)
+	}
+	// FR-34 / FR-04 : une décision CHALLENGE du moteur de risque ou du trust score
+	// sert la page de challenge. Monté en aval de ces décisions, donc ici.
+	if challenge.Enabled(cfg) {
+		proxyHandler = challengeMiddleware.Enforcer(proxyHandler)
 	}
 	if cfg.RiskEngine.Enabled && riskMiddleware != nil {
 		proxyHandler = riskMiddleware.Handler(proxyHandler)

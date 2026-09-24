@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/gaetandev/waf/internal/config"
 	waflogger "github.com/gaetandev/waf/internal/logger"
@@ -612,4 +613,97 @@ func newTestChallenge(t *testing.T, cfg config.Config) challenge.Middleware {
 		t.Fatalf("challenge.NewMiddlewareFromTemplate() error = %v", err)
 	}
 	return middleware
+}
+
+// FR-34 : une décision CHALLENGE du moteur de risque sert la page de challenge.
+// Avant l'Enforcer, la requête atteignait l'upstream avec X-WAF-Action=CHALLENGE.
+func TestRoutesEnforcesRiskChallengeDecision(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.RateLimit.Enabled = false
+	cfg.RiskEngine.ShadowMode = false
+	cfg.RiskEngine.Tiers = config.RiskTiers{Observe: 1, Throttle: 2, Challenge: 3, Tarpit: 99, Block: 100}
+	store := memory.New(100)
+	defer store.Close()
+	scoreManager, err := trust.NewScoreManager(store, cfg)
+	if err != nil {
+		t.Fatalf("trust.NewScoreManager() error = %v", err)
+	}
+	riskMiddleware, err := risk.NewMiddleware(store, scoreManager, cfg)
+	if err != nil {
+		t.Fatalf("risk.NewMiddleware() error = %v", err)
+	}
+	challengeMiddleware := newTestChallenge(t, cfg)
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, challengeMiddleware, scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
+		"X-WAF-Risk-Integrity": "100",
+	})}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Fatalf("proxy reached with X-WAF-Action=%q: CHALLENGE decision not enforced", r.Header.Get("X-WAF-Action"))
+	}))
+	request := requestFrom("198.51.100.10:443")
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+	request.Header.Set("Accept-Language", "en-US")
+	request.Header.Set("Accept-Encoding", "gzip")
+	// Clearance valide : le premier middleware challenge laisse passer, seul
+	// l'Enforcer, en aval du moteur de risque, peut encore servir la page.
+	cookie, err := challenge.Issue(cfg.Challenge.CookieName, "0123456789abcdef0123456789abcdef", "198.51.100.10", "example.test", strings.Repeat("a", 64), 75, time.Hour)
+	if err != nil {
+		t.Fatalf("challenge.Issue() error = %v", err)
+	}
+	request.AddCookie(&cookie)
+	response := httptest.NewRecorder()
+
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK || response.Header().Get("Content-Type") != "text/html; charset=utf-8" {
+		t.Fatalf("status = %d content-type = %q, want the challenge page", response.Code, response.Header().Get("Content-Type"))
+	}
+	if decision := request.Header.Get("X-WAF-Risk-Decision"); decision != "CHALLENGE" {
+		t.Fatalf("X-WAF-Risk-Decision = %q, want CHALLENGE: the test must exercise the risk decision", decision)
+	}
+}
+
+// FR-37 : après un challenge réussi, la preuve humaine (challenge + fingerprint
+// du cookie) ramène la décision à ALLOW — l'Enforcer ne boucle pas.
+func TestRoutesHumanCreditStopsRechallengeLoop(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.RateLimit.Enabled = false
+	cfg.RiskEngine.ShadowMode = false
+	cfg.RiskEngine.Tiers = config.RiskTiers{Observe: 1, Throttle: 2, Challenge: 3, Tarpit: 99, Block: 100}
+	store := memory.New(100)
+	defer store.Close()
+	scoreManager, err := trust.NewScoreManager(store, cfg)
+	if err != nil {
+		t.Fatalf("trust.NewScoreManager() error = %v", err)
+	}
+	riskMiddleware, err := risk.NewMiddleware(store, scoreManager, cfg)
+	if err != nil {
+		t.Fatalf("risk.NewMiddleware() error = %v", err)
+	}
+	fpHash := strings.Repeat("c", 64)
+	scoreManager.Apply("198.51.100.10", "example.test", trust.DeltaChallengePassed)
+	riskMiddleware.GrantChallengePass("198.51.100.10", "example.test", fpHash)
+
+	proxied := false
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
+		"X-WAF-Risk-Integrity": "100",
+	})}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		proxied = true
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	request := requestFrom("198.51.100.10:443")
+	request.Header.Set("User-Agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+	request.Header.Set("Accept-Language", "en-US")
+	request.Header.Set("Accept-Encoding", "gzip")
+	cookie, err := challenge.Issue(cfg.Challenge.CookieName, "0123456789abcdef0123456789abcdef", "198.51.100.10", "example.test", fpHash, 75, time.Hour)
+	if err != nil {
+		t.Fatalf("challenge.Issue() error = %v", err)
+	}
+	request.AddCookie(&cookie)
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	if !proxied {
+		t.Fatalf("proven human re-challenged: X-WAF-Risk-Decision = %q", request.Header.Get("X-WAF-Risk-Decision"))
+	}
 }

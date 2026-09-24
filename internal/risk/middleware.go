@@ -66,6 +66,15 @@ func NewMiddlewareWithVerifier(scores *trust.ScoreManager, fusion FusionConfig, 
 	}
 }
 
+// GrantChallengePass enregistre la preuve humaine d'un challenge réussi
+// (FR-37) : challenge réussi et fingerprint, que le cookie de clearance
+// retransmet ensuite via X-WAF-Fingerprint-Hash.
+func (m *Middleware) GrantChallengePass(ip string, domain string, fpHash string) {
+	if m.humans != nil {
+		m.humans.GrantChallengePass(ip, domain, fpHash)
+	}
+}
+
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get(headerAction) == "PASS" {
