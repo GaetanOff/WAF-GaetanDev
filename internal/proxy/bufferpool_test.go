@@ -62,3 +62,23 @@ func BenchmarkProxyServeHTTP(b *testing.B) {
 		handler.ServeHTTP(httptest.NewRecorder(), request)
 	}
 }
+
+// Un cycle Get/Put ne doit rien allouer : l'ancien Put prenait l'adresse de
+// son paramètre, ce qui faisait échapper un en-tête de tranche par requête.
+// Sous -race, sync.Pool abandonne volontairement des objets au hasard (New
+// réalloue alors) : la mesure n'a de sens que hors détecteur de course.
+func TestBufferPoolCycleDoesNotAllocate(t *testing.T) {
+	if raceEnabled {
+		t.Skip("sync.Pool drops objects at random under the race detector")
+	}
+	pool := newBufferPool()
+	pool.Put(pool.Get())
+
+	allocs := testing.AllocsPerRun(1000, func() {
+		pool.Put(pool.Get())
+	})
+
+	if allocs != 0 {
+		t.Fatalf("Get/Put cycle allocates %.2f objects, want 0", allocs)
+	}
+}
