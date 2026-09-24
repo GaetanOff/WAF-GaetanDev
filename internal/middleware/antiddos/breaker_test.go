@@ -77,3 +77,18 @@ func TestCircuitBreakerSeriesExpiresAfterWindow(t *testing.T) {
 		t.Fatalf("violation_count = %d, want 1: an old series must not accumulate", visitor.ViolationCount)
 	}
 }
+
+func TestCircuitBreakerNotifiesOpeningOnce(t *testing.T) {
+	store := memory.New(100)
+	defer store.Close()
+	breaker := NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration)
+	openings := 0
+	breaker.onOpen = func(string, time.Time) { openings++ }
+
+	for range DefaultViolationThreshold + 3 {
+		breaker.RecordViolation("1.2.3.4")
+	}
+	if openings != 1 {
+		t.Fatalf("openings notified = %d, want 1", openings)
+	}
+}

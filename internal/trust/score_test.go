@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/storage/memory"
 )
 
@@ -171,4 +172,22 @@ func newTestManager(t *testing.T) (*ScoreManager, *memory.Store, *fakeClock) {
 	}
 	manager.now = clock.now // horloge partagée : éviction et scoring d'accord
 	return manager, store, clock
+}
+
+// FR-20 : un score qui passe sous CriticalScore est signalé une fois, pour
+// être partagé avec les autres nœuds.
+func TestScoreManagerNotifiesCriticalCrossingOnce(t *testing.T) {
+	manager, store, _ := newTestManager(t)
+	defer store.Close()
+	var notified []int
+	manager.WithCriticalObserver(func(visitor storage.VisitorState) { notified = append(notified, visitor.Score) })
+
+	manager.Set("1.2.3.4", "example.test", 20)
+	manager.Apply("1.2.3.4", "example.test", -10) // 10 : pas encore critique
+	manager.Apply("1.2.3.4", "example.test", -8)  // 2 : franchissement
+	manager.Apply("1.2.3.4", "example.test", -1)  // 1 : déjà critique
+
+	if len(notified) != 1 || notified[0] != 2 {
+		t.Fatalf("critical notifications = %v, want [2]", notified)
+	}
 }

@@ -233,3 +233,20 @@ func requestWithAuth(method string, path string, body string) *http.Request {
 	request.Header.Set("Content-Type", "application/json")
 	return request
 }
+
+// FR-20 : une entrée de blacklist ajoutée via l'API est remise au cluster.
+func TestAdminBlacklistAddNotifiesObserver(t *testing.T) {
+	server := newTestServer(t)
+	var published []string
+	server.WithBlacklistObserver(func(value string) { published = append(published, value) })
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, requestWithAuth(http.MethodPost, "/waf/admin/blacklist", `{"ip":"5.5.5.5"}`))
+
+	if response.Code != http.StatusCreated {
+		t.Fatalf("status = %d, want 201", response.Code)
+	}
+	if len(published) != 1 || published[0] != "5.5.5.5" {
+		t.Fatalf("published = %v, want [5.5.5.5]", published)
+	}
+}

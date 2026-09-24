@@ -279,9 +279,10 @@ func run() error {
 	if cfg.RiskEngine.Enabled {
 		challengeMiddleware = challengeMiddleware.WithHumanCredit(riskMiddleware.GrantChallengePass)
 	}
-	// Synchronisation multi-nœuds (FR-20) : applique les événements entrants
-	// (blacklist, scores critiques) à l'état local. Fallback autonome si Redis
-	// est indisponible.
+	// Synchronisation multi-nœuds (FR-20) : publie les décisions locales
+	// (blacklist admin, ouverture de circuit, score critique) et applique celles
+	// des autres nœuds. Fallback autonome si Redis est indisponible.
+	var syncer *cluster.Syncer
 	if cfg.Cluster.Enabled && cfg.Storage.Redis != nil {
 		channel := cfg.Cluster.Channel
 		if channel == "" {
@@ -289,15 +290,19 @@ func run() error {
 		}
 		bus := cluster.NewRedisBus(*cfg.Storage.Redis, channel)
 		defer func() { _ = bus.Close() }()
-		syncer := cluster.NewSyncer(bus, store, accessRules)
+		syncer = cluster.NewSyncer(bus, store, accessRules)
 		clusterCtx, clusterCancel := context.WithCancel(context.Background())
 		defer clusterCancel()
 		if err := bus.Subscribe(clusterCtx, func(event cluster.Event) {
-			syncer.Apply(event)
-			metrics.IncClusterSync(event.Type)
+			if syncer.Apply(event) {
+				metrics.IncClusterSync(event.Type)
+			}
 		}); err != nil {
 			return err
 		}
+		go syncer.RunPublisher(clusterCtx)
+		antiDDoS = antiDDoS.WithCircuitOpenObserver(syncer.PublishCircuitOpen)
+		scoreManager.WithCriticalObserver(syncer.PublishScoreCritical)
 	}
 	securityLogger := waflogger.New(cfg.Logging)
 	defer func() { _ = securityLogger.Close() }()     // vide le writer async à l'arrêt
@@ -377,6 +382,9 @@ func run() error {
 		adminServer, err = admin.NewServer(*cfg, store, scoreManager, accessRules, startedAt)
 		if err != nil {
 			return err
+		}
+		if syncer != nil {
+			adminServer.WithBlacklistObserver(syncer.PublishBlacklistAdd)
 		}
 	}
 

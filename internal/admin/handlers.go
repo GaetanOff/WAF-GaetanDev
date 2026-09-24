@@ -263,6 +263,8 @@ func (s *Server) addIPEntry(w http.ResponseWriter, r *http.Request, whitelist bo
 	action := "add_blacklist"
 	if whitelist {
 		action = "add_whitelist"
+	} else if s.onBlacklist != nil {
+		s.onBlacklist(created.IP)
 	}
 	s.record(action, entry.IP, "created")
 	writeJSON(w, http.StatusCreated, created)

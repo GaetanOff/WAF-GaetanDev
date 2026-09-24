@@ -25,6 +25,13 @@ type Server struct {
 	brute       *selfprotect.Window
 	startedAt   time.Time
 	httpServer  *http.Server
+	onBlacklist func(value string)
+}
+
+// WithBlacklistObserver est notifié de chaque entrée ajoutée à la blacklist
+// (propagation cluster, FR-20).
+func (s *Server) WithBlacklistObserver(observer func(value string)) {
+	s.onBlacklist = observer
 }
 
 func NewServer(cfg config.Config, store storage.Store, scores *trust.ScoreManager, accessRules *access.RuleSet, startedAt time.Time) (*Server, error) {

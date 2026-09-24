@@ -37,6 +37,13 @@ func (m Middleware) WithPressureObserver(observer func(PressureLevel)) Middlewar
 	return m
 }
 
+// WithCircuitOpenObserver est notifié à chaque ouverture de circuit (propagation
+// cluster, FR-20).
+func (m Middleware) WithCircuitOpenObserver(observer func(ipHash string, until time.Time)) Middleware {
+	m.breaker.onOpen = observer
+	return m
+}
+
 // WithUnderAttackDetector branche le détecteur de mode sous attaque (FR-39). En son
 // absence, seule la pression globale historique est calculée.
 func (m Middleware) WithUnderAttackDetector(detector *UnderAttackDetector) Middleware {

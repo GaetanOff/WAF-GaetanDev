@@ -20,6 +20,16 @@ Feature: Synchronisation Multi-Nœuds (Cluster Mode)
     Then WAF-2 et WAF-3 bloquent également l'IP "6.6.6.6" immédiatement
     And la durée du blocage est la même sur tous les nœuds
 
+  Scenario: Un nœud ignore l'écho de ses propres événements
+    Given WAF-1 publie un événement "blacklist_add"
+    When Redis Pub/Sub le lui renvoie
+    Then WAF-1 ne l'applique pas une seconde fois (l'événement porte l'identifiant du nœud émetteur)
+
+  Scenario: Publication non bloquante
+    Given Redis est lent ou indisponible
+    When WAF-1 ouvre un circuit-breaker sur le chemin de requête
+    Then la requête n'attend pas Redis (événement mis en file, abandonné si la file est pleine)
+
   Scenario: Score très bas partagé — visiteur dangereux
     Given WAF-1 détecte un visiteur avec score = 3 (très dangereux)
     When WAF-1 publie le score sur "waf:threat_share"

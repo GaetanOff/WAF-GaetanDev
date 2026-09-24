@@ -23,6 +23,7 @@ type CircuitBreaker struct {
 	violationThreshold int
 	openDuration       time.Duration
 	violationWindow    time.Duration
+	onOpen             func(ipHash string, until time.Time)
 	now                func() time.Time
 }
 
@@ -92,11 +93,16 @@ func (b CircuitBreaker) RecordViolation(ip string) storage.VisitorState {
 	}
 	visitor.ViolationCount++
 	visitor.LastViolation = &now
+	opened := false
 	if visitor.ViolationCount >= b.violationThreshold {
 		openUntil := now.Add(b.openDuration)
+		opened = !visitor.CircuitOpen
 		visitor.CircuitOpen = true
 		visitor.CircuitOpenUntil = &openUntil
 	}
 	b.store.SetVisitor(visitor.IPHash, *visitor)
+	if opened && b.onOpen != nil {
+		b.onOpen(visitor.IPHash, *visitor.CircuitOpenUntil)
+	}
 	return *visitor
 }
