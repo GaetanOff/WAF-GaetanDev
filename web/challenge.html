@@ -243,32 +243,106 @@
     return (bytes[fullBytes] & mask) === 0;
   }
 
-  function sha256bytes(str) {
-    return crypto.subtle.digest('SHA-256', new TextEncoder().encode(str)).then(function (buf) {
-      return new Uint8Array(buf);
-    });
+  // Synchronous SHA-256. crypto.subtle.digest returns a Promise per call: one
+  // microtask per nonce capped the solver at ~10k hashes/s. The token prefix
+  // is constant, so its full 64-byte blocks are compressed once (midstate) and
+  // each attempt only hashes the tail + nonce.
+  var K = new Uint32Array([
+    0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4, 0xab1c5ed5,
+    0xd807aa98, 0x12835b01, 0x243185be, 0x550c7dc3, 0x72be5d74, 0x80deb1fe, 0x9bdc06a7, 0xc19bf174,
+    0xe49b69c1, 0xefbe4786, 0x0fc19dc6, 0x240ca1cc, 0x2de92c6f, 0x4a7484aa, 0x5cb0a9dc, 0x76f988da,
+    0x983e5152, 0xa831c66d, 0xb00327c8, 0xbf597fc7, 0xc6e00bf3, 0xd5a79147, 0x06ca6351, 0x14292967,
+    0x27b70a85, 0x2e1b2138, 0x4d2c6dfc, 0x53380d13, 0x650a7354, 0x766a0abb, 0x81c2c92e, 0x92722c85,
+    0xa2bfe8a1, 0xa81a664b, 0xc24b8b70, 0xc76c51a3, 0xd192e819, 0xd6990624, 0xf40e3585, 0x106aa070,
+    0x19a4c116, 0x1e376c08, 0x2748774c, 0x34b0bcb5, 0x391c0cb3, 0x4ed8aa4a, 0x5b9cca4f, 0x682e6ff3,
+    0x748f82ee, 0x78a5636f, 0x84c87814, 0x8cc70208, 0x90befffa, 0xa4506ceb, 0xbef9a3f7, 0xc67178f2
+  ]);
+  var H0 = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19];
+  var W = new Uint32Array(64);
+
+  function compress(state, bytes, offset) {
+    var i, s0, s1, t1, t2;
+    for (i = 0; i < 16; i++) {
+      var j = offset + i * 4;
+      W[i] = (bytes[j] << 24) | (bytes[j + 1] << 16) | (bytes[j + 2] << 8) | bytes[j + 3];
+    }
+    for (i = 16; i < 64; i++) {
+      var w15 = W[i - 15], w2 = W[i - 2];
+      s0 = ((w15 >>> 7) | (w15 << 25)) ^ ((w15 >>> 18) | (w15 << 14)) ^ (w15 >>> 3);
+      s1 = ((w2 >>> 17) | (w2 << 15)) ^ ((w2 >>> 19) | (w2 << 13)) ^ (w2 >>> 10);
+      W[i] = (W[i - 16] + s0 + W[i - 7] + s1) | 0;
+    }
+    var a = state[0], b = state[1], c = state[2], d = state[3];
+    var e = state[4], f = state[5], g = state[6], h = state[7];
+    for (i = 0; i < 64; i++) {
+      s1 = ((e >>> 6) | (e << 26)) ^ ((e >>> 11) | (e << 21)) ^ ((e >>> 25) | (e << 7));
+      t1 = (h + s1 + ((e & f) ^ (~e & g)) + K[i] + W[i]) | 0;
+      s0 = ((a >>> 2) | (a << 30)) ^ ((a >>> 13) | (a << 19)) ^ ((a >>> 22) | (a << 10));
+      t2 = (s0 + ((a & b) ^ (a & c) ^ (b & c))) | 0;
+      h = g; g = f; f = e; e = (d + t1) | 0;
+      d = c; c = b; b = a; a = (t1 + t2) | 0;
+    }
+    state[0] = (state[0] + a) | 0; state[1] = (state[1] + b) | 0;
+    state[2] = (state[2] + c) | 0; state[3] = (state[3] + d) | 0;
+    state[4] = (state[4] + e) | 0; state[5] = (state[5] + f) | 0;
+    state[6] = (state[6] + g) | 0; state[7] = (state[7] + h) | 0;
   }
 
+  // prefixHasher returns hash(suffix) = SHA-256(prefix + suffix) for an ASCII
+  // suffix, writing the digest into a reusable 32-byte array.
+  function prefixHasher(prefix) {
+    var prefixBytes = new TextEncoder().encode(prefix);
+    var midLength = prefixBytes.length - (prefixBytes.length % 64);
+    var midstate = new Int32Array(H0);
+    for (var offset = 0; offset < midLength; offset += 64) {
+      compress(midstate, prefixBytes, offset);
+    }
+    var tail = prefixBytes.subarray(midLength);
+    var buffer = new Uint8Array(tail.length + 64 + 64); // tail + nonce + padding
+    buffer.set(tail);
+    var state = new Int32Array(8);
+    var digest = new Uint8Array(32);
+
+    return function (suffix) {
+      var length = tail.length, i;
+      for (i = 0; i < suffix.length; i++) buffer[length++] = suffix.charCodeAt(i);
+      var bitLength = (prefixBytes.length + suffix.length) * 8;
+      buffer[length++] = 0x80;
+      while (length % 64 !== 56) buffer[length++] = 0;
+      buffer[length++] = 0; buffer[length++] = 0; buffer[length++] = 0;
+      buffer[length++] = Math.floor(bitLength / 0x100000000) & 0xFF;
+      buffer[length++] = (bitLength >>> 24) & 0xFF; buffer[length++] = (bitLength >>> 16) & 0xFF;
+      buffer[length++] = (bitLength >>> 8) & 0xFF; buffer[length++] = bitLength & 0xFF;
+      state.set(midstate);
+      for (i = 0; i < length; i += 64) compress(state, buffer, i);
+      for (i = 0; i < 8; i++) {
+        digest[i * 4] = state[i] >>> 24; digest[i * 4 + 1] = state[i] >>> 16;
+        digest[i * 4 + 2] = state[i] >>> 8; digest[i * 4 + 3] = state[i];
+      }
+      return digest;
+    };
+  }
+
+  // Hashes per synchronous slice; the page yields between slices so the timer
+  // keeps ticking.
+  var POW_SLICE = 20000;
+
   function solvePow(token, difficultyBits) {
+    var hash = prefixHasher(token);
     var n = 0;
 
-    function tryNext() {
-      return sha256bytes(token + n).then(function (hash) {
-        if (hasLeadingZeroBits(hash, difficultyBits)) {
-          return { nonce: String(n) };
+    return new Promise(function (resolve) {
+      function slice() {
+        for (var end = n + POW_SLICE; n < end; n++) {
+          if (hasLeadingZeroBits(hash(String(n)), difficultyBits)) {
+            resolve({ nonce: String(n) });
+            return;
+          }
         }
-        n++;
-        // Yield to event loop every 500 iterations to keep page responsive
-        if (n % 500 === 0) {
-          return new Promise(function (resolve) {
-            setTimeout(function () { resolve(tryNext()); }, 0);
-          });
-        }
-        return tryNext();
-      });
-    }
-
-    return tryNext();
+        setTimeout(slice, 0);
+      }
+      slice();
+    });
   }
 
   // ── Main challenge flow ────────────────────────────────────────────────────
