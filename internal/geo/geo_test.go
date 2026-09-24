@@ -84,3 +84,20 @@ func TestGeoIgnoredWhenCountryHeaderAbsent(t *testing.T) {
 		t.Fatalf("missing CF-IPCountry must pass gracefully: called=%v status=%d", *called, response.Code)
 	}
 }
+
+// geo-rules.feature, « Code pays inconnu » : un code absent des listes passe ;
+// la comparaison ignore la casse et les espaces.
+func TestGeoUnknownCountryPassesAndCodesAreNormalized(t *testing.T) {
+	h, called := handlerWith(config.Geo{Enabled: true, BlockedCountries: []string{" ru "}})
+	unknown := httptest.NewRecorder()
+	h.ServeHTTP(unknown, requestFromCountry("XX"))
+	if unknown.Code != http.StatusNoContent || !*called {
+		t.Fatalf("unknown code: status = %d, want 204 without geo rule", unknown.Code)
+	}
+
+	blocked := httptest.NewRecorder()
+	h.ServeHTTP(blocked, requestFromCountry("Ru"))
+	if blocked.Code != http.StatusForbidden {
+		t.Fatalf("blocked code in another case: status = %d, want 403", blocked.Code)
+	}
+}
