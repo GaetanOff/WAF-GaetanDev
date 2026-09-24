@@ -119,7 +119,10 @@ change: "FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schem
 - Le WAF DOIT maintenir un **journal d'audit immuable** de toutes les actions sur l'API admin :
   - Champs : `timestamp`, `action`, `endpoint`, `method`, `request_body` (secrets masqués), `response_status`, `client_ip`
   - Exemples : ajout en blacklist, modification config, reset visiteur, activation/désactivation règle
-- Le journal DOIT être accessible via `GET /waf/admin/audit?since=&limit=`
+- Le journal DOIT être accessible via `GET /waf/admin/audit` (pagination
+  `page`/`limit`, de la plus ancienne à la plus récente entrée)
+- **Différé** : filtres `since`, `until` et `action` (`audit-trail.feature`,
+  scénarios `@deferred`)
 - Le journal DOIT être **append-only** en mémoire (pas de suppression via API)
 - La taille max du journal en mémoire DOIT être configurable (défaut: 10 000 entrées, rotation FIFO)
 - En option, le journal DOIT pouvoir être écrit sur disque (fichier JSON-lines configurable)
@@ -276,11 +279,16 @@ change: "FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schem
   - Le WAF DOIT supporter **ACME/Let's Encrypt** avec renouvellement automatique (≥ 30 jours avant expiration)
   - Le défi ACME `HTTP-01` DOIT être géré automatiquement (bypass du challenge WAF pour les paths `/.well-known/acme-challenge/`)
   - Le défi ACME `TLS-ALPN-01` DOIT être optionnellement supporté
-  - Les certificats DOIVENT être stockés sur disque (path configurable) et rechargés sans redémarrage
+  - Les certificats DOIVENT être stockés sur disque (path configurable) ; les
+    certificats ACME renouvelés sont pris en compte sans redémarrage
+    (autocert). **Différé** : rechargement des certificats statiques sans
+    redémarrage (`SIGHUP`, cf. FR-33)
   - Une métrique `waf_tls_cert_expiry_seconds{domain}` DOIT être exposée
 - Le WAF DOIT supporter **TLS 1.2 et 1.3** côté client, configurable
 - Le WAF DOIT supporter la configuration des cipher suites (liste configurable avec défaut sécurisé)
-- Certificat expirant dans < 7 jours → alert webhook (FR-29)
+- **Différé** : certificat expirant dans < 7 jours → alert webhook (FR-29) ;
+  aujourd'hui seule la jauge `waf_tls_cert_expiry_seconds{domain}` (timestamp
+  NotAfter des certificats statiques, publiée au démarrage) est exposée
 
 ## FR-32 — Page de Maintenance & Erreurs Custom
 

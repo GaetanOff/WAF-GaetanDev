@@ -3,6 +3,14 @@ Feature: Alerting & Webhooks
   Je veux être notifié en temps réel des événements de sécurité critiques
   Afin de réagir rapidement sans surveiller constamment les logs.
 
+  # Les scénarios @deferred sont spécifiés mais NON implémentés (audit du
+  # 2026-09-24, point 2.6) : ils ne sont pas un critère d'acceptation tant
+  # que leur implémentation n'est pas planifiée (specs/tasks.md).
+  # Triggers émis : block, circuit_breaker, honeypot, under_attack_start/end
+  # (alert.schema.json). Configuration réelle : alerting.webhooks[].type/url,
+  # alerting.cooldown, alerting.max_retries — le bloc alerts[] ci-dessous
+  # (trigger, format, severity par webhook) est lui aussi différé.
+
   Background:
     Given le WAF est configuré avec:
       alerts:
@@ -19,6 +27,7 @@ Feature: Alerting & Webhooks
           format: generic
           severity: ["info", "warning", "critical"]
 
+  @deferred
   Scenario: Alerte DDoS envoyée sur Slack
     Given le trafic dépasse 200% du baseline (niveau Critical)
     When le trigger "ddos_detected" se déclenche
@@ -29,6 +38,7 @@ Feature: Alerting & Webhooks
         "attachments": [{"text": "Attack intensity: 250%..."}]
       }
 
+  @deferred
   Scenario: Alerte upstream_down envoyée sur Discord
     Given upstream-A tombe (3 health checks échoués)
     When le trigger "upstream_down" se déclenche
@@ -50,11 +60,12 @@ Feature: Alerting & Webhooks
 
   Scenario: Alerte generic HTTP — payload JSON conforme au schema
     Given un visiteur touche un chemin honeypot
-    When le trigger "honeypot_triggered" se déclenche
+    When le trigger "honeypot" se déclenche
     Then un webhook POST est envoyé
     And le body JSON est conforme à schemas/alert.schema.json
-    Et contient les champs: id, timestamp, trigger, severity, domain, title, message, data
+    And il contient les champs: id (UUID v4), timestamp, trigger, severity, domain, title, message
 
+  @deferred
   Scenario: Retry en cas d'échec du webhook
     Given l'URL de webhook retourne HTTP 500 lors du premier envoi
     When le WAF retente avec backoff exponentiel
@@ -71,17 +82,18 @@ Feature: Alerting & Webhooks
     And le webhook est géré en arrière-plan dans sa propre goroutine
 
   Scenario: Déduplication — pas de spam d'alertes
-    Given le trigger "ddos_detected" est actif (attaque en cours)
-    When le trigger se déclenche toutes les 5 secondes
-    Then le WAF envoie seulement 1 alerte toutes les alerting.cooldown_seconds (défaut: 60s)
-    And la 2ème alerte n'est pas envoyée si le cooldown n'est pas écoulé
+    Given le trigger "block" se déclenche toutes les 5 secondes pour le même domaine
+    Then le WAF envoie seulement 1 alerte par alerting.cooldown (défaut: 5m) et par trigger + domaine
+    And les transitions under_attack_start / under_attack_end ne sont jamais retenues par le cooldown
 
+  @deferred
   Scenario: Alerte de retour à la normale
     Given une alerte "upstream_down" a été envoyée pour upstream-A
     When upstream-A revient (3 health checks réussis)
     Then une alerte "upstream_recovered" est envoyée automatiquement
     And contient le temps de downtime en secondes
 
+  @deferred
   Scenario: Alerte cert TLS expirant dans 7 jours
     Given un certificat TLS pour "example.com" expire dans 6 jours
     When le checker de certificat s'exécute (toutes les heures)
@@ -96,12 +108,14 @@ Feature: Alerting & Webhooks
     Then aucun webhook n'est envoyé
     And aucune erreur n'est loggée
 
+  @deferred
   Scenario: Test de webhook via API admin
     When POST /waf/admin/alerts/test avec body {"trigger": "ddos_detected"}
     Then le WAF envoie immédiatement un webhook test
     And la réponse API indique si le webhook a répondu (HTTP 200 ou erreur)
     Note: Utile pour valider la configuration sans attendre une vraie attaque
 
+  @deferred
   Scenario: Métriques alertes
     When GET /waf/metrics
     Then les métriques contiennent:

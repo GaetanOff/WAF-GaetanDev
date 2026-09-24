@@ -3,6 +3,12 @@ Feature: Deception Layer (Tarpit + Honeypot Content)
   Je veux piéger et ralentir les bots plutôt que de simplement les bloquer
   Afin de consommer leurs ressources et détecter leurs comportements plus précisément.
 
+  # Les scénarios @deferred sont spécifiés mais NON implémentés (audit du
+  # 2026-09-24, point 2.6) : ils ne sont pas un critère d'acceptation tant
+  # que leur implémentation n'est pas planifiée (specs/tasks.md).
+  # Injection de liens honeypot différée : la détection des chemins piégés
+  # est assurée par honeypot_paths (antibot, 403), cf. internal/deception.
+
   Background:
     Given le WAF est configuré avec deception.enabled = true
     And deception.tarpit_max_connections = 500
@@ -48,6 +54,7 @@ Feature: Deception Layer (Tarpit + Honeypot Content)
 
   # ── Honeypot Content Injection ───────────────────────────────────────────────
 
+  @deferred
   Scenario: Injection de liens honeypot dans une réponse HTML
     Given un domaine avec deception.injection.enabled = true
     And l'upstream retourne une réponse HTML text/html
@@ -56,6 +63,7 @@ Feature: Deception Layer (Tarpit + Honeypot Content)
     And les liens ont l'attribut rel="nofollow"
     And les liens pointent vers des paths /waf-trap/... avec tokens rotatifs
 
+  @deferred
   Scenario: Lien honeypot suivi par un bot
     Given un lien honeypot injecté "/waf-trap/newsletter-abc123" a été ajouté à une page
     When un visiteur avec score = 65 envoie GET "/waf-trap/newsletter-abc123"
@@ -63,6 +71,7 @@ Feature: Deception Layer (Tarpit + Honeypot Content)
     And la requête reçoit HTTP 404 (ne pas révéler l'existence du honeypot)
     And un événement HONEYPOT est journalisé avec detail="injected_link_followed"
 
+  @deferred
   Scenario: Humain ne suit pas les liens honeypot
     Given un lien honeypot invisible (display:none) est injecté dans une page
     When un visiteur humain navigue sur la page normalement
@@ -70,23 +79,27 @@ Feature: Deception Layer (Tarpit + Honeypot Content)
     And le visiteur ne le suit pas
     And aucun événement honeypot n'est déclenché
 
+  @deferred
   Scenario: Injection uniquement sur Content-Type text/html
     Given l'upstream retourne une réponse JSON (application/json)
     When le WAF proxifie cette réponse
     Then aucune injection honeypot n'est effectuée
     And la réponse JSON est transmise intacte
 
+  @deferred
   Scenario: Rotation hebdomadaire des tokens honeypot
     Given la semaine a changé
     When une nouvelle page HTML est servie
     Then les tokens des liens honeypot sont différents de ceux de la semaine précédente
     And les anciens tokens expirent (visites de bots qui ont crawlé la semaine précédente ne déclenchent plus honeypot)
 
+  @deferred
   Scenario: Bot whitelisté — pas d'injection
     Given un Googlebot (user-agent whitelisté) visite la page
     When le WAF proxifie la réponse HTML
     Then aucun lien honeypot n'est injecté dans cette réponse
 
+  @deferred
   Scenario: Injection ne casse pas le HTML valide
     Given l'upstream retourne du HTML valide avec </body></html> en fin
     When le WAF injecte le bloc honeypot

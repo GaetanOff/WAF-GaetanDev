@@ -83,6 +83,11 @@ change: "FR-12/FR-13 : profils comportementaux et entrées de réputation détai
 - Le WAF DOIT simuler une vraie réponse HTML pendant le tarpit (titre, structure) pour piéger les scrapers
 
 ### Honeypot Content Injection
+
+> **Différé** (non implémenté — `deception-layer.feature`, scénarios
+> `@deferred`) : toute cette sous-section. Les chemins piégés sont détectés par
+> `honeypot_paths` (FR-07) ; aucune injection dans les réponses n'a lieu.
+
 - Le WAF DOIT être capable d'**injecter silencieusement** dans les réponses HTML proxifiées :
   - Des liens invisibles (CSS `display:none`) vers des URLs honeypot
   - Des adresses email factices (pour détecter les harvesters)
@@ -167,6 +172,9 @@ change: "FR-12/FR-13 : profils comportementaux et entrées de réputation détai
   `X-WAF-Origin-Token: <HMAC-SHA256(secret, domain + timestamp_hour)>`
 - Le token DOIT être rotatif (change toutes les heures, tolérance 2h pour éviter les coupures)
 - La valeur de ce header DOIT être configurable (`origin_protection.secret`)
+- **Différé** : rotation du secret sans interruption (acceptation d'un secret
+  précédent pendant une fenêtre) — le secret est lu au démarrage, un
+  changement exige un redémarrage
 - Le WAF DOIT exposer un endpoint de validation `GET /waf/origin/verify` pour que l'upstream vérifie le token
 - L'endpoint de validation DOIT lire le token que l'upstream lui **retransmet** dans `X-WAF-Origin-Token`. C'est la seule lecture légitime d'un `X-WAF-*` d'origine cliente : elle constitue l'exception documentée à l'assainissement d'ingress (FR-30), et le token DOIT donc être capturé avant celui-ci. La valeur est vérifiée par HMAC, jamais honorée sur sa seule présence
 - Les requêtes à l'upstream SANS ce header (bypass direct) POURRONT être rejetées côté upstream via middleware dédié

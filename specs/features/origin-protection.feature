@@ -3,6 +3,10 @@ Feature: Protection de l'Origine
   Je veux m'assurer que l'upstream ne reçoit des requêtes que via le WAF
   Afin d'empêcher les attaquants de contourner la protection en accédant directement à l'origine.
 
+  # Les scénarios @deferred sont spécifiés mais NON implémentés (audit du
+  # 2026-09-24, point 2.6) : ils ne sont pas un critère d'acceptation tant
+  # que leur implémentation n'est pas planifiée (specs/tasks.md).
+
   Background:
     Given le WAF est configuré avec origin_protection.enabled = true
     And origin_protection.secret est défini (ou via WAF_ORIGIN_SECRET env var)
@@ -59,6 +63,7 @@ Feature: Protection de l'Origine
     Then l'upstream retourne HTTP 403 (header manquant ou invalide)
     And la protection est effective même si l'IP de l'origine est exposée
 
+  @deferred
   Scenario: mTLS vers l'upstream
     Given origin_protection.mtls.enabled = true
     And origin_protection.mtls.cert et mtls.key sont configurés
@@ -72,6 +77,7 @@ Feature: Protection de l'Origine
     Then l'upstream ne reçoit pas le header X-WAF-Origin-Token
     And le comportement est identique à avant la feature
 
+  @deferred
   Scenario: Rotation du secret — pas d'interruption
     Given l'administrateur change origin_protection.secret via hot-reload
     Then les nouvelles requêtes utilisent le nouveau secret
