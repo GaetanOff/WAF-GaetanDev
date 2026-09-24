@@ -3,6 +3,7 @@ package selfprotect
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -72,5 +73,26 @@ func TestPathGuardIgnoresOtherPaths(t *testing.T) {
 		if rr.Code != http.StatusNoContent {
 			t.Fatalf("non-target path must not be limited, got %d", rr.Code)
 		}
+	}
+}
+
+// Régression : counts était une map nue — chaque IP ayant touché /waf/verify y
+// restait pour toujours. Un compteur expire désormais avec sa fenêtre.
+func TestWindowForgetsExpiredCounters(t *testing.T) {
+	w := NewWindow(3, time.Minute)
+	now := time.Now()
+	w.now = func() time.Time { return now }
+	for i := range 100 {
+		w.Record("10.0.0." + strconv.Itoa(i))
+	}
+	now = now.Add(2 * time.Minute)
+	w.Record("10.0.1.1") // toute écriture ou lecture ultérieure purge à la demande
+	for i := range 100 {
+		if w.Count("10.0.0."+strconv.Itoa(i)) != 0 {
+			t.Fatalf("counter %d survived its window", i)
+		}
+	}
+	if got := w.counts.Len(); got != 1 {
+		t.Fatalf("tracked IPs = %d, want 1 once expired counters are read", got)
 	}
 }

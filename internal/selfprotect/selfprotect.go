@@ -5,18 +5,25 @@ package selfprotect
 
 import (
 	"net/http"
-	"sync"
 	"time"
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
+	"github.com/gaetandev/waf/internal/ttlcache"
 )
 
-// Window compte les occurrences par IP sur une fenêtre glissante simple.
+// maxTrackedIPs borne le nombre d'IP comptées simultanément. Il faudrait
+// autant d'IP distinctes dans une même fenêtre pour évincer un compteur actif.
+const maxTrackedIPs = 100000
+
+// Window compte les occurrences par IP sur une fenêtre fixe.
+//
+// Les compteurs vivent dans un cache borné et expirent avec leur fenêtre. Une
+// map nue les portait auparavant : chaque IP ayant touché /waf/verify (ou
+// échoué une fois sur l'API admin) y restait pour toujours.
 type Window struct {
 	max    int
 	window time.Duration
-	mu     sync.Mutex
-	counts map[string]*counter
+	counts *ttlcache.Cache[string, counter]
 	now    func() time.Time
 }
 
@@ -29,29 +36,27 @@ func NewWindow(max int, window time.Duration) *Window {
 	if max < 1 {
 		max = 1
 	}
-	return &Window{max: max, window: window, counts: make(map[string]*counter), now: time.Now}
+	w := &Window{max: max, window: window, now: time.Now}
+	w.counts = ttlcache.New[string, counter](maxTrackedIPs, window).WithClock(func() time.Time { return w.now() })
+	return w
 }
 
 // Record incrémente le compteur de l'IP (réinitialisé si la fenêtre est écoulée)
 // et retourne le compte courant.
 func (w *Window) Record(ip string) int {
-	w.mu.Lock()
-	defer w.mu.Unlock()
 	now := w.now()
-	c, ok := w.counts[ip]
-	if !ok || now.After(c.resetAt) {
-		c = &counter{resetAt: now.Add(w.window)}
-		w.counts[ip] = c
-	}
-	c.count++
-	return c.count
+	return w.counts.Update(ip, func(c counter, found bool) counter {
+		if !found || now.After(c.resetAt) {
+			c = counter{resetAt: now.Add(w.window)}
+		}
+		c.count++
+		return c
+	}).count
 }
 
 // Count retourne le compte courant de l'IP (0 si fenêtre écoulée).
 func (w *Window) Count(ip string) int {
-	w.mu.Lock()
-	defer w.mu.Unlock()
-	c, ok := w.counts[ip]
+	c, ok := w.counts.Get(ip)
 	if !ok || w.now().After(c.resetAt) {
 		return 0
 	}
