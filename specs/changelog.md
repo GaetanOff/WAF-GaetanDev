@@ -29,6 +29,8 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
   des motifs d'injection (`union%0aselect`, `onerror =`, triple encodage).
 - Moteur de règles : une action non supportée, une règle sans action ou une clé
   inconnue font échouer le chargement au lieu d'être ignorées.
+- Image runtime : `distroless/static-debian12` → `static-debian13` (Trivy
+  DLA-4792-1) ; debian12 livre encore `tzdata` 2026b, debian13 la 2026c.
 
 ### Fixed — second audit du 2026-09-24
 
