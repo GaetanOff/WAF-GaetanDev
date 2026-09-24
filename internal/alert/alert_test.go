@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -140,5 +141,32 @@ func TestRetryOnFailureThenSuccess(t *testing.T) {
 
 	if a := attempts.Load(); a < 2 {
 		t.Fatalf("attempts = %d, want >= 2 (retry)", a)
+	}
+}
+
+// Le cooldown dédoublonne par trigger+domaine, et sa mémoire est bornée : le
+// domaine est le Host de la requête, qu'un client fait varier à volonté.
+func TestCooldownDeduplicatesAndStaysBounded(t *testing.T) {
+	n := NewNotifier(nil, time.Minute, 0, nil)
+	defer n.Close()
+	clock := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	n.now = func() time.Time { return clock }
+
+	if !n.allow(Alert{Trigger: "block", Domain: "example.com"}) {
+		t.Fatal("first alert must be allowed")
+	}
+	if n.allow(Alert{Trigger: "block", Domain: "example.com"}) {
+		t.Fatal("second alert within the cooldown must be suppressed")
+	}
+	clock = clock.Add(time.Minute)
+	if !n.allow(Alert{Trigger: "block", Domain: "example.com"}) {
+		t.Fatal("alert after the cooldown must be allowed")
+	}
+
+	for i := range maxCooldownKeys * 2 {
+		n.allow(Alert{Trigger: "block", Domain: "random-" + strconv.Itoa(i) + ".test"})
+	}
+	if got := n.lastSent.Len(); got > maxCooldownKeys {
+		t.Fatalf("cooldown entries = %d, want at most %d", got, maxCooldownKeys)
 	}
 }
