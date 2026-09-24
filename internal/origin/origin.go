@@ -12,6 +12,8 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/gaetandev/waf/internal/hostname"
 )
 
 const (
@@ -36,9 +38,12 @@ func (s *Signer) Token(domain string) string {
 	return s.tokenForHour(domain, s.now().Unix()/3600)
 }
 
+// tokenForHour signe le domaine normalisé : le token injecté pour un Host
+// "Example.com:443" doit se vérifier avec ?domain=example.com, comme l'origine
+// le demande.
 func (s *Signer) tokenForHour(domain string, hour int64) string {
 	mac := hmac.New(sha256.New, s.secret)
-	mac.Write([]byte(domain + ":" + strconv.FormatInt(hour, 10)))
+	mac.Write([]byte(hostname.Normalize(domain) + ":" + strconv.FormatInt(hour, 10)))
 	return hex.EncodeToString(mac.Sum(nil))
 }
 

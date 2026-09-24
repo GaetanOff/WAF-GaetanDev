@@ -13,6 +13,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/config"
 	browserfp "github.com/gaetandev/waf/internal/fingerprint"
+	"github.com/gaetandev/waf/internal/hostname"
 	"github.com/gaetandev/waf/internal/jsonstrict"
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
@@ -237,7 +238,10 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	}
 
 	ip := cloudflare.RealIP(r)
-	payload, err := m.tokenIssuer.Validate(submission.Token, ip, r.Host)
+	// Même forme d'hôte à l'émission et à la validation : un token émis pour
+	// "Example.com" était refusé sur "example.com:443".
+	host := hostname.Normalize(r.Host)
+	payload, err := m.tokenIssuer.Validate(submission.Token, ip, host)
 	if err != nil {
 		writeTokenError(w, err)
 		return
@@ -247,12 +251,12 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 		powDifficulty = m.staticDifficulty()
 	}
 	if !ValidatePow(submission.Token, submission.Nonce, powDifficulty) {
-		m.scores.Apply(ip, r.Host, trust.DeltaChallengeFailed)
+		m.scores.Apply(ip, host, trust.DeltaChallengeFailed)
 		writeError(w, http.StatusBadRequest, "invalid_pow")
 		return
 	}
 	if submission.ElapsedMS < m.minElapsedMS {
-		m.scores.Apply(ip, r.Host, trust.DeltaChallengeFailed)
+		m.scores.Apply(ip, host, trust.DeltaChallengeFailed)
 		writeError(w, http.StatusBadRequest, "challenge_too_fast")
 		return
 	}
@@ -263,7 +267,7 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	parsedFingerprint, err := browserfp.Parse(submission.Fingerprint)
 	if err != nil {
 		if errors.Is(err, browserfp.ErrHeadlessRenderer) {
-			m.scores.Apply(ip, r.Host, browserfp.HeadlessRendererDelta)
+			m.scores.Apply(ip, host, browserfp.HeadlessRendererDelta)
 			writeError(w, http.StatusBadRequest, "headless_webgl_renderer")
 			return
 		}
@@ -271,16 +275,16 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	visitor := m.scores.Apply(ip, r.Host, trust.DeltaChallengePassed)
+	visitor := m.scores.Apply(ip, host, trust.DeltaChallengePassed)
 	fpHash := fingerprintHash(browserfp.Hash(parsedFingerprint))
-	cookie, err := m.cookieIssuer.Issue(ip, r.Host, fpHash, visitor.Score, m.cookieTTL)
+	cookie, err := m.cookieIssuer.Issue(ip, host, fpHash, visitor.Score, m.cookieTTL)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "cookie_issue_failed")
 		return
 	}
 	http.SetCookie(w, &cookie)
 	if m.humanCredit != nil {
-		m.humanCredit(ip, r.Host, fpHash)
+		m.humanCredit(ip, host, fpHash)
 	}
 	redirectURL := sameOriginPath(payload.RedirectURL)
 	w.Header().Set("Content-Type", "application/json")
@@ -296,7 +300,7 @@ func (m Middleware) clearance(r *http.Request) (*Payload, bool) {
 	if err != nil {
 		return nil, false
 	}
-	payload, err := m.cookieIssuer.Validate(cookie.Value, cloudflare.RealIP(r), r.Host)
+	payload, err := m.cookieIssuer.Validate(cookie.Value, cloudflare.RealIP(r), hostname.Normalize(r.Host))
 	if err != nil {
 		return nil, false
 	}
@@ -306,7 +310,7 @@ func (m Middleware) clearance(r *http.Request) (*Payload, bool) {
 func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
 	redirectURL := sameOriginPath(r.URL.RequestURI())
 	difficulty := m.currentDifficulty()
-	token, err := m.tokenIssuer.GenerateForRedirectWithDifficulty(cloudflare.RealIP(r), r.Host, redirectURL, difficulty)
+	token, err := m.tokenIssuer.GenerateForRedirectWithDifficulty(cloudflare.RealIP(r), hostname.Normalize(r.Host), redirectURL, difficulty)
 	if err != nil {
 		http.Error(w, "challenge token error", http.StatusInternalServerError)
 		return

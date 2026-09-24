@@ -179,6 +179,26 @@ func TestMiddlewareAllowsKnownVisitorWhenGlobalRateExceeded(t *testing.T) {
 	}
 }
 
+// anti-ddos.feature : une violation est un dépassement du rate limit du WAF.
+// Un 429 de l'upstream (rate limit applicatif) n'en est pas une.
+func TestUpstream429DoesNotFeedBreaker(t *testing.T) {
+	store := memory.New(100)
+	defer store.Close()
+	middleware := New(NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration), nil, DefaultRetryAfterSeconds)
+	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+
+	for i := range DefaultViolationThreshold * 3 {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, requestFrom("1.2.3.4:1234"))
+		if response.Code != http.StatusTooManyRequests {
+			t.Fatalf("request %d: status = %d, want the upstream 429 (never CIRCUIT_BREAK)", i, response.Code)
+		}
+	}
+}
+
 func TestPressureThrottle429DoesNotFeedBreaker(t *testing.T) {
 	store := memory.New(100)
 	defer store.Close()

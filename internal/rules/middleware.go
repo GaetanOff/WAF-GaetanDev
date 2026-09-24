@@ -25,7 +25,7 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		for _, action := range m.rules.Match(r) {
+		for _, action := range m.rules.Match(r, m.scoreReader()) {
 			switch action.Type {
 			case "block":
 				w.Header().Set("X-WAF-Action", "BLOCK")
@@ -52,6 +52,15 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// scoreReader évite de passer un *trust.ScoreManager nil dans l'interface, qui
+// serait alors non nil et paniquerait à la lecture.
+func (m Middleware) scoreReader() ScoreReader {
+	if m.scores == nil {
+		return nil
+	}
+	return m.scores
 }
 
 func reasonOr(value string, fallback string) string {

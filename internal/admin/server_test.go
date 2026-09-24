@@ -123,6 +123,47 @@ func TestAdminConfigMasksSecrets(t *testing.T) {
 	}
 }
 
+// Le secret HMAC de l'origine (FR-19), la clé AbuseIPDB, le mot de passe Redis
+// et les URL de webhook (qui portent leur jeton) sont masqués comme les autres.
+func TestAdminConfigMasksEverySecret(t *testing.T) {
+	secrets := []string{"origin-hmac-secret-value", "abuseipdb-api-key-value", "redis-password-value", "https://hooks.slack.test/T000/B000/webhook-token"}
+	server := newTestServerWith(t, func(cfg *config.Config) {
+		cfg.OriginProtection.Secret = secrets[0]
+		cfg.ThreatIntel.AbuseIPDB.APIKey = secrets[1]
+		cfg.Storage.Redis = &config.RedisConfig{Address: "127.0.0.1:6379", Password: secrets[2]}
+		cfg.Alerting.Webhooks = []config.AlertWebhook{{Type: "slack", URL: secrets[3]}}
+	})
+	response := httptest.NewRecorder()
+
+	server.Handler().ServeHTTP(response, requestWithAuth(http.MethodGet, "/waf/admin/config", ""))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", response.Code)
+	}
+	for _, secret := range secrets {
+		if bytes.Contains(response.Body.Bytes(), []byte(secret)) {
+			t.Errorf("config response leaked %q", secret)
+		}
+	}
+}
+
+// Masquer ne doit pas modifier la configuration active : Storage.Redis et
+// Alerting.Webhooks sont partagés avec elle par la copie de Config.
+func TestSanitizedConfigLeavesTheActiveConfigIntact(t *testing.T) {
+	var cfg config.Config
+	cfg.Storage.Redis = &config.RedisConfig{Password: "redis-password"}
+	cfg.Alerting.Webhooks = []config.AlertWebhook{{URL: "https://hooks.test/token"}}
+
+	masked := sanitizedConfig(cfg)
+
+	if masked.Storage.Redis.Password != maskedSecret || masked.Alerting.Webhooks[0].URL != maskedSecret {
+		t.Fatalf("masked = %+v / %+v, want secrets replaced by %q", *masked.Storage.Redis, masked.Alerting.Webhooks, maskedSecret)
+	}
+	if cfg.Storage.Redis.Password != "redis-password" || cfg.Alerting.Webhooks[0].URL != "https://hooks.test/token" {
+		t.Fatalf("active config was modified: %+v / %+v", *cfg.Storage.Redis, cfg.Alerting.Webhooks)
+	}
+}
+
 // FR-23 — vérifie que server.max_header_value_count est bien transmis au
 // http.Server (Go 1.27+) et que la requête est rejetée AVANT d'atteindre le
 // handler : une requête sous la limite passe (401, faute de token), une requête

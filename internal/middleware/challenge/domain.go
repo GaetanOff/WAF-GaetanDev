@@ -1,11 +1,11 @@
 package challenge
 
 import (
-	"net"
 	"strings"
 	"sync/atomic"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/hostname"
 )
 
 // domainGate résout, pour l'hôte d'une requête, si le challenge JS doit être
@@ -42,7 +42,7 @@ func newDomainGate(cfg config.Config) domainGate {
 		if domain.ChallengeEnabled == nil {
 			continue // clé absente : le domaine hérite du global
 		}
-		host := normalizeHost(domain.Host)
+		host := hostname.Normalize(domain.Host)
 		wildcard := strings.HasPrefix(host, "*.")
 		gate.overrides = append(gate.overrides, domainOverride{
 			host:     strings.TrimPrefix(host, "*."),
@@ -54,7 +54,7 @@ func newDomainGate(cfg config.Config) domainGate {
 }
 
 func (g domainGate) enabledFor(host string) bool {
-	requestHost := normalizeHost(host)
+	requestHost := hostname.Normalize(host)
 	for _, override := range g.overrides {
 		if override.matches(requestHost) {
 			return override.enabled
@@ -82,14 +82,4 @@ func (o domainOverride) matches(host string) bool {
 		return host == o.host || strings.HasSuffix(host, "."+o.host)
 	}
 	return host == o.host
-}
-
-// normalizeHost met l'hôte en minuscules et retire le port éventuel. Un Host
-// IPv6 littéral ("[::1]:8443") est géré par net.SplitHostPort.
-func normalizeHost(host string) string {
-	host = strings.ToLower(strings.TrimSpace(host))
-	if hostname, _, err := net.SplitHostPort(host); err == nil {
-		return hostname
-	}
-	return host
 }

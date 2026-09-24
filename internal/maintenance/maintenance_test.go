@@ -135,6 +135,28 @@ func TestErrorPageBrandsHTMLGatewayError(t *testing.T) {
 
 // Un 4xx déjà en HTML (page d'erreur légitime d'une appli) reste préservé même
 // sur une navigation navigateur : on ne brande que les 4xx non-HTML.
+// Une navigation (Accept: text/html,*/*) qui reçoit une erreur JSON d'une API
+// garde ce JSON : seuls les 4xx en texte brut (refus du WAF) sont brandés.
+func TestErrorPagePreserves4xxJSONForBrowser(t *testing.T) {
+	m := New(config.Maintenance{Enabled: false, ErrorPages: true})
+	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusUnprocessableEntity)
+		_, _ = w.Write([]byte(`{"error":"validation_failed"}`))
+	}))
+	resp := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "http://x/api/orders", nil)
+	request.Header.Set("Accept", "text/html,*/*")
+	handler.ServeHTTP(resp, request)
+
+	if resp.Code != http.StatusUnprocessableEntity {
+		t.Fatalf("status = %d, want 422", resp.Code)
+	}
+	if resp.Body.String() != `{"error":"validation_failed"}` {
+		t.Fatalf("4xx JSON body must be preserved: %q", resp.Body.String())
+	}
+}
+
 func TestErrorPagePreserves4xxHTMLForBrowser(t *testing.T) {
 	m := New(config.Maintenance{Enabled: false, ErrorPages: true})
 	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

@@ -284,6 +284,37 @@ last-reviewed: 2026-09-24
 | 2026-09-24 | Pool de tampons proxy | `TestBufferPoolCycleDoesNotAllocate` | pass | 1 allocation par cycle avant, 0 après |
 | 2026-09-24 | Slowloris derrière Cloudflare | `TestRoutesSlowlorisCountsTheCloudflareVisitorNotThePoP` | pass | 429 pour le 2ᵉ visiteur du même PoP avant correctif |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `/waf/health` 200 ; `CF-Connecting-IP` forgé hors Cloudflare 400 |
+| 2026-09-24 | Sprint 18 (audit 3) | `go test ./...` | pass | 690 tests, 46 paquets (nouveau paquet `internal/hostname`) |
+| 2026-09-24 | Sprint 18 (audit 3) | `go vet ./...` + `go build ./...` | pass | |
+| 2026-09-24 | Sprint 18 (audit 3) | `golangci-lint run ./...` | pass | 0 issue |
+| 2026-09-24 | Sprint 18 (audit 3) | `spectral lint` admin + public | pass | 0 erreur |
+| 2026-09-24 | Sprint 18 (audit 3) | `govulncheck ./...` | pass | 0 vulnérabilité atteignable ; GO-2026-5841 corrigée (`klauspost/compress` v1.18.7) ; reste GO-2026-5932, non appelée, sans correctif (`.trivyignore`) |
+| 2026-09-24 | Sprint 18 (audit 3) | `go test -race` | **non exécuté localement** | cgo indisponible sur le poste ; couvert par la CI |
+| 2026-09-24 | Condition `trust_score` | `TestTrustScoreConditionReadsTheScoreManager` | pass | En échec sur l'ancien code (la condition était toujours fausse) |
+| 2026-09-24 | Hôte des tokens | `TestClearanceCookieHoldsAcrossHostSpellings`, `TestInjectedTokenVerifiesForTheNormalizedDomain` | pass | En échec sur l'ancien code pour `Example.TEST` et `example.test:443` |
+| 2026-09-24 | `ttlcache` sous contention | Benchmark `Get` parallèle (non versionné), 1/4/8/16 cœurs | mesure | 37 / 91 / 85 / 108 ns/op : ~10 M lectures/s par cache, sharding non justifié |
+| 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `Example.com:8080` compté sous `domain="example.com"` ; `attack-1.test`, `attack-2.test` sous `_undeclared` ; `GET /waf/admin/config` masque les secrets |
+
+### Sprint 18 — troisième audit du 2026-09-24 : ce qui était exact, ce qui ne l'était pas
+
+- **Exact et corrigé** : 1.1 à 1.5, 2.1, 3.1, 3.3, 4.1 à 4.3. Chaque correctif
+  de code a un test qui échoue sur l'ancien code. En corrigeant 1.2, un défaut
+  voisin est apparu et a été corrigé : le masquage écrasait le mot de passe
+  Redis de la configuration active (pointeur partagé).
+- **Partiellement inexact** : 3.3 — la vulnérabilité réelle est GO-2026-5841
+  (corrigée en v1.18.7), pas GO-2026-4449 / 4448 en v1.17.11 ; elle n'est pas
+  atteignable par le code. 4.3 — FR-35 vit dans `requirements-detection.md`,
+  pas dans `requirements-advanced.md`.
+- **Exact sur le constat, sans impact** : 2.2 (verrou par instance de cache,
+  débit mesuré très au-dessus du besoin) et 2.4 (workers sans ressource à
+  vider ; les fermer depuis `run()` exposerait à une panique sur le chemin
+  d'erreur). Non corrigés.
+- **Inexact** : 2.3 (Redis Cluster hors périmètre, client instance unique,
+  ADR-021) et 3.2 (selfprotect et slowloris sont montés hors du logger : leurs
+  429 ne sont jamais journalisés en `PASS`).
+- **Changement de comportement** : le label `domain` des métriques ne reprend
+  plus le Host brut. Un tableau de bord qui filtrait sur un hôte non déclaré
+  dans `domains[]` doit filtrer sur `_undeclared` ou déclarer l'hôte.
 
 ### Sprint 17 — second audit du 2026-09-24 : ce qui était exact, ce qui ne l'était pas
 
@@ -547,7 +578,7 @@ critère d'acceptation.
 
 | Check | Status | Notes |
 |-------|--------|-------|
-| `go test ./...` | ✅ | 678 tests, 45 paquets |
+| `go test ./...` | ✅ | 690 tests, 46 paquets |
 | `go test -race ./...` | ⬜ | non exécutable localement (pas de toolchain C sous Windows) — exécuté par la CI (`ci.yml`, job Test) |
 | Scénarios non implémentés isolés (`@deferred`) | ✅ | rules-engine, upstream-health, audit-trail, deception-layer, origin-protection, acme-tls, webhook-alerts |
 
@@ -557,7 +588,7 @@ make security   # govulncheck ./...
 ```
 | Check | Status | Notes |
 |-------|--------|-------|
-| Pas de vulnérabilité atteignable (govulncheck) | ✅ | 0 vulnérabilité appelée par le code. 2 présentes dans des modules requis, non atteintes : GO-2026-5932 (`golang.org/x/crypto` v0.56.0, pas de correctif publié) et GO-2026-5841 (`github.com/klauspost/compress` v1.17.9, corrigé en v1.18.7 — montée de version à planifier) |
+| Pas de vulnérabilité atteignable (govulncheck) | ✅ | 0 vulnérabilité appelée par le code. 1 présente dans un module requis, non atteinte : GO-2026-5932 (`golang.org/x/crypto` v0.56.0, pas de correctif publié). GO-2026-5841 corrigée au Sprint 18 (`github.com/klauspost/compress` v1.18.7) |
 | SAST | ⬜ | Semgrep (p/golang, p/security-audit, p/secrets) et Trivy tournent en CI ; non rejoués localement |
 | Cookies signés HMAC (test de forge → rejet) | ✅ | `TestConformanceForgedCookieServesChallengePage` |
 | API admin inaccessible sans token | ✅ | `TestAdminRejectsMissingBearerToken` |

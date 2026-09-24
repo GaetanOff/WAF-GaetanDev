@@ -645,7 +645,7 @@
         },
         "secret_key": {
           "type": "string",
-          "description": "Clé secrète HMAC. Préférer WAF_CHALLENGE_SECRET_KEY env var",
+          "description": "Clé secrète HMAC des tokens et cookies de challenge. Préférer WAF_CHALLENGE_SECRET_KEY env var. Requise dès qu'un hôte peut être challengé : challenge.enabled, ou un domains[].challenge_enabled à true même si challenge.enabled est faux (FR-06)",
           "minLength": 32
         },
         "token_ttl": {

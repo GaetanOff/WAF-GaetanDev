@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.5.0
+version: 3.5.1
 last-reviewed: 2026-09-24
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+change: "FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -304,7 +304,7 @@ change: "FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schem
   - `{{.StatusCode}}`, `{{.Domain}}`, `{{.RetryAfter}}`, `{{.RequestID}}`
 - Le WAF DOIT supporter le mode `maintenance_forced: true` : forcer la page de maintenance pour tout le trafic (outil de déploiement)
 - Les **pages d'erreur brandées** (remplacement du corps 4xx/5xx) ne DOIVENT s'appliquer qu'aux **navigations de navigateur** (`Accept: text/html`). Les appels API/XHR (`Accept: application/json`, `*/*`, ou absent) DOIVENT conserver leur corps d'erreur d'origine (souvent JSON), sinon les clients `fetch`/`axios` ne peuvent plus parser la réponse. La page de maintenance forcée (503) reste servie à tous
-- Pour les erreurs **5xx** (502/503/504 : origine/passerelle en panne), le WAF DOIT remplacer le corps **même s'il est déjà en HTML** : une page d'erreur générique d'un reverse proxy en aval (nginx/OpenResty) n'est pas du contenu applicatif à préserver. Pour les **4xx**, le WAF NE DOIT remplacer que les corps **non-HTML**, afin de préserver les pages d'erreur ou le JSON légitimes des applications
+- Pour les erreurs **5xx** (502/503/504 : origine/passerelle en panne), le WAF DOIT remplacer le corps **même s'il est déjà en HTML** : une page d'erreur générique d'un reverse proxy en aval (nginx/OpenResty) n'est pas du contenu applicatif à préserver. Pour les **4xx**, le WAF NE DOIT remplacer que les corps en **texte brut** (`text/plain`) ou **sans `Content-Type`** — la forme des refus du WAF —, afin de préserver les pages d'erreur HTML et le JSON légitimes des applications. Le critère « non-HTML » remplaçait une erreur JSON d'API (400, 422) dès que la requête acceptait `text/html`
 - Limite : si Cloudflare est configuré pour afficher ses propres pages d'erreur (Custom Pages) ou intercepte les erreurs d'origine, la page brandée du WAF peut être masquée par celle de Cloudflare (hors périmètre du WAF)
 
 ## FR-33 — Terminaison TLS par domaine (sélection par SNI)

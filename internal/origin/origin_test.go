@@ -52,6 +52,28 @@ func TestInjectorSetsHeaderForUpstream(t *testing.T) {
 	}
 }
 
+// FR-19 : le token injecté porte sur le domaine normalisé. Signé sur le Host
+// brut, il échouait à la vérification ?domain=example.com dès que le client
+// envoyait "Example.com" ou "example.com:443".
+func TestInjectedTokenVerifiesForTheNormalizedDomain(t *testing.T) {
+	signer := NewSigner("origin-secret-key-min-16")
+	var forwarded string
+	request := httptest.NewRequest(http.MethodGet, "http://example.com/", nil)
+	request.Host = "Example.com:443"
+
+	signer.Injector(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		forwarded = r.Header.Get(HeaderToken)
+	})).ServeHTTP(httptest.NewRecorder(), request)
+
+	verify := httptest.NewRequest(http.MethodGet, "http://waf/waf/origin/verify?domain=example.com", nil)
+	verify.Header.Set(HeaderToken, forwarded)
+	response := httptest.NewRecorder()
+	signer.VerifyHandler(response, verify)
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200: the token injected for Host \"Example.com:443\" must verify for example.com", response.Code)
+	}
+}
+
 func TestVerifyHandler(t *testing.T) {
 	signer := NewSigner("origin-secret-key-min-16")
 	token := signer.Token("example.com")

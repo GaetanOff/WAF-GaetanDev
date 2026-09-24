@@ -1,6 +1,6 @@
 ---
 status: implemented
-sprint: 17
+sprint: 18
 last-updated: 2026-09-24
 ---
 
@@ -688,7 +688,7 @@ last-updated: 2026-09-24
 - [x] `C4 niveau 2` reecrit (bordures alignees a 71 colonnes, trois chemins `/waf/*` visibles) ; `C4 niveau 3` de 15 a 42 paquets groupes par role ; `Go Project Structure` corrige (`middleware/chain.go` n'existe pas, `config.schema.json` vit dans `specs/schemas/`)
 - [x] Index des ADR complete : il s'arretait a ADR-004, il couvre les 20, statut affiche pour les non-`accepted`
 - [x] Verifie ligne par ligne contre `routes()` : ordre de composition, conditions de montage, position du tarpit entre `origin.Injector` et le proxy
-- [ ] `architecture-advanced.md` et `architecture-ops.md` — **non verifies**, hors perimetre de cette passe
+- [x] `architecture-advanced.md` et `architecture-ops.md` — **non verifies** dans cette passe ; deprecies au Sprint 18 (T18.3)
 - [ ] Sections `Data Model`, `Cookie de Session`, `Score de Confiance` d'`architecture.md` — **non verifiees** contre le code, hors perimetre
 - **Acceptance** : un lecteur du seul `architecture.md` peut reconstituer l'ordre reel de la chaine, savoir quelle cle de config monte chaque etape, et savoir quels chemins ne la traversent pas.
 - **Validation 2026-09-01** : document uniquement, aucun code touche. `go build ./...`, `go vet ./...`, `go test ./...` (447 tests, 42 paquets) passent — inchanges.
@@ -875,7 +875,45 @@ last-updated: 2026-09-24
 
 ### Restes (non traites)
 - [ ] G6 : campagne k6 a executer sur un poste equipe
-- [ ] `github.com/klauspost/compress` v1.17.9 -> v1.18.7 (GO-2026-5841, non atteignable)
+- [x] `github.com/klauspost/compress` v1.17.9 -> v1.18.7 (GO-2026-5841, non atteignable) : fait au Sprint 18 (T18.2)
 - [ ] Fonctionnalites differees (`@deferred`) : a planifier ou a retirer des specs
 - **Validation 2026-09-24** : `go build ./...`, `go vet ./...`, `go test ./...` (678 tests, 45 paquets), `golangci-lint run` (0 issue), `spectral lint` (0 erreur), `govulncheck` (0 vulnerabilite atteignable) ; execution reelle du binaire sur `config.example.yaml` (`/waf/health` 200, `CF-Connecting-IP` forge 400). `go test -race` non executable localement — couvert par la CI.
+- **Statut** : implemente.
+
+## Sprint 18 - Remediation du troisieme audit du 2026-09-24 (Phase 18)
+
+> Troisieme audit externe du 2026-09-24 : chaque point a ete verifie contre le
+> code avant correction, sur la branche `fix/audit-3-remediation`, a raison
+> d'un commit par correction. Deux points sont inexacts (2.3, 3.2), deux sont
+> exacts sur le constat mais sans impact demontre (2.2, 2.4) ; ils ne sont pas
+> corriges et la raison est consignee (T18.4).
+
+### T18.1 - Bugs logiques et securite
+- [x] 1.1 Condition `trust_score` toujours fausse : lue dans `X-WAF-Score`, que l'ingress supprime et que seul le middleware de score pose, en aval des regles. Le score est lu dans le `ScoreManager` (`Peek`, sans ecriture) ; un `X-WAF-Score` client est ignore. Scenario « Regle basee sur le trust_score courant » couvert (test en echec sur l'ancien code)
+- [x] 1.2 `GET /waf/admin/config` rendait `origin_protection.secret` et `threat_intel.abuseipdb.api_key` en clair ; masques, ainsi que `alerting.webhooks[].url` (l'URL porte le jeton). Au passage : le masquage modifiait la configuration active (`Storage.Redis` partage par pointeur) — le premier GET ecrasait le mot de passe Redis en vigueur par `***`
+- [x] 1.3 `challenge.secret_key` exigee aussi quand un domaine active `challenge_enabled: true` avec `challenge.enabled: false` (le WAF signait sinon avec une cle vide)
+- [x] 1.4 Tokens et cookies de challenge, token d'origine : signes sur l'hote normalise (casse, port). Nouveau paquet `internal/hostname`, partage avec le routeur du proxy (deux copies de `normalizeHost` supprimees)
+- [x] 1.5 Circuit breaker : seul `X-WAF-Action: RATE_LIMIT` est une violation ; un 429 de l'upstream ne bannit plus l'IP
+- **Spec** : requirements-advanced.md FR-17, FR-19 (v2.5.1) ; requirements.md FR-06, FR-08 (v2.3.1) ; admin.openapi.yaml (v1.1.1) ; rule.schema.json (v2.0.1) ; config.schema.json ; features/rules-engine.feature, admin-api.feature, anti-ddos.feature
+
+### T18.2 - Robustesse et dependances
+- [x] 2.1 Label `domain` des metriques borne a `domains[]` (wildcard rendu tel quel, autres hotes sous `_undeclared`) : un Host invente ne cree plus de serie Prometheus
+- [x] 3.1 Pages d'erreur : un 4xx n'est brande que si son corps est en texte brut ou sans type ; une erreur JSON d'API reste intacte meme pour `Accept: text/html,*/*`
+- [x] 3.3 `github.com/klauspost/compress` v1.17.9 -> v1.18.7 (GO-2026-5841, non atteignable). L'audit citait GO-2026-4449 / GO-2026-4448 et v1.17.11, que govulncheck ne remonte pas
+- **Spec** : requirements.md FR-09 (v2.3.2) ; requirements-ops.md FR-32 (v3.5.1) ; features/maintenance-page.feature
+
+### T18.3 - Specs et conformite SDD
+- [x] 4.1 `architecture-advanced.md` et `architecture-ops.md` deprecies (fichiers et pipeline inexistants), `architecture.md` seule reference ; clot le reste de T14.4
+- [x] 4.2 `plan.md` 1.3.0 : phases 10 a 18, epics E12 a E15
+- [x] 4.3 FR-11 aligne sur FR-35 : JA3 blackliste = declencheur deterministe `ja3_blacklist`, BLOCK par le moteur de risque (sans effet en shadow ou sans moteur, documente)
+- **Spec** : architecture.md (v1.4.2) ; plan.md (v1.3.0) ; requirements-advanced.md (v2.5.2) ; features/tls-fingerprinting.feature
+
+### T18.4 - Points non corriges
+- [x] 2.2 Contention de `ttlcache` : un verrou par **instance** (chaque detecteur a la sienne, pas un verrou global). Mesure : `Get` parallele 37 ns/op sur 1 coeur, 85-108 ns/op de 4 a 16 coeurs, soit ~10 M lectures/s par cache — plusieurs ordres de grandeur au-dessus du debit d'un reverse proxy. Pas de sharding sans mesure de charge qui le justifie (G6)
+- [x] 2.3 Cles Redis sans hash tag : **inexact**. Le backend utilise `goredis.NewClient` (instance unique) ; Redis Cluster est hors perimetre (ADR-021), `CROSSSLOT` ne peut pas se produire. A reprendre si Redis Cluster est un jour supporte
+- [x] 2.4 `threatChecker.Close()` / `BotVerifier.Close()` non appeles : **exact, sans impact**. Ces workers ne tiennent aucune ressource a vider et le processus se termine juste apres `Shutdown`. Les appeler depuis `run()` fermerait leur canal alors que, sur le chemin d'erreur, des requetes peuvent encore y ecrire (panique « send on closed channel »)
+- [x] 3.2 `X-WAF-Action` absent de selfprotect et slowloris : **inexact quant a l'impact**. Ces deux gardes sont montees **hors** du logger et des metriques (`routes()`) : leurs 429 ne sont jamais journalises, donc jamais en `PASS`
+- [ ] Constat annexe, hors audit : ces refus (selfprotect, slowloris) ne sont ni journalises ni comptes — a specifier si on veut les observer
+- [ ] Constat annexe, hors audit : sans moteur de risque, les declencheurs deterministes `ja3_blacklist` et `threat_intel_critical` n'ont aucun effet
+- **Validation 2026-09-24** : `go build ./...`, `go vet ./...`, `go test ./...` (690 tests, 46 paquets), `golangci-lint run` (0 issue), `spectral lint` (0 erreur), `govulncheck` (0 vulnerabilite atteignable, 1 non atteinte : GO-2026-5932) ; execution reelle du binaire sur `config.example.yaml` : `Example.com:8080` compte sous `domain="example.com"`, deux Host inventes sous `_undeclared`, secrets masques. `go test -race` non executable localement — couvert par la CI.
 - **Statut** : implemente.

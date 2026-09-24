@@ -201,7 +201,10 @@ func isPressureThrottle(recorder *statusRecorder) bool {
 		recorder.Header().Get("X-WAF-Reason") == reasonPressureThrottle
 }
 
+// isViolation ne retient que le rate limit du WAF (X-WAF-Action: RATE_LIMIT),
+// seule violation du circuit breaker (FR-08). Un 429 nu venait aussi de
+// l'upstream : le rate limit applicatif d'une API ouvrait le circuit et le WAF
+// bannissait l'IP après cinq 429 de l'origine.
 func isViolation(recorder *statusRecorder) bool {
-	action := recorder.Header().Get("X-WAF-Action")
-	return action == "RATE_LIMIT" || recorder.statusCode == http.StatusTooManyRequests
+	return recorder.Header().Get("X-WAF-Action") == "RATE_LIMIT"
 }

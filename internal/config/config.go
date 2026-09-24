@@ -871,7 +871,7 @@ func (c *Config) Validate() error {
 		validateDuration(&fields, "upstream_pool.health_check.interval", c.UpstreamPool.HealthCheck.Interval)
 		validateDuration(&fields, "upstream_pool.health_check.timeout", c.UpstreamPool.HealthCheck.Timeout)
 	}
-	if c.Challenge.Enabled && len(c.Challenge.SecretKey) < 32 {
+	if c.challengeReachable() && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")
 	}
 	validateRange(&fields, "challenge.pow_difficulty", c.Challenge.PowDifficulty, 8, 24)
@@ -914,6 +914,23 @@ func (c *Config) Validate() error {
 	}
 
 	return nil
+}
+
+// challengeReachable indique si un hôte peut recevoir le challenge : le réglage
+// global, ou un domaine qui l'active alors que le global est éteint (FR-06). La
+// clé n'était exigée que dans le premier cas : un seul domaine à
+// challenge_enabled: true démarrait le WAF avec une clé HMAC vide, qui signait
+// alors tokens et cookies de clearance.
+func (c Config) challengeReachable() bool {
+	if c.Challenge.Enabled {
+		return true
+	}
+	for _, domain := range c.Domains {
+		if domain.ChallengeEnabled != nil && *domain.ChallengeEnabled {
+			return true
+		}
+	}
+	return false
 }
 
 // minRangeUpdateInterval borne la fréquence de rafraîchissement des plages

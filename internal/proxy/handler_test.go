@@ -193,13 +193,6 @@ func assertHeader(t *testing.T, r *http.Request, name, want string) {
 	}
 }
 
-func TestNormalizeHostStripsPort(t *testing.T) {
-	got := normalizeHost("Example.COM:8080")
-	if got != "example.com" {
-		t.Fatalf("normalizeHost() = %q, want example.com", got)
-	}
-}
-
 func TestTransportTimeoutIsConfigured(t *testing.T) {
 	handler := newTestHandler(t, "http://127.0.0.1:1", nil)
 	transport, ok := handler.proxies[handler.defaultUpstream.String()].Transport.(*http.Transport)

@@ -13,12 +13,14 @@ Feature: TLS / JA3 Fingerprinting
     Then le JA3 hash "3b5074b1b5d032e5620f69f9159a1b97" est extrait
     And stocké dans le VisitorProfile
 
-  Scenario: JA3 hash en blacklist — score décrémenté
+  Scenario: JA3 hash en blacklist — déclencheur déterministe, BLOCK
     Given le hash "3b5074b1b5d032e5620f69f9159a1b97" est dans la blacklist JA3 (Mirai)
+    And le moteur de risque est actif hors shadow mode
     When une requête avec ce JA3 arrive
-    Then le trust score est décrémenté de 40
-    And l'événement est journalisé avec reason="ja3_blacklisted" ja3="3b5074b1b5d032e5620f69f9159a1b97"
-    And le visiteur reçoit le challenge immédiatement
+    Then la requête porte le déclencheur déterministe "ja3_blacklist"
+    And le moteur de risque la bloque (HTTP 403) sans corroboration
+    And l'événement est journalisé avec reason="ja3_blacklisted"
+    # FR-35 / ADR-015 : un JA3 blacklisté est une vérité non ambiguë.
 
   Scenario: JA3 propre — aucun impact
     Given le hash JA3 "a0e9f5d64349fb13191bc781f81f42e1" n'est pas en blacklist

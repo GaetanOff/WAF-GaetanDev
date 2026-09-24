@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 2.5.0
+version: 2.5.2
 last-reviewed: 2026-09-24
 reviewed-by: GaetanDev
 extends: requirements.md (v2.0.0)
-change: "FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
+change: "FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par le moteur de risque, FR-35), la clause « score -= 40 et challenge immédiat » antérieure au moteur est retirée. Précédent (2.5.1) — FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)
@@ -20,7 +20,8 @@ change: "FR-12/FR-13 : profils comportementaux et entrées de réputation détai
 - Le WAF DOIT lire le header `Cf-Bot-Management-Ja3Hash` quand disponible (Cloudflare Bot Management)
 - Le WAF DOIT maintenir une liste de hashes JA3 connus malveillants (configurable)
 - Le WAF DOIT stocker le JA3 dans le `VisitorProfile` pour détection d'incohérence entre sessions
-- Un hash JA3 en blacklist DOIT déclencher score -= 40 et un challenge immédiat
+- Un hash JA3 en blacklist DOIT être déclaré **déclencheur déterministe** `ja3_blacklist` (requirements-detection FR-35, ADR-015) : le moteur de risque le bloque (HTTP 403) sans exigence de corroboration, et la raison journalisée est `ja3_blacklisted`. Aucun delta de trust score n'est appliqué. Cette clause remplace « score -= 40 et challenge immédiat », antérieure au moteur de risque
+- Le déclencheur n'est appliqué que par le moteur de risque : en `risk_engine.shadow_mode` la décision BLOCK est journalisée sans être appliquée, et sans moteur (`risk_engine.enabled: false`) la blacklist JA3 n'a pas d'effet
 - Le WAF DEVRAIT détecter les changements de JA3 pour un même visiteur entre sessions (fingerprint swap = suspicieux)
 - La collecte JA3 DOIT être optionnelle et désactivable (mode Cloudflare sans Bot Management)
 
@@ -170,6 +171,7 @@ change: "FR-12/FR-13 : profils comportementaux et entrées de réputation détai
 
 - Le WAF DOIT injecter un **header secret** dans toutes les requêtes proxifiées vers l'upstream :
   `X-WAF-Origin-Token: <HMAC-SHA256(secret, domain + timestamp_hour)>`
+- `domain` est l'hôte **normalisé** (minuscules, port retiré), comme pour le routage `domains[]` : un Host `Example.com:443` est signé et vérifié comme `example.com`. Signé sur le Host brut, le token injecté échouait à `GET /waf/origin/verify?domain=example.com`
 - Le token DOIT être rotatif (change toutes les heures, tolérance 2h pour éviter les coupures)
 - La valeur de ce header DOIT être configurable (`origin_protection.secret`)
 - **Différé** : rotation du secret sans interruption (acceptation d'un secret

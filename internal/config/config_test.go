@@ -124,6 +124,53 @@ rate_limit:
 	}
 }
 
+// FR-06 : un domaine à challenge_enabled: true sert le challenge même quand
+// challenge.enabled est faux ; sa clé HMAC doit donc être exigée aussi.
+func TestLoadRejectsMissingChallengeSecretForADomainOverride(t *testing.T) {
+	t.Setenv(envAdminToken, testSecret)
+
+	path := writeConfig(t, `
+version: "1.0"
+server:
+  listen: ":8080"
+upstream:
+  address: "http://example.test"
+challenge:
+  enabled: false
+domains:
+  - host: "shop.example.com"
+    upstream: "http://shop.example.test"
+    challenge_enabled: true
+`)
+
+	_, err := Load(path)
+	if err == nil || !strings.Contains(err.Error(), "challenge.secret_key") {
+		t.Fatalf("Load() error = %v, want a challenge.secret_key validation error", err)
+	}
+}
+
+func TestLoadAcceptsNoChallengeSecretWhenNoHostIsChallenged(t *testing.T) {
+	t.Setenv(envAdminToken, testSecret)
+
+	path := writeConfig(t, `
+version: "1.0"
+server:
+  listen: ":8080"
+upstream:
+  address: "http://example.test"
+challenge:
+  enabled: false
+domains:
+  - host: "api.example.com"
+    upstream: "http://api.example.test"
+    challenge_enabled: false
+`)
+
+	if _, err := Load(path); err != nil {
+		t.Fatalf("Load() error = %v, want no error: no host can be challenged", err)
+	}
+}
+
 func TestLoadRejectsInvalidAntiDDoSConfig(t *testing.T) {
 	t.Setenv(envChallengeSecretKey, testSecret)
 	t.Setenv(envAdminToken, testSecret)
