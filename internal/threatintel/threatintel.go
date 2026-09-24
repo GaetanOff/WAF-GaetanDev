@@ -12,8 +12,14 @@ import (
 	"github.com/gaetandev/waf/internal/ttlcache"
 )
 
-// maxCachedVerdicts borne le cache de réputation.
-const maxCachedVerdicts = 100000
+const (
+	// maxCachedVerdicts borne le cache de réputation.
+	maxCachedVerdicts = 100000
+	// lookupWorkers borne les résolutions simultanées (requêtes vers les
+	// sources, dont l'API HTTP) ; lookupQueueSize borne celles en attente.
+	lookupWorkers   = 16
+	lookupQueueSize = 1024
+)
 
 // Level classe la réputation d'une IP, du plus bénin au plus dangereux.
 type Level int
@@ -42,24 +48,53 @@ type Source interface {
 // Le cache est borné (maxCachedVerdicts, LRU) et ses entrées expirent. C'était
 // une map dont les verdicts périmés n'étaient remplacés qu'à la relecture de la
 // même IP : chaque IP vue une fois y restait pour toujours.
+//
+// Les misses sont résolus par un pool fixe de lookupWorkers goroutines. Une
+// goroutine était lancée par miss : 20 000 IP neuves par seconde, c'étaient
+// 20 000 goroutines concurrentes interrogeant AbuseIPDB.
 type Checker struct {
 	sources []Source
 	ttl     time.Duration
 	cache   *ttlcache.Cache[string, Verdict]
+	lookups chan lookup
 
 	mu       sync.Mutex
 	inflight map[string]struct{}
+}
+
+type lookup struct {
+	ip     string
+	parsed net.IP
 }
 
 func NewChecker(ttl time.Duration, sources ...Source) *Checker {
 	if ttl <= 0 {
 		ttl = time.Hour
 	}
-	return &Checker{
+	checker := &Checker{
 		sources:  sources,
 		ttl:      ttl,
 		cache:    ttlcache.New[string, Verdict](maxCachedVerdicts, ttl),
+		lookups:  make(chan lookup, lookupQueueSize),
 		inflight: make(map[string]struct{}),
+	}
+	for range lookupWorkers {
+		go checker.worker()
+	}
+	return checker
+}
+
+// Close arrête les workers de résolution.
+func (c *Checker) Close() {
+	close(c.lookups)
+}
+
+func (c *Checker) worker() {
+	for job := range c.lookups {
+		c.cache.Set(job.ip, c.evaluate(job.parsed))
+		c.mu.Lock()
+		delete(c.inflight, job.ip)
+		c.mu.Unlock()
 	}
 }
 
@@ -79,21 +114,20 @@ func (c *Checker) Verdict(ip string) Verdict {
 	return Verdict{Level: LevelClean}
 }
 
+// triggerAsync remet la résolution au pool sans bloquer. File pleine : la
+// résolution est abandonnée, l'IP sera retentée à sa prochaine requête
+// (NFR-08 : un miss n'attend jamais).
 func (c *Checker) triggerAsync(ip string, parsed net.IP) {
 	c.mu.Lock()
+	defer c.mu.Unlock()
 	if _, busy := c.inflight[ip]; busy {
-		c.mu.Unlock()
 		return
 	}
-	c.inflight[ip] = struct{}{}
-	c.mu.Unlock()
-
-	go func() {
-		c.cache.Set(ip, c.evaluate(parsed))
-		c.mu.Lock()
-		delete(c.inflight, ip)
-		c.mu.Unlock()
-	}()
+	select {
+	case c.lookups <- lookup{ip: ip, parsed: parsed}:
+		c.inflight[ip] = struct{}{}
+	default:
+	}
 }
 
 // resolveSync évalue et met en cache le verdict de façon synchrone (utilisé par

@@ -5,6 +5,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"runtime"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -114,4 +116,45 @@ func TestCheckerCacheIsBounded(t *testing.T) {
 	if got := checker.cache.Len(); got != maxCachedVerdicts {
 		t.Fatalf("cached verdicts = %d, want %d", got, maxCachedVerdicts)
 	}
+}
+
+type blockingSource struct {
+	release chan struct{}
+	active  *atomic.Int64
+	peak    *atomic.Int64
+}
+
+func (s blockingSource) Lookup(net.IP) Verdict {
+	current := s.active.Add(1)
+	for {
+		peak := s.peak.Load()
+		if current <= peak || s.peak.CompareAndSwap(peak, current) {
+			break
+		}
+	}
+	<-s.release
+	s.active.Add(-1)
+	return Verdict{Level: LevelClean}
+}
+
+// Régression : chaque miss lançait sa goroutine — un flux d'IP neuves en
+// lançait autant, toutes concurrentes contre la source HTTP.
+func TestCheckerBoundsConcurrentLookups(t *testing.T) {
+	source := blockingSource{release: make(chan struct{}), active: new(atomic.Int64), peak: new(atomic.Int64)}
+	checker := NewChecker(time.Hour, source)
+	defer checker.Close()
+	before := runtime.NumGoroutine()
+
+	for i := range 5000 {
+		checker.Verdict(fmt.Sprintf("10.%d.%d.%d", i>>16&0xff, i>>8&0xff, i&0xff))
+	}
+	time.Sleep(50 * time.Millisecond)
+
+	if grown := runtime.NumGoroutine() - before; grown > 0 {
+		t.Fatalf("goroutines grew by %d for 5000 misses, want none beyond the fixed pool", grown)
+	}
+	if peak := source.peak.Load(); peak > lookupWorkers {
+		t.Fatalf("concurrent lookups = %d, want <= %d", peak, lookupWorkers)
+	}
+	close(source.release)
 }
