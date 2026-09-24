@@ -231,7 +231,8 @@ REQUÊTE ENTRANTE
       │ Whitelist IP/CIDR    → X-WAF-Action=PASS (bypass total).
       │ Blacklist IP/CIDR    → 403 (FR-04).
       │ whitelist_user_agents → X-WAF-UA-Whitelisted : exemption du
-      │ seul challenge proactif [13], PAS un bypass (un UA se forge).
+      │ challenge proactif [13] et des heuristiques « client non
+      │ navigateur » de [15], PAS un bypass (un UA se forge).
       ▼
 [12] antiddos.Handler                     toujours
       │ Pression globale ou par domaine, circuit breaker,
@@ -251,7 +252,8 @@ REQUÊTE ENTRANTE
       │ (storage.UpdateBuckets, ADR-021 amendé).
       ▼
 [15] antibot.Handler                      toujours
-      │ Heuristiques User-Agent et en-têtes, honeypots (FR-07).
+      │ Heuristiques User-Agent et en-têtes, honeypots (FR-07). En-têtes
+      │ manquants et UA d'outil ignorés pour un UA whitelisté.
       ▼
 [16] Détecteurs de signal — dans cet ordre, chacun conditionnel
       │ integrity     toujours              Cohérence de la requête (FR-18)

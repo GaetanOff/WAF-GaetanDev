@@ -58,6 +58,15 @@ Feature: Gestion Whitelist / Blacklist
     And la vérification reverse-DNS (risk_engine.verified_bots) la classe "spoofed"
     # Régression : la whitelist UA posait X-WAF-Action=PASS et contournait toute la chaîne.
 
+  Scenario: User-Agent whitelisté — pas de pénalité d'en-têtes navigateur
+    Given le pattern "Googlebot" est dans la whitelist_user_agents
+    And le score initial du visiteur est 50
+    When 20 requêtes arrivent avec User-Agent "Mozilla/5.0 (compatible; Googlebot/2.1)" sans Accept-Language
+    Then aucune n'est bloquée et le score reste 50
+    And un honeypot, un User-Agent d'automation ou headless restent pénalisés
+    # Régression : -5 par requête (missing_browser_header) bloquait Googlebot en
+    # huit requêtes, avant toute vérification reverse-DNS.
+
   Scenario: User-Agent whitelisté depuis une IP blacklistée
     Given l'IP "203.0.113.10" est dans la blacklist
     When elle envoie une requête avec User-Agent "Googlebot"

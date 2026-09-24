@@ -71,6 +71,7 @@ Feature: Détection Anti-Bot
     Given une requête avec User-Agent "Mozilla/5.0 (compatible; Googlebot/2.1; +http://www.google.com/bot.html)"
     When le WAF analyse la requête
     Then la requête est transmise à l'upstream sans challenge proactif
+    And les heuristiques « client non navigateur » (en-têtes manquants, UA d'outil) ne le pénalisent pas
     And le moteur de risque vérifie le crawler par reverse-DNS (verified_bots)
 
   Scenario: WebGL renderer headless détecté dans le fingerprint

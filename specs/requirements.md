@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 2.3.2
+version: 2.3.3
 last-reviewed: 2026-09-24
 reviewed-by: GaetanDev
-change: "FR-09 : le label `domain` des métriques est borné aux hôtes de `domains[]`, tout autre hôte est compté sous `_undeclared`. Précédent (2.3.1) — FR-08 : seul un refus du rate limit du WAF (`X-WAF-Action: RATE_LIMIT`) est une violation de circuit-breaker, jamais un 429 de l'upstream. Précédent (2.3.0) — FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
+change: "FR-07 : un User-Agent de `whitelist_user_agents` n'est plus pénalisé par les heuristiques « client non navigateur » (en-têtes manquants, UA d'outil) — Googlebot était bloqué en huit requêtes. Précédent (2.3.2) — FR-09 : le label `domain` des métriques est borné aux hôtes de `domains[]`, tout autre hôte est compté sous `_undeclared`. Précédent (2.3.1) — FR-08 : seul un refus du rate limit du WAF (`X-WAF-Action: RATE_LIMIT`) est une violation de circuit-breaker, jamais un 429 de l'upstream. Précédent (2.3.0) — FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
 ---
 
 # Requirements — WAF Anti-DDoS / Anti-Bot
@@ -91,6 +91,7 @@ change: "FR-09 : le label `domain` des métriques est borné aux hôtes de `doma
 - Le WAF DOIT détecter les requêtes vers des URLs honeypot configurables
 - Le WAF DOIT appliquer des règles basées sur la présence/absence de certains headers (Accept, Accept-Language, Accept-Encoding)
 - Le WAF DOIT scorer négativement les user-agents de headless browsers (Headless Chrome, PhantomJS, Puppeteer-known signatures)
+- Un User-Agent de `whitelist_user_agents` NE DOIT PAS être pénalisé par les heuristiques qui établissent seulement que le client n'est pas un navigateur (en-têtes `Accept-Language`/`Accept-Encoding` absents, UA d'outil) : un crawler légitime n'envoie pas ces en-têtes, et la pénalité répétée le bloquait avant la vérification reverse-DNS (`risk_engine.verified_bots`). Honeypot, UA d'automation et navigateurs headless RESTENT évalués
 - En mode calibration (`risk_engine.shadow_mode`), le WAF DOIT **observer** les blocages heuristiques de l'anti-bot (UA suspect, headers manquants…) sans les appliquer, afin de ne pas casser le trafic API/serveur légitime non-navigateur le temps de l'observation. Le honeypot, signal **déterministe** sans faux positif, RESTE bloquant même en shadow
 
 ### FR-08 — Anti-DDoS
