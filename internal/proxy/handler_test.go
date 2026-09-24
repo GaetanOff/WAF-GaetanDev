@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -207,5 +208,51 @@ func TestTransportTimeoutIsConfigured(t *testing.T) {
 	}
 	if transport.ResponseHeaderTimeout != time.Second {
 		t.Fatalf("ResponseHeaderTimeout = %s, want 1s", transport.ResponseHeaderTimeout)
+	}
+}
+
+// La règle « première entrée gagnante » survit à l'index des hôtes exacts : un
+// wildcard déclaré avant une entrée exacte l'emporte, et inversement.
+func TestHandlerRoutingKeepsFirstMatchWins(t *testing.T) {
+	cfg := config.Default()
+	cfg.Upstream.Address = "http://default.internal"
+	cfg.Domains = []config.DomainConfig{
+		{Host: "*.a.test", Upstream: "http://wildcard-a.internal"},
+		{Host: "api.a.test", Upstream: "http://exact-a.internal"},
+		{Host: "api.b.test", Upstream: "http://exact-b.internal"},
+		{Host: "*.b.test", Upstream: "http://wildcard-b.internal"},
+		{Host: "api.b.test", Upstream: "http://duplicate-b.internal"},
+	}
+	handler, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("NewHandler() error = %v", err)
+	}
+	tests := map[string]string{
+		"api.a.test":      "http://wildcard-a.internal",
+		"API.B.test:8443": "http://exact-b.internal",
+		"www.b.test":      "http://wildcard-b.internal",
+		"b.test":          "http://wildcard-b.internal", // l'apex est couvert
+		"other.test":      "http://default.internal",
+	}
+	for host, want := range tests {
+		if got := handler.resolveProxy(host); got != handler.proxies[want] {
+			t.Errorf("host %q routed to the wrong upstream, want %s", host, want)
+		}
+	}
+}
+
+func BenchmarkResolveProxy(b *testing.B) {
+	cfg := config.Default()
+	cfg.Upstream.Address = "http://default.internal"
+	for i := range 200 {
+		cfg.Domains = append(cfg.Domains, config.DomainConfig{Host: fmt.Sprintf("site-%d.test", i), Upstream: fmt.Sprintf("http://up-%d.internal", i)})
+	}
+	handler, err := NewHandler(cfg)
+	if err != nil {
+		b.Fatalf("NewHandler() error = %v", err)
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		handler.resolveProxy("site-199.test")
 	}
 }
