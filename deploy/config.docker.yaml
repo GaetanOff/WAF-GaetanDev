@@ -72,7 +72,7 @@ whitelist_user_agents:
 
 honeypot_paths:
   - "/.env"
-  - "/wp-login.php"
+  - "/wp-config.php"
   - "/.git/config"
 
 logging:

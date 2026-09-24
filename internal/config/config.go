@@ -659,10 +659,13 @@ func Default() Config {
 			"LinkedInBot",
 			"Twitterbot",
 		},
+		// Aucun chemin qu'un site légitime sert à ses propres utilisateurs :
+		// /wp-admin et /wp-login.php en étaient, et bannissaient (score 0, 403)
+		// l'administrateur de tout site WordPress protégé avec les défauts.
+		// /wp-config.php, jamais servi par WordPress, reste un piège sûr.
 		HoneypotPaths: []string{
 			"/.env",
-			"/wp-admin",
-			"/wp-login.php",
+			"/wp-config.php",
 			"/.git/config",
 			"/phpinfo.php",
 			"/admin.php",

@@ -332,22 +332,26 @@ whitelist_user_agents:
   - "Applebot"
   - "UptimeRobot"            # Monitoring
 
-# Chemins honeypot : toute requête → score = 0 + log + bloc
+# Chemins honeypot : toute requête → score = 0 + log + bloc (correspondance exacte)
+# Ne JAMAIS y mettre un chemin que l'application protégée sert réellement : le
+# visiteur qui l'atteint est banni. Pour un site WordPress, /wp-admin,
+# /wp-login.php et /xmlrpc.php (Jetpack, applications mobiles) sont légitimes.
 honeypot_paths:
   - "/.env"
   - "/.env.local"
   - "/.env.production"
-  - "/wp-admin"
-  - "/wp-login.php"
   - "/wp-config.php"
   - "/.git/config"
   - "/phpinfo.php"
   - "/admin.php"
   - "/config.php"
   - "/.htaccess"
-  - "/xmlrpc.php"
   - "/shell.php"
   - "/c99.php"
+  # Uniquement si AUCUN domaine protégé n'est un WordPress :
+  # - "/wp-admin"
+  # - "/wp-login.php"
+  # - "/xmlrpc.php"
 
 # Configuration par domaine (surcharge les valeurs globales)
 # La clé challenge_enabled est une surcharge à trois états de challenge.enabled :

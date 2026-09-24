@@ -720,13 +720,12 @@
       },
       "default": [
         "/.env",
-        "/wp-admin",
-        "/wp-login.php",
+        "/wp-config.php",
         "/.git/config",
         "/phpinfo.php",
         "/admin.php"
       ],
-      "description": "Chemins honeypot : toute requête déclenche un score = 0 + log"
+      "description": "Chemins honeypot (correspondance exacte) : toute requête déclenche un score = 0 + log + blocage. Ne jamais y mettre un chemin que l'application protégée sert réellement (ex. /wp-admin, /wp-login.php, /xmlrpc.php pour un site WordPress)."
     },
     "domains": {
       "type": "array",

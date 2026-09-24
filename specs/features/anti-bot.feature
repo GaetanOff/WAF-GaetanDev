@@ -41,11 +41,18 @@ Feature: Détection Anti-Bot
     And un événement de sécurité est journalisé avec action="HONEYPOT"
     And le visiteur sera bloqué sur les requêtes suivantes
 
-  Scenario: Accès à un chemin honeypot wp-admin
+  Scenario: Accès à un chemin honeypot wp-config.php
     Given un visiteur avec l'IP "9.8.7.6" et score = 80
-    When il envoie une requête POST "/wp-admin"
+    When il envoie une requête GET "/wp-config.php"
     Then le score du visiteur est mis à 0
     And la requête reçoit une réponse HTTP 403
+
+  Scenario: Configuration par défaut — l'administration WordPress n'est pas un piège
+    Given le WAF utilise les honeypot_paths par défaut
+    When un administrateur envoie une requête GET "/wp-login.php" puis "/wp-admin"
+    Then aucune des deux n'est traitée comme un honeypot
+    # Un chemin servi par l'application protégée ne doit jamais être un piège :
+    # /wp-admin et /wp-login.php bannissaient l'administrateur de tout WordPress.
 
   Scenario: Mode calibration (shadow_mode) — blocage heuristique observé, non appliqué
     Given le WAF est configuré avec risk_engine.shadow_mode = true

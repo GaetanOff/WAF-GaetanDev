@@ -995,11 +995,19 @@ Ce n'est **pas** un bypass : un `User-Agent` se forge. La blacklist, l'anti-DDoS
 ```yaml
 honeypot_paths:
   - "/.env"
-  - "/wp-admin"
+  - "/wp-config.php"
   - "/.git/config"
 ```
 
-Chemins qui ne devraient jamais être accédés par un visiteur légitime. Toute requête vers un chemin honeypot déclenche : score de confiance → 0, log d'événement de sécurité, blocage immédiat.
+Chemins qui ne devraient jamais être accédés par un visiteur légitime. Toute requête vers un chemin honeypot (correspondance **exacte** du chemin) déclenche : score de confiance → 0, log d'événement de sécurité, blocage immédiat.
+
+Défaut : `/.env`, `/wp-config.php`, `/.git/config`, `/phpinfo.php`, `/admin.php`.
+
+> ⚠ Ne jamais y mettre un chemin que l'application protégée **sert réellement** :
+> le visiteur qui l'atteint est banni. La liste est globale — elle s'applique à
+> tous les domaines. Pour un site WordPress, `/wp-admin`, `/wp-login.php` et
+> `/xmlrpc.php` sont légitimes ; ils ne figurent plus dans les défauts, qui
+> bannissaient l'administrateur de tout WordPress protégé.
 
 ---
 
