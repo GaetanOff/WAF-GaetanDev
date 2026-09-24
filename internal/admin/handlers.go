@@ -161,6 +161,7 @@ func (s *Server) stats(w http.ResponseWriter, _ *http.Request) {
 		UptimeSeconds:  int64(time.Since(s.startedAt).Seconds()),
 		ActiveVisitors: len(visitors),
 	}
+	s.counters.fill(&stats)
 	for _, visitor := range visitors {
 		switch s.scores.State(visitor.Score) {
 		case "TRUSTED":
@@ -172,7 +173,6 @@ func (s *Server) stats(w http.ResponseWriter, _ *http.Request) {
 		case "BLOCKED":
 			stats.BlockedVisitors++
 		}
-		stats.TotalRequests += visitor.ReqCount
 	}
 	writeJSON(w, http.StatusOK, stats)
 }

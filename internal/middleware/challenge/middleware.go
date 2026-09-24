@@ -312,6 +312,9 @@ func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
+	// Action journalisée et comptée (logs, métriques, GET /waf/stats) : sans
+	// cet en-tête, une page de challenge servie était enregistrée comme PASS.
+	w.Header().Set(headerAction, actionChallenge)
 	// Jamais mettre en cache : la page porte un token à durée de vie courte, lié
 	// à l'IP. Un cache CDN (ex: règle Cloudflare "Cache Everything") figerait un
 	// token expiré pour tous les visiteurs -> verify en échec -> boucle infinie.

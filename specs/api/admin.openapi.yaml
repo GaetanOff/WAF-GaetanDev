@@ -118,19 +118,28 @@ components:
     WAFStats:
       type: object
       additionalProperties: false
+      description: |
+        Compteurs requests_* : requêtes traitées par ce nœud depuis son
+        démarrage, par action journalisée. Les compteurs *_visitors portent sur
+        les visiteurs suivis par le store.
       properties:
         uptime_seconds:
           type: integer
         total_requests:
           type: integer
+          description: Toutes les requêtes journalisées depuis le démarrage
         requests_passed:
           type: integer
+          description: Action PASS
         requests_challenged:
           type: integer
+          description: Action CHALLENGE (page de challenge servie)
         requests_blocked:
           type: integer
+          description: Actions BLOCK, CIRCUIT_BREAK et HONEYPOT
         requests_rate_limited:
           type: integer
+          description: Action RATE_LIMIT
         active_visitors:
           type: integer
         trusted_visitors:

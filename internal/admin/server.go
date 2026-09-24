@@ -23,6 +23,7 @@ type Server struct {
 	accessRules *access.RuleSet
 	state       *State
 	events      *eventLog
+	counters    *trafficCounters
 	trail       *audit.Trail
 	brute       *selfprotect.Window
 	startedAt   time.Time
@@ -32,9 +33,10 @@ type Server struct {
 }
 
 // EventRecorder retourne le puits d'événements de sécurité à brancher sur le
-// logger (logger.Logger.Recorder) pour alimenter GET /waf/admin/events.
+// logger (logger.Logger.Recorder) : il alimente GET /waf/admin/events et les
+// compteurs de GET /waf/stats.
 func (s *Server) EventRecorder() logger.EventRecorder {
-	return s.events
+	return eventRecorders{s.counters, s.events}
 }
 
 // WithConfigApplier branche l'application à chaud de PATCH /waf/admin/config
@@ -80,6 +82,7 @@ func NewServer(cfg config.Config, store storage.Store, scores *trust.ScoreManage
 		accessRules: accessRules,
 		state:       state,
 		events:      newEventLog(),
+		counters:    &trafficCounters{},
 		trail:       trail,
 		brute:       brute,
 		startedAt:   startedAt,

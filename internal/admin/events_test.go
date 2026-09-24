@@ -86,3 +86,25 @@ func TestEventLogIsBoundedAndDropsExpiredEvents(t *testing.T) {
 		t.Fatalf("events = %+v, want none older than 24h", recent)
 	}
 }
+
+// Régression : requests_* n'étaient jamais incrémentés et total_requests
+// sommait un req_count que rien n'écrivait — tout valait 0.
+func TestAdminStatsCountsRequestsByAction(t *testing.T) {
+	server := newTestServer(t)
+	recorder := server.EventRecorder()
+	now := time.Now()
+	for _, action := range []string{logger.ActionPass, logger.ActionPass, logger.ActionChallenge, logger.ActionBlock, logger.ActionCircuitBreak, logger.ActionRateLimit} {
+		recorder.RecordSecurityEvent(securityEventAt(now, action, "a.test"))
+	}
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, requestWithAuth(http.MethodGet, "/waf/stats", ""))
+	var stats WAFStats
+	if err := json.NewDecoder(response.Body).Decode(&stats); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	want := WAFStats{TotalRequests: 6, RequestsPassed: 2, RequestsChallenged: 1, RequestsBlocked: 2, RequestsRateLimited: 1}
+	if stats.TotalRequests != want.TotalRequests || stats.RequestsPassed != want.RequestsPassed || stats.RequestsChallenged != want.RequestsChallenged || stats.RequestsBlocked != want.RequestsBlocked || stats.RequestsRateLimited != want.RequestsRateLimited {
+		t.Fatalf("stats = %+v, want counters %+v", stats, want)
+	}
+}

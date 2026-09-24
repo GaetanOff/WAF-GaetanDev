@@ -172,3 +172,15 @@ func TestConfigureTogglesChallengeAtRuntime(t *testing.T) {
 		t.Fatalf("pow difficulty = %d, want 12", got)
 	}
 }
+
+// Une page de challenge servie est une action CHALLENGE (logs, métriques,
+// stats), pas un PASS.
+func TestServedChallengePageAnnouncesChallengeAction(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+	response := httptest.NewRecorder()
+	middleware.Handler(http.NotFoundHandler()).ServeHTTP(response, enforcerRequest("", "text/html"))
+
+	if got := response.Header().Get("X-WAF-Action"); got != "CHALLENGE" {
+		t.Fatalf("X-WAF-Action = %q, want CHALLENGE", got)
+	}
+}
