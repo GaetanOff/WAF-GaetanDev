@@ -82,6 +82,12 @@ Feature: Page de Maintenance & Erreurs Custom
     Then le WAF remplace la page passerelle générique par sa page brandée
     # Les 5xx sont brandés même en HTML : ce n'est pas du contenu applicatif.
 
+  Scenario: Erreur 4xx JSON d'une API — préservée même pour une navigation
+    Given error_pages activé
+    When une requête avec Accept "text/html,*/*" reçoit une erreur 422 en application/json
+    Then le WAF ne remplace PAS le corps : le JSON d'origine est renvoyé tel quel
+    # Seuls les 4xx en texte brut (refus du WAF) sont brandés.
+
   Scenario: Page 4xx HTML légitime d'une appli — préservée
     Given error_pages activé
     When une appli renvoie une page 404 personnalisée en text/html

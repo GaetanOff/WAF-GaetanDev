@@ -61,8 +61,8 @@ func wantsHTML(r *http.Request) bool {
 }
 
 // pageWriter remplace le corps des réponses d'erreur (4xx/5xx) par une page HTML
-// brandée. Les 4xx déjà en HTML sont préservés (page/JSON légitime d'appli) ;
-// les 5xx sont brandés même en HTML (cf. shouldReplace).
+// brandée. Seuls les 4xx en texte brut sont brandés (page/JSON légitime d'appli
+// préservé) ; les 5xx sont brandés même en HTML (cf. shouldReplace).
 type pageWriter struct {
 	http.ResponseWriter
 	wroteHeader bool
@@ -91,14 +91,16 @@ func (w *pageWriter) WriteHeader(statusCode int) {
 // brandée. Les 5xx sont TOUJOURS brandés (même en HTML) : un 502/503/504 vient
 // d'une passerelle/origine en panne — c'est une page d'erreur générique d'un
 // reverse proxy en aval (nginx/OpenResty), pas du contenu applicatif à préserver.
-// Les 4xx ne sont brandés que si le corps n'est pas déjà du HTML, afin de
-// préserver les pages d'erreur ou le JSON légitimes des applications.
+// Les 4xx ne sont brandés que si le corps est du texte brut (ou sans type), la
+// forme des refus du WAF (http.Error). Le test était « pas du HTML » : une
+// erreur JSON d'API (400, 422) demandée avec Accept: text/html,*/* recevait la
+// page du WAF et le client ne pouvait plus la parser.
 func shouldReplace(status int, contentType string) bool {
 	if status >= 500 {
 		return true
 	}
 	if status >= 400 {
-		return !isHTML(contentType)
+		return isPlainText(contentType)
 	}
 	return false
 }
@@ -115,8 +117,10 @@ func (w *pageWriter) Write(b []byte) (int, error) {
 
 func (w *pageWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
-func isHTML(contentType string) bool {
-	return len(contentType) >= 9 && contentType[:9] == "text/html"
+func isPlainText(contentType string) bool {
+	mediaType, _, _ := strings.Cut(contentType, ";")
+	mediaType = strings.TrimSpace(mediaType)
+	return mediaType == "" || strings.EqualFold(mediaType, "text/plain")
 }
 
 func messageFor(status int) (string, string) {
