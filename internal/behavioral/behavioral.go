@@ -16,6 +16,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/ttlcache"
 )
 
 const (
@@ -27,8 +28,12 @@ const (
 	// requêtes d'assets qu'il marque PASS.
 	reasonStaticAsset = "static_asset"
 
-	defaultMaxRecords = 50
-	minRecords        = 5
+	defaultMaxRecords  = 50
+	defaultMaxVisitors = 100000
+	minRecords         = 5
+	// profileIdleTTL : au-delà de cette inactivité, le profil d'un visiteur est
+	// oublié (une nouvelle visite repart d'un historique vide).
+	profileIdleTTL = 30 * time.Minute
 
 	// Contributions par signal (sommées, bornées à 100).
 	contribTimeUniformity = 30
@@ -53,13 +58,23 @@ type event struct {
 	asset  bool
 }
 
-// Tracker maintient un ring buffer par visiteur et un score d'anomalie courant.
-type Tracker struct {
-	mu      sync.RWMutex
-	buffers map[string][]record
-	scores  map[string]int
-	max     int
+// profile est l'historique récent d'un visiteur et son dernier score.
+type profile struct {
+	records []record
+	score   int
+}
 
+// Tracker maintient un ring buffer par visiteur et un score d'anomalie courant.
+//
+// Les profils vivent dans un cache borné (maxVisitors entrées, oubliées après
+// profileIdleTTL d'inactivité). Deux maps nues les portaient auparavant, sans
+// aucune purge : chaque IP vue gardait jusqu'à 50 requêtes d'historique pour
+// toujours.
+type Tracker struct {
+	profiles *ttlcache.Cache[string, profile]
+	max      int
+
+	mu     sync.Mutex
 	queue  chan event
 	stop   chan struct{}
 	done   chan struct{}
@@ -67,18 +82,22 @@ type Tracker struct {
 	now    func() time.Time
 }
 
-func New(maxRecords int) *Tracker {
+// New construit un tracker gardant maxRecords requêtes par visiteur pour au
+// plus maxVisitors visiteurs (trust.max_visitors).
+func New(maxRecords int, maxVisitors int) *Tracker {
 	if maxRecords <= 0 {
 		maxRecords = defaultMaxRecords
 	}
+	if maxVisitors <= 0 {
+		maxVisitors = defaultMaxVisitors
+	}
 	t := &Tracker{
-		buffers: make(map[string][]record),
-		scores:  make(map[string]int),
-		max:     maxRecords,
-		queue:   make(chan event, 1024),
-		stop:    make(chan struct{}),
-		done:    make(chan struct{}),
-		now:     time.Now,
+		profiles: ttlcache.New[string, profile](maxVisitors, profileIdleTTL),
+		max:      maxRecords,
+		queue:    make(chan event, 1024),
+		stop:     make(chan struct{}),
+		done:     make(chan struct{}),
+		now:      time.Now,
 	}
 	go t.worker()
 	return t
@@ -118,22 +137,25 @@ func (t *Tracker) enqueue(e event) {
 
 // Score retourne le dernier score d'anomalie calculé pour ce visiteur.
 func (t *Tracker) Score(ipHash string) int {
-	t.mu.RLock()
-	defer t.mu.RUnlock()
-	return t.scores[ipHash]
+	current, _ := t.profiles.Get(ipHash)
+	return current.score
 }
 
 // ingest ajoute un enregistrement au ring buffer et recalcule le score.
 func (t *Tracker) ingest(e event) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	t.profiles.Update(e.ipHash, func(current profile, _ bool) profile {
+		buffer := append(current.records, record{path: e.path, at: e.at, asset: e.asset})
+		if len(buffer) > t.max {
+			buffer = buffer[len(buffer)-t.max:]
+		}
+		return profile{records: buffer, score: computeAnomaly(buffer)}
+	})
+}
 
-	buffer := append(t.buffers[e.ipHash], record{path: e.path, at: e.at, asset: e.asset})
-	if len(buffer) > t.max {
-		buffer = buffer[len(buffer)-t.max:]
-	}
-	t.buffers[e.ipHash] = buffer
-	t.scores[e.ipHash] = computeAnomaly(buffer)
+// records retourne une copie de l'historique d'un visiteur.
+func (t *Tracker) records(ipHash string) []record {
+	current, _ := t.profiles.Get(ipHash)
+	return append([]record(nil), current.records...)
 }
 
 // Close arrête le worker et attend sa terminaison.

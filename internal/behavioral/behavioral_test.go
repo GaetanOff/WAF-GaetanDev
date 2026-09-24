@@ -82,7 +82,7 @@ func TestComputeAnomalyHumanLikeIsLow(t *testing.T) {
 }
 
 func TestHandlerPublishesBehavioralScoreFromPreviousRequests(t *testing.T) {
-	tracker := New(50)
+	tracker := New(50, 100)
 	defer tracker.Close()
 
 	ipHash := trust.HashIP("1.2.3.4")
@@ -109,7 +109,7 @@ func TestHandlerPublishesBehavioralScoreFromPreviousRequests(t *testing.T) {
 }
 
 func TestHandlerSkipsWhenPassMarked(t *testing.T) {
-	tracker := New(50)
+	tracker := New(50, 100)
 	defer tracker.Close()
 	request := httptest.NewRequest(http.MethodGet, "http://example.test/x", nil)
 	request.RemoteAddr = "1.2.3.4:1234"
@@ -127,7 +127,7 @@ func TestHandlerSkipsWhenPassMarked(t *testing.T) {
 // quand même compter pour le signal d'absence d'assets, sinon tout humain qui
 // visite 5 pages est classé headless.
 func TestHandlerRecordsStaticAssetsMarkedPass(t *testing.T) {
-	tracker := New(50)
+	tracker := New(50, 100)
 	defer tracker.Close()
 	next := http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusNoContent) })
 	handler := tracker.Handler(next)
@@ -148,18 +148,10 @@ func TestHandlerRecordsStaticAssetsMarkedPass(t *testing.T) {
 
 	ipHash := trust.HashIP("1.2.3.4")
 	deadline := time.Now().Add(2 * time.Second)
-	for {
-		tracker.mu.RLock()
-		recorded := len(tracker.buffers[ipHash])
-		tracker.mu.RUnlock()
-		if recorded == 12 || time.Now().After(deadline) {
-			break
-		}
+	for len(tracker.records(ipHash)) < 12 && time.Now().Before(deadline) {
 		time.Sleep(5 * time.Millisecond)
 	}
-	tracker.mu.RLock()
-	buffer := append([]record(nil), tracker.buffers[ipHash]...)
-	tracker.mu.RUnlock()
+	buffer := tracker.records(ipHash)
 	if isAssetAbsent(buffer) {
 		t.Fatalf("assets marked PASS were not recorded (buffer=%d records)", len(buffer))
 	}
@@ -178,5 +170,19 @@ func TestComputeAnomalyIgnoresAssetBurstsForNavigationSignals(t *testing.T) {
 	}
 	if got := computeAnomaly(records); got != 0 {
 		t.Fatalf("anomaly = %d, want 0 for a human loading pages with their assets", got)
+	}
+}
+
+// Régression : les profils vivaient dans des maps jamais purgées. Le nombre de
+// visiteurs suivis est désormais borné.
+func TestTrackerBoundsTrackedVisitors(t *testing.T) {
+	tracker := New(50, 10)
+	defer tracker.Close()
+	base := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 1000 {
+		tracker.ingest(event{ipHash: fmt.Sprintf("ip-%d", i), path: "/", at: base})
+	}
+	if got := tracker.profiles.Len(); got != 10 {
+		t.Fatalf("tracked visitors = %d, want 10", got)
 	}
 }

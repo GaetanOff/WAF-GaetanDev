@@ -232,7 +232,7 @@ func run() error {
 		})
 	}
 	if cfg.Behavioral.Enabled {
-		behavioralTracker := behavioral.New(cfg.Behavioral.MaxRecords)
+		behavioralTracker := behavioral.New(cfg.Behavioral.MaxRecords, cfg.Trust.MaxVisitors)
 		defer behavioralTracker.Close()
 		detectors = append(detectors, behavioralTracker.Handler)
 	}
