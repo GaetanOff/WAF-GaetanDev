@@ -738,3 +738,47 @@ func TestRoutesWhitelistedUserAgentIsNotABypass(t *testing.T) {
 		t.Fatalf("second request: status = %d, want 429 — the User-Agent whitelist must not skip the rate limit", second.Code)
 	}
 }
+
+// FR-23 / FR-02 : la borne slowloris par IP porte sur le visiteur
+// (CF-Connecting-IP), pas sur le point de présence Cloudflare qui relaie
+// plusieurs visiteurs légitimes sur la même adresse source.
+func TestRoutesSlowlorisCountsTheCloudflareVisitorNotThePoP(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = true
+	cfg.Challenge.Enabled = false
+	cfg.Slowloris.Enabled = true
+	cfg.Slowloris.MaxConnsPerIP = 1
+	release := make(chan struct{})
+	inFlight := make(chan struct{})
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("CF-Connecting-IP") == "198.51.100.1" {
+			close(inFlight)
+			<-release
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	viaPoP := func(visitor string) *http.Request {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+		request.RemoteAddr = "173.245.48.10:443" // plage Cloudflare
+		request.Header.Set("CF-Connecting-IP", visitor)
+		return request
+	}
+	first := make(chan int)
+	go func() {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, viaPoP("198.51.100.1"))
+		first <- response.Code
+	}()
+	<-inFlight
+
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, viaPoP("198.51.100.2"))
+	close(release)
+
+	if second.Code != http.StatusNoContent {
+		t.Fatalf("second visitor behind the same PoP: status = %d, want 204", second.Code)
+	}
+	if code := <-first; code != http.StatusNoContent {
+		t.Fatalf("first visitor: status = %d, want 204", code)
+	}
+}

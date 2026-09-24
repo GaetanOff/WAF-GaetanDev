@@ -538,14 +538,8 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	proxyHandler = challengeMiddleware.Handler(proxyHandler)
 	proxyHandler = antiDDoS.Handler(proxyHandler)
 	proxyHandler = access.Middleware(accessRules, proxyHandler)
-	if cfg.Cloudflare.Trusted {
-		proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
-		proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
-		proxyHandler = cloudflare.Middleware(proxyHandler)
-	} else {
-		proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
-		proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
-	}
+	proxyHandler = securityLogger.Middleware(scoreManager, proxyHandler)
+	proxyHandler = metrics.Middleware(scoreManager, proxyHandler)
 	// Auto-protection (FR-30) : limite le flood de POST /waf/verify par IP.
 	if cfg.SelfProtection.Enabled {
 		verifyWindow := selfprotect.NewWindow(cfg.SelfProtection.VerifyMaxPerMinute, time.Minute)
@@ -561,6 +555,14 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	// Protection Slowloris (FR-23) : limite les requêtes concurrentes par IP.
 	if cfg.Slowloris.Enabled {
 		handler = slowloris.New(cfg.Slowloris.MaxConnsPerIP).Handler(handler)
+	}
+	// Extraction de l'IP réelle (FR-02) : en amont de tout ce qui compte par IP.
+	// Montée plus bas (autour du seul pipeline de proxy), elle laissait slowloris,
+	// l'auto-protection de /waf/verify et le bypass d'assets lire RemoteAddr,
+	// c'est-à-dire l'IP du point de présence Cloudflare : quelques visiteurs
+	// légitimes derrière le même PoP suffisaient à épuiser la borne par IP.
+	if cfg.Cloudflare.Trusted {
+		handler = cloudflare.Middleware(handler)
 	}
 	// Mode maintenance + pages d'erreur brandées (FR-32).
 	handler = maintenance.New(cfg.Maintenance).Handler(handler)
