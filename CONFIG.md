@@ -731,7 +731,12 @@ Remplace l'`upstream` unique par un pool load-balancé avec health checks. **Pre
 | `health_check.interval` | durée | `"10s"` | Fréquence des sondes. |
 | `health_check.timeout` | durée | `"2s"` | Délai max d'une sonde avant échec. |
 | `health_check.healthy_threshold` | int | `2` | Nombre de sondes réussies consécutives pour marquer un upstream comme sain. |
-| `health_check.unhealthy_threshold` | int | `3` | Nombre de sondes échouées consécutives pour marquer un upstream comme hors service. |
+| `health_check.unhealthy_threshold` | int | `3` | Nombre de sondes échouées consécutives pour marquer un upstream comme hors service. Une erreur de proxy sur une requête le retire aussitôt, sans attendre ce seuil. |
+
+> **Non implémenté à ce jour** : aucun retry d'une requête sur un autre membre
+> (le client reçoit `502`, le membre est retiré pour les requêtes suivantes) ;
+> quand aucun membre n'est sain, la réponse est `502 no healthy upstream` et non
+> une page de maintenance ; pas d'endpoint `GET /waf/admin/upstreams`.
 
 ---
 

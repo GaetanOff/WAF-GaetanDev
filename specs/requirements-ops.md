@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.4.0
+version: 3.5.0
 last-reviewed: 2026-09-24
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+change: "FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -80,32 +80,39 @@ change: "FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non
 
 ## FR-25 — Upstream Health Checks & Failover
 
+- Contrat de configuration : bloc `upstream_pool` (`schemas/upstream-pool.schema.json`
+  v2.0.0, identique à `config.schema.json`)
 - Le WAF DOIT effectuer des **health checks actifs** sur chaque upstream configuré :
-  - Méthode : HTTP GET ou HEAD sur un path configurable (défaut: `/`)
-  - Intervalle configurable (défaut: `10s`)
-  - Timeout du health check : configurable (défaut: `3s`)
-  - Nombre de succès requis pour marquer un upstream sain (défaut: 1)
-  - Nombre d'échecs consécutifs pour marquer un upstream indisponible (défaut: 3)
-- Quand un upstream est marqué **indisponible** :
-  - Les nouvelles requêtes reçoivent une page de maintenance configurable (HTTP 503) — voir FR-32
-  - Si un **upstream de secours** (`backup`) est configuré, basculer automatiquement
-  - Un log event est émis : `action=UPSTREAM_DOWN` + métrique `waf_upstream_health{domain, status}`
-- Quand l'upstream redevient disponible (N succès consécutifs) :
-  - Reprendre le proxying normalement
-  - Log event : `action=UPSTREAM_UP`
-- Le WAF DOIT exposer l'état des upstreams via `GET /waf/admin/upstreams`
+  - Méthode : HTTP GET sur `health_check.path` (défaut: `/healthz`) ; 2xx ou 3xx = succès
+  - Intervalle configurable (`interval`, défaut: `10s`)
+  - Timeout du health check : configurable (`timeout`, défaut: `2s`)
+  - Succès consécutifs pour remettre un upstream en service (`healthy_threshold`, défaut: 2)
+  - Échecs consécutifs pour le retirer du service (`unhealthy_threshold`, défaut: 3)
+- Une erreur de proxy sur une requête DOIT retirer le membre du service
+  immédiatement (le client reçoit `502`) ; les sondes le remettent en service
+- Quand un upstream est retiré du service :
+  - Si un **upstream de secours** (`backup`) est configuré et qu'aucun principal
+    n'est sain, basculer automatiquement
+  - Si aucun membre n'est sain : `502 no healthy upstream`
+- **Différé** (spécifié, non implémenté — `upstream-health.feature`, scénarios
+  `@deferred`) : page de maintenance `503` quand tout est hors service (FR-32) ;
+  log events `UPSTREAM_DOWN`/`UPSTREAM_UP`, métrique `waf_upstream_health` et
+  webhooks associés ; `GET /waf/admin/upstreams` ; sonde HEAD, statut ou corps
+  attendus ; **retry** d'une requête idempotente sur un autre membre
 
 ## FR-26 — Load Balancing Multi-Upstream
 
-- Le WAF DOIT supporter un **pool d'upstreams** par domaine avec plusieurs stratégies :
+- Le WAF DOIT supporter un **pool d'upstreams** global (prioritaire sur
+  `upstream.address` et `domains[].upstream`) avec plusieurs stratégies :
   - `round_robin` : rotation à tour de rôle (défaut)
-  - `least_conn` : upstream avec le moins de connexions actives
-  - `random` : sélection aléatoire uniforme
-  - `ip_hash` : même IP toujours routée vers le même upstream (sticky sessions)
-- Chaque upstream du pool DOIT avoir un **poids** configurable (`weight: N`)
-- Le WAF DOIT exclure automatiquement les upstreams indisponibles (intégré avec FR-25)
-- Si tous les upstreams sont indisponibles → page de maintenance (FR-32)
-- Le WAF DOIT exposer les métriques par upstream : `waf_upstream_requests_total{upstream}`, `waf_upstream_response_time_seconds{upstream}`
+  - `least_conn` : upstream avec le moins de requêtes en cours
+  - `ip_hash` : même IP réelle toujours routée vers le même upstream sain
+  - `weighted` : répartition selon le **poids** (`weight: N`, défaut 1), lu par
+    cette seule stratégie
+- Le WAF DOIT exclure automatiquement les upstreams hors service (intégré avec FR-25)
+- **Différé** : stratégie `random`, pool par domaine, page de maintenance quand
+  tout est hors service, métriques `waf_upstream_requests_total{upstream}` et
+  `waf_upstream_response_time_seconds{upstream}`
 
 ## FR-27 — Audit Trail des Actions Admin
 

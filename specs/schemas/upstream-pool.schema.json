@@ -2,30 +2,29 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/GaetanDev/WAF/schemas/upstream-pool.schema.json",
   "title": "UpstreamPool",
-  "description": "Configuration d'un pool d'upstreams avec health checks et load balancing",
+  "description": "Bloc de configuration upstream_pool : pool d'upstreams avec health checks actifs et load balancing (FR-25, FR-26). Identique à config.schema.json#/properties/upstream_pool, qui fait foi.",
+  "$comment": "Version 2.0.0 (2026-09-24) — réaligné sur la configuration réellement chargée (audit du 2026-09-24, point 2.3). La v1 nommait les seuils success_threshold / failure_threshold et décrivait des clés sans implémentation. Différés, sans implémentation : retry sur un autre membre (retry.enabled, max_retries, idempotent_methods) ; stratégie random ; health_check.enabled, method, expected_status, expected_body ; upstreams[].max_conns, tls_verify, timeout, label ; page 503 quand tous les membres sont hors service (aujourd'hui 502 « no healthy upstream ») ; GET /waf/admin/upstreams.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["upstreams"],
   "properties": {
+    "enabled": {
+      "type": "boolean",
+      "default": false,
+      "description": "Active le pool. Prend alors la priorité sur upstream.address et domains[].upstream."
+    },
     "strategy": {
       "type": "string",
-      "enum": ["round_robin", "least_conn", "random", "ip_hash"],
+      "enum": ["round_robin", "least_conn", "ip_hash", "weighted"],
       "default": "round_robin",
-      "description": "Stratégie de load balancing"
+      "description": "round_robin : tour à tour. least_conn : moins de requêtes en cours. ip_hash : affinité par IP réelle. weighted : tirage selon weight."
     },
     "upstreams": {
       "type": "array",
       "minItems": 1,
-      "items": {
-        "$ref": "#/definitions/UpstreamEntry"
-      }
+      "description": "Membres du pool ; obligatoire et non vide quand enabled.",
+      "items": { "$ref": "#/definitions/UpstreamEntry" }
     },
-    "health_check": {
-      "$ref": "#/definitions/HealthCheckConfig"
-    },
-    "retry": {
-      "$ref": "#/definitions/RetryConfig"
-    }
+    "health_check": { "$ref": "#/definitions/HealthCheck" }
   },
   "definitions": {
     "UpstreamEntry": {
@@ -35,116 +34,41 @@
       "properties": {
         "address": {
           "type": "string",
-          "description": "URL de l'upstream (http:// ou https://)",
+          "description": "URL de l'upstream (schéma + hôte + port)",
           "example": "http://10.0.0.1:80"
         },
         "weight": {
           "type": "integer",
-          "minimum": 1,
-          "maximum": 100,
+          "minimum": 0,
           "default": 1,
-          "description": "Poids relatif pour le load balancing pondéré"
+          "description": "Poids relatif, utilisé par strategy: weighted uniquement ; 0 ou absent vaut 1."
         },
         "backup": {
           "type": "boolean",
           "default": false,
-          "description": "Si true, utilisé seulement si tous les upstreams primaires sont down"
-        },
-        "max_conns": {
-          "type": "integer",
-          "minimum": 1,
-          "description": "Nombre maximum de connexions simultanées vers cet upstream (0 = illimité)"
-        },
-        "tls_verify": {
-          "type": "boolean",
-          "default": true,
-          "description": "Vérifier le certificat TLS upstream"
-        },
-        "timeout": {
-          "type": "string",
-          "default": "30s",
-          "description": "Timeout pour les requêtes vers cet upstream spécifiquement"
-        },
-        "label": {
-          "type": "string",
-          "description": "Label pour les métriques et logs (ex: 'primary-paris', 'backup-lyon')",
-          "example": "primary-paris"
+          "description": "Membre de secours : servi seulement quand aucun membre principal n'est sain."
         }
       }
     },
-    "HealthCheckConfig": {
+    "HealthCheck": {
       "type": "object",
       "additionalProperties": false,
+      "description": "Sonde active : GET <address><path> ; un statut 2xx ou 3xx est un succès.",
       "properties": {
-        "enabled": {
-          "type": "boolean",
-          "default": true
-        },
-        "path": {
-          "type": "string",
-          "default": "/",
-          "description": "Path HTTP pour le health check (ex: /health, /ping)"
-        },
-        "method": {
-          "type": "string",
-          "enum": ["GET", "HEAD"],
-          "default": "HEAD"
-        },
-        "interval": {
-          "type": "string",
-          "default": "10s",
-          "description": "Intervalle entre chaque health check"
-        },
-        "timeout": {
-          "type": "string",
-          "default": "3s",
-          "description": "Timeout du health check"
-        },
-        "success_threshold": {
+        "path": { "type": "string", "default": "/healthz" },
+        "interval": { "type": "string", "default": "10s", "description": "Durée Go entre deux sondes" },
+        "timeout": { "type": "string", "default": "2s", "description": "Durée Go maximale d'une sonde" },
+        "healthy_threshold": {
           "type": "integer",
           "minimum": 1,
-          "default": 1,
-          "description": "Succès consécutifs requis pour passer à UP"
+          "default": 2,
+          "description": "Sondes réussies consécutives pour remettre un membre en service"
         },
-        "failure_threshold": {
+        "unhealthy_threshold": {
           "type": "integer",
           "minimum": 1,
           "default": 3,
-          "description": "Échecs consécutifs requis pour passer à DOWN"
-        },
-        "expected_status": {
-          "type": "integer",
-          "minimum": 100,
-          "maximum": 599,
-          "default": 200,
-          "description": "Code HTTP attendu du health check"
-        },
-        "expected_body": {
-          "type": "string",
-          "description": "Substring optionnel attendu dans la réponse du health check"
-        }
-      }
-    },
-    "RetryConfig": {
-      "type": "object",
-      "additionalProperties": false,
-      "properties": {
-        "enabled": {
-          "type": "boolean",
-          "default": true
-        },
-        "max_retries": {
-          "type": "integer",
-          "minimum": 0,
-          "maximum": 3,
-          "default": 1,
-          "description": "Nombre de retries sur un autre upstream (seulement méthodes idempotentes)"
-        },
-        "idempotent_methods": {
-          "type": "array",
-          "items": { "type": "string" },
-          "default": ["GET", "HEAD", "OPTIONS"],
-          "description": "Méthodes HTTP considérées idempotentes pour le retry"
+          "description": "Sondes échouées consécutives pour retirer un membre du service. Une erreur de proxy sur une requête le retire aussitôt, sans attendre ce seuil."
         }
       }
     }
