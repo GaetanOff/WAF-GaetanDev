@@ -2,6 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/GaetanDev/WAF/schemas/threat-intel-entry.schema.json",
   "title": "ThreatIntelEntry",
+  "$comment": "Statut : draft — NON implémenté (audit du 2026-09-24, point 2.5). Aucun type Go, aucun endpoint et aucun journal ne produit ce document : internal/threatintel ne retient par IP qu'un verdict {niveau, raison} en cache. Ce schéma décrit l'exposition différée des entrées de réputation (source, catégories, ASN, pays, confiance) ; il n'est pas un contrat en vigueur.",
   "description": "Entrée de réputation IP issue d'une source de threat intelligence",
   "type": "object",
   "additionalProperties": false,

@@ -4,7 +4,7 @@ version: 2.5.0
 last-reviewed: 2026-09-24
 reviewed-by: GaetanDev
 extends: requirements.md (v2.0.0)
-change: "FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
+change: "FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)
@@ -36,6 +36,10 @@ change: "FR-17 : conditions et actions réalignées sur le moteur implémenté (
   - **Profondeur de navigation** : visite directe de pages profondes sans passer par l'accueil → scraper
 - Le Behavioral Anomaly Score DOIT influer sur le Trust Score global (anomaly > 70 → delta -20)
 - Le WAF DOIT détecter le pattern "crawl burst" : période de requêtes intenses suivie de silence
+- **Différé** (non implémenté) : signaux « profondeur de navigation » et « crawl
+  burst » ; exposition du profil détaillé décrit par
+  `schemas/behavioral-profile.schema.json` (statut draft) — le détecteur ne
+  publie aujourd'hui qu'un score, consommé par le moteur de risque
 
 ## FR-13 — Intégration Threat Intelligence externe
 
@@ -50,6 +54,13 @@ change: "FR-17 : conditions et actions réalignées sur le moteur implémenté (
   - Configurable : certains ASN peuvent être whitelistés (ex : Cloudflare lui-même)
 - Le WAF DOIT supporter des **feeds YAML locaux** de threat intelligence (IP ranges, ASNs, domaines) avec rechargement automatique
 - Le WAF DOIT exposer via l'API admin les statistiques de reputation lookups (hit rate, API calls, cache efficiency)
+- **Différé** (non implémenté) : liste Tor auto-mise-à-jour et base ASN (des
+  plages Tor ou datacenter ne sont prises en compte que saisies en CIDR
+  statiques, `threat_intel.blocklist_cidrs` / `suspect_cidrs`), feeds YAML
+  rechargeables, statistiques admin, et entrées de réputation au format
+  `schemas/threat-intel-entry.schema.json` (statut draft) — le vérificateur ne
+  retient aujourd'hui qu'un verdict {niveau, raison} par IP, issu des CIDR
+  configurés et d'AbuseIPDB
 
 ## FR-14 — Adaptive PoW Difficulty
 
