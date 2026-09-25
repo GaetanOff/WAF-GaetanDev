@@ -147,10 +147,11 @@ change: "FR-14 : anti-rétrogradation spécifiée en `invalid_pow`, plancher de 
   - `block` : HTTP 403, raison configurable (`value`)
   - `tarpit` : classer la requête TARPIT (FR-15)
   - `score_delta` : modifier le trust score (`delta`)
-  - `add_header` : ajouter un header à la réponse (`header`, `value`)
+  - `add_header` : ajouter un header à la réponse (`header`, obligatoire et nom d'en-tête HTTP valide ; `value`)
   - `log` : poser la raison journalisée (`value`)
 - Le chargement DOIT échouer (fail-fast) sur un champ, un opérateur ou une
-  action non supportés, sur une règle sans action, et sur toute clé YAML
+  action non supportés, sur une règle sans action, sur un `add_header` sans
+  nom d'en-tête valide, et sur toute clé YAML
   inconnue : une règle partiellement comprise ne DOIT jamais être chargée
 - **Différé** (spécifié, non implémenté — `rules-engine.feature`, scénarios
   `@deferred`) : groupes OR/NOT ; conditions `in_asn`, `ja3_hash`,

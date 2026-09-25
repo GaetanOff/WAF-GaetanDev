@@ -244,12 +244,21 @@ func TestLoadRejectsUnsupportedActions(t *testing.T) {
 		{{Type: "rate_limit"}},
 		{{Type: "allow"}},
 		{{Type: "log"}, {Type: "redirect"}},
+		{{Type: "add_header", Value: "1"}},
+		{{Type: "add_header", Header: "X Bad", Value: "1"}},
 		nil,
 	} {
 		rule := Rule{Name: "r", Enabled: true, Conditions: []Condition{{Field: "path", Operator: "equals", Value: "/x"}}, Actions: actions}
 		if err := NewRuleSet().Load([]Rule{rule}); err == nil {
 			t.Fatalf("Load(%v) error = nil, want the rule refused", actions)
 		}
+	}
+}
+
+func TestLoadAcceptsAddHeaderWithAHeaderName(t *testing.T) {
+	rule := Rule{Name: "r", Enabled: true, Conditions: []Condition{{Field: "path", Operator: "equals", Value: "/x"}}, Actions: []Action{{Type: "add_header", Header: "X-API", Value: "1"}}}
+	if err := NewRuleSet().Load([]Rule{rule}); err != nil {
+		t.Fatalf("Load() error = %v, want the add_header rule loaded", err)
 	}
 }
 

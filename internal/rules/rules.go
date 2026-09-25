@@ -185,8 +185,36 @@ func validateActions(actions []Action) error {
 		if _, ok := supportedActions[action.Type]; !ok {
 			return fmt.Errorf("unsupported action type %q (supported: block, tarpit, score_delta, add_header, log)", action.Type)
 		}
+		// Sans nom d'en-tête valide, add_header se chargeait puis ne posait
+		// rien : le middleware l'ignore et net/http écarte un nom invalide.
+		if action.Type == "add_header" && !isHeaderToken(action.Header) {
+			return fmt.Errorf("add_header action requires a valid header name, got %q", action.Header)
+		}
 	}
 	return nil
+}
+
+// isHeaderToken indique si name est un nom d'en-tête HTTP valide (token RFC
+// 9110, section 5.1).
+func isHeaderToken(name string) bool {
+	if name == "" {
+		return false
+	}
+	for _, c := range []byte(name) {
+		if !isTokenChar(c) {
+			return false
+		}
+	}
+	return true
+}
+
+func isTokenChar(c byte) bool {
+	switch {
+	case 'a' <= c && c <= 'z', 'A' <= c && c <= 'Z', '0' <= c && c <= '9':
+		return true
+	default:
+		return strings.IndexByte("!#$%&'*+-.^_`|~", c) >= 0
+	}
 }
 
 // Match retourne les actions à appliquer pour la requête (première règle qui
