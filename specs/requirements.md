@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 2.4.1
+version: 2.4.2
 last-reviewed: 2026-09-25
 reviewed-by: GaetanDev
-change: "NFR-05 : arrêt parallèle de tous les serveurs, chacun avec le délai de grâce entier, y compris sur échec d'un listener. Précédent (2.4.0) — FR-09 : les refus slowloris, flood de /waf/verify et strict_host sont journalisés et comptés. FR-07 : un User-Agent de `whitelist_user_agents` n'est plus pénalisé par les heuristiques « client non navigateur » (en-têtes manquants, UA d'outil) — Googlebot était bloqué en huit requêtes. Précédent (2.3.2) — FR-09 : le label `domain` des métriques est borné aux hôtes de `domains[]`, tout autre hôte est compté sous `_undeclared`. Précédent (2.3.1) — FR-08 : seul un refus du rate limit du WAF (`X-WAF-Action: RATE_LIMIT`) est une violation de circuit-breaker, jamais un 429 de l'upstream. Précédent (2.3.0) — FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
+change: "FR-03 : les limites par domaine et par route sont différées, conformément à ADR-022 (la surcharge inerte a été retirée) ; FR-03 les exigeait encore. Précédent (2.4.1) — NFR-05 : arrêt parallèle de tous les serveurs, chacun avec le délai de grâce entier, y compris sur échec d'un listener. Précédent (2.4.0) — FR-09 : les refus slowloris, flood de /waf/verify et strict_host sont journalisés et comptés. FR-07 : un User-Agent de `whitelist_user_agents` n'est plus pénalisé par les heuristiques « client non navigateur » (en-têtes manquants, UA d'outil) — Googlebot était bloqué en huit requêtes. Précédent (2.3.2) — FR-09 : le label `domain` des métriques est borné aux hôtes de `domains[]`, tout autre hôte est compté sous `_undeclared`. Précédent (2.3.1) — FR-08 : seul un refus du rate limit du WAF (`X-WAF-Action: RATE_LIMIT`) est une violation de circuit-breaker, jamais un 429 de l'upstream. Précédent (2.3.0) — FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
 ---
 
 # Requirements — WAF Anti-DDoS / Anti-Bot
@@ -33,7 +33,11 @@ change: "NFR-05 : arrêt parallèle de tous les serveurs, chacun avec le délai 
 
 ### FR-03 — Rate Limiting
 - Le WAF DOIT implémenter un rate limiting par IP avec algorithme Token Bucket
-- Le WAF DOIT supporter des limites configurables par domaine et par route pattern
+- Les limites s'appliquent à toute IP, quel que soit le domaine ou la route
+  - **Différé** (ADR-022) : limites propres à un domaine ou à un motif de route.
+    La surcharge `domains[].rate_limit_override`, acceptée mais jamais appliquée,
+    a été retirée et est refusée au démarrage ; une implémentation future passe
+    par une nouvelle spec et réintroduit la clé comme ajout
 - Le WAF DOIT retourner HTTP 429 avec header `Retry-After` quand la limite est atteinte
 - Le WAF DOIT supporter des limites distinctes pour : req/seconde, req/minute, req/heure
   - Chaque fenêtre est un Token Bucket propre au couple (IP, fenêtre) : débit de recharge = limite ÷ durée de la fenêtre, capacité = la limite elle-même (`burst` ne s'applique qu'à la fenêtre seconde)
