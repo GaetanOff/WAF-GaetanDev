@@ -187,8 +187,10 @@ func TestBotVerifierCacheIsBounded(t *testing.T) {
 	for i := range maxBotVerifications + 100 {
 		verifier.verify(fmt.Sprintf("googlebot|10.0.%d", i), "10.0.0.1", "googlebot")
 	}
-	if got := verifier.cache.Len(); got != maxBotVerifications {
-		t.Fatalf("cached verifications = %d, want %d", got, maxBotVerifications)
+	// Cache segmenté (ttlcache) : borné, un segment pouvant évincer avant que
+	// les autres soient pleins.
+	if got := verifier.cache.Len(); got > maxBotVerifications || got < maxBotVerifications*98/100 {
+		t.Fatalf("cached verifications = %d, want at most %d and nearly full", got, maxBotVerifications)
 	}
 }
 

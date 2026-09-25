@@ -113,8 +113,10 @@ func TestCheckerCacheIsBounded(t *testing.T) {
 	for i := range maxCachedVerdicts + 500 {
 		checker.resolveSync(fmt.Sprintf("10.%d.%d.%d", i>>16&0xff, i>>8&0xff, i&0xff))
 	}
-	if got := checker.cache.Len(); got != maxCachedVerdicts {
-		t.Fatalf("cached verdicts = %d, want %d", got, maxCachedVerdicts)
+	// Cache segmenté (ttlcache) : borné, un segment pouvant évincer avant que
+	// les autres soient pleins.
+	if got := checker.cache.Len(); got > maxCachedVerdicts || got < maxCachedVerdicts*98/100 {
+		t.Fatalf("cached verdicts = %d, want at most %d and nearly full", got, maxCachedVerdicts)
 	}
 }
 

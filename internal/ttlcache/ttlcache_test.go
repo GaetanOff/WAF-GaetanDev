@@ -66,3 +66,40 @@ func TestCacheStaysBoundedUnderManyDistinctKeys(t *testing.T) {
 		t.Fatalf("len = %d, want 1000", cache.Len())
 	}
 }
+
+// Un grand cache est segmenté : la somme des bornes des segments reste
+// exactement la borne demandée.
+func TestShardedCacheKeepsGlobalBound(t *testing.T) {
+	const capacity = shardCount*minEntriesPerShard + 7
+	cache := New[int, struct{}](capacity, time.Hour)
+	if len(cache.shards) != shardCount {
+		t.Fatalf("shards = %d, want %d", len(cache.shards), shardCount)
+	}
+	for i := range 20 * capacity {
+		cache.Set(i, struct{}{})
+	}
+	if cache.Len() != capacity {
+		t.Fatalf("len = %d, want %d", cache.Len(), capacity)
+	}
+	if _, ok := cache.Get(20*capacity - 1); !ok {
+		t.Fatal("the most recent entry must survive eviction")
+	}
+}
+
+// Lectures concurrentes sur un cache chaud : le chemin des détecteurs et de la
+// réputation IP, lu à chaque requête.
+func BenchmarkCacheGetParallel(b *testing.B) {
+	const keys = 4096
+	cache := New[int, int](100_000, time.Hour) // capacité des caches par IP en production
+	for i := range keys {
+		cache.Set(i, i)
+	}
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		i := 0
+		for pb.Next() {
+			cache.Get(i % keys)
+			i++
+		}
+	})
+}
