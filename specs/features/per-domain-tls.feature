@@ -4,7 +4,9 @@ Feature: Terminaison TLS par domaine (sélection par SNI)
   Afin d'intercaler le WAF devant plusieurs vhosts en réutilisant les certificats existants.
 
   # Spec : requirements-ops.md FR-33 ; décision : ADR-017 ; schéma : config.schema.json
-  # Statut : draft — implémentation différée.
+  # Statut : implemented — internal/tlsmgr (T11.1, validé le 2026-06-10 par
+  # go test et un handshake réel openssl s_client). Le rechargement à chaud
+  # des certificats (SIGHUP) reste différé (FR-31) et n'est pas un scénario ici.
 
   Background:
     Given le WAF est configuré avec server.tls.enabled = true
