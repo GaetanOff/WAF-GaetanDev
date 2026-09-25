@@ -6,6 +6,35 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — sixième audit du 2026-09-25 (phase 21)
+
+- Les requêtes d'assets statiques sont comptées par le rate limit (FR-24) :
+  toute URL finissant par une extension d'asset atteignait l'origine sans borne.
+- `POST /waf/verify` refuse un `nonce` non numérique en `invalid_submission`
+  (`challenge-submission.schema.json`), sans pénaliser le score.
+- TLS par domaine : un hôte exact l'emporte sur un wildcard quel que soit
+  l'ordre de `domains[]`, puis le wildcard le plus spécifique.
+- CI : job `security` (govulncheck, porte G5).
+
+### Fixed — sixième audit du 2026-09-25
+
+- Les workers de threat intel et de vérification des crawlers sont arrêtés à
+  l'arrêt du WAF ; leurs `Close`, comme ceux des stores, sont sûrs en appels
+  répétés ou concurrents.
+- Les clients HTTP sortants (health checks, webhooks, AbuseIPDB, plages
+  Cloudflare) drainent les corps de réponse : les connexions keep-alive sont
+  réutilisées.
+- Specs : waf-self-protection.feature et FR-30 réalignés sur le contrat
+  implémenté (capacités absentes `@deferred`) ; acme-tls.feature réécrite sur
+  le bloc `acme` réel ; per-domain-tls.feature marquée implémentée.
+
+### Changed — sixième audit du 2026-09-25
+
+- Chemin chaud : `HashIP` sans encodage superflu, `ttlcache` segmenté au-delà
+  de 8 192 entrées, nettoyage des buckets sans allocation sous la borne.
+- `cmd/waf` : `run()` découpé en étapes de construction (aucun changement de
+  comportement).
+
 ### Security — cinquième audit du 2026-09-25 (phase 20)
 
 - Les réponses du tarpit, les refus de `POST /waf/verify` (PoW invalide, token
