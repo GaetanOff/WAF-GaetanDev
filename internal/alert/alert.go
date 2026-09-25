@@ -5,11 +5,13 @@ package alert
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/gaetandev/waf/internal/ttlcache"
@@ -87,8 +89,8 @@ type Observer interface {
 	AlertFailed(trigger string)
 }
 
-// Option configure un Notifier à sa construction, avant le démarrage du worker
-// qui lit ses champs.
+// Option configure un Notifier à sa construction, avant le démarrage des
+// workers qui lisent ses champs.
 type Option func(*Notifier)
 
 // WithObserver branche l'observation des livraisons (métriques d'alertes).
@@ -102,16 +104,23 @@ func (noopObserver) AlertSent(string)   {}
 func (noopObserver) AlertFailed(string) {}
 
 // Notifier dispatche les alertes de façon asynchrone vers les sinks.
+//
+// Chaque sink a sa propre file et son propre worker : avec un worker unique,
+// un webhook hors service ((max_retries+1) timeouts de 5 s plus les backoffs
+// par alerte) retardait la livraison aux autres sinks et remplissait la file,
+// dont les alertes suivantes étaient jetées sans trace.
 type Notifier struct {
-	sinks      []Sink
+	sinks      []*sinkQueue
 	cooldown   time.Duration
 	maxRetries int
+	retryDelay time.Duration
 	client     *http.Client
 	observer   Observer
 
-	queue chan Alert
-	stop  chan struct{}
-	done  chan struct{}
+	// ctx est annulé par Close : il interrompt le backoff et la requête en cours.
+	ctx     context.Context
+	cancel  context.CancelFunc
+	workers sync.WaitGroup
 
 	// lastSent retient le dernier envoi par trigger+domaine le temps du
 	// cooldown. C'était une map sans borne ni expiration : le domaine étant le
@@ -121,6 +130,23 @@ type Notifier struct {
 	now      func() time.Time
 }
 
+// sinkQueue est la file d'un sink, consommée par son seul worker.
+type sinkQueue struct {
+	sink  Sink
+	queue chan Alert
+	// failing : la dernière livraison a épuisé ses tentatives. Les suivantes
+	// n'en font qu'une jusqu'au prochain succès, pour qu'un webhook hors
+	// service coûte un timeout par alerte et non (max_retries+1) timeouts plus
+	// les backoffs. Lu et écrit par le seul worker du sink.
+	failing bool
+}
+
+// sinkQueueSize borne la file de chaque sink.
+const sinkQueueSize = 256
+
+// defaultRetryDelay est le délai avant la première nouvelle tentative.
+const defaultRetryDelay = 200 * time.Millisecond
+
 func NewNotifier(sinks []Sink, cooldown time.Duration, maxRetries int, client *http.Client, options ...Option) *Notifier {
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
@@ -128,33 +154,38 @@ func NewNotifier(sinks []Sink, cooldown time.Duration, maxRetries int, client *h
 	if maxRetries < 0 {
 		maxRetries = 0
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	n := &Notifier{
-		sinks:      sinks,
 		cooldown:   cooldown,
 		maxRetries: maxRetries,
+		retryDelay: defaultRetryDelay,
 		client:     client,
 		observer:   noopObserver{},
-		queue:      make(chan Alert, 256),
-		stop:       make(chan struct{}),
-		done:       make(chan struct{}),
+		ctx:        ctx,
+		cancel:     cancel,
 		now:        time.Now,
 	}
 	for _, option := range options {
 		option(n)
 	}
 	n.lastSent = ttlcache.New[string, time.Time](maxCooldownKeys, cooldown).WithClock(func() time.Time { return n.now() })
-	go n.worker()
+	for _, sink := range sinks {
+		sq := &sinkQueue{sink: sink, queue: make(chan Alert, sinkQueueSize)}
+		n.sinks = append(n.sinks, sq)
+		n.workers.Add(1)
+		go n.worker(sq)
+	}
 	return n
 }
 
-func (n *Notifier) worker() {
-	defer close(n.done)
+func (n *Notifier) worker(sq *sinkQueue) {
+	defer n.workers.Done()
 	for {
 		select {
-		case <-n.stop:
+		case <-n.ctx.Done():
 			return
-		case alert := <-n.queue:
-			n.deliver(alert)
+		case alert := <-sq.queue:
+			n.deliver(sq, alert)
 		}
 	}
 }
@@ -204,7 +235,7 @@ func newAlertID() string {
 }
 
 // Dispatch enfile une alerte si le cooldown (par trigger+domaine) est écoulé.
-// Non bloquant ; déposée silencieusement si la file est pleine.
+// Non bloquant.
 func (n *Notifier) Dispatch(alert Alert) {
 	if !n.allow(alert) {
 		return
@@ -212,11 +243,15 @@ func (n *Notifier) Dispatch(alert Alert) {
 	n.enqueue(alert)
 }
 
-// enqueue dépose l'alerte dans la file sans bloquer (jetée si la file est pleine).
+// enqueue dépose l'alerte dans la file de chaque sink sans bloquer. Une file
+// pleine jette l'alerte pour ce sink, comptée comme livraison échouée.
 func (n *Notifier) enqueue(alert Alert) {
-	select {
-	case n.queue <- alert:
-	default:
+	for _, sq := range n.sinks {
+		select {
+		case sq.queue <- alert:
+		default:
+			n.observer.AlertFailed(alert.Trigger)
+		}
 	}
 }
 
@@ -234,41 +269,63 @@ func (n *Notifier) allow(alert Alert) bool {
 	return allowed
 }
 
-// Pending retourne le nombre d'alertes en attente d'envoi
+// Pending retourne le nombre de livraisons en attente, tous sinks confondus
 // (waf_alerts_pending).
 func (n *Notifier) Pending() int {
-	return len(n.queue)
+	pending := 0
+	for _, sq := range n.sinks {
+		pending += len(sq.queue)
+	}
+	return pending
 }
 
-// deliver livre l'alerte à chaque sink ; chaque livraison compte comme envoyée
-// ou échouée (retries épuisés).
-func (n *Notifier) deliver(alert Alert) {
-	for _, sink := range n.sinks {
-		payload := encode(sink.Type, alert)
-		if n.sendWithRetry(sink.URL, payload) {
-			n.observer.AlertSent(alert.Trigger)
-		} else {
-			n.observer.AlertFailed(alert.Trigger)
-		}
+// deliver livre l'alerte au sink ; la livraison compte comme envoyée ou
+// échouée (tentatives épuisées). Une livraison interrompue par Close n'est pas
+// comptée.
+func (n *Notifier) deliver(sq *sinkQueue, alert Alert) {
+	retries := n.maxRetries
+	if sq.failing {
+		retries = 0
+	}
+	delivered := n.sendWithRetry(sq.sink.URL, encode(sq.sink.Type, alert), retries)
+	if n.ctx.Err() != nil {
+		return
+	}
+	sq.failing = !delivered
+	if delivered {
+		n.observer.AlertSent(alert.Trigger)
+	} else {
+		n.observer.AlertFailed(alert.Trigger)
 	}
 }
 
-func (n *Notifier) sendWithRetry(url string, payload []byte) bool {
-	backoff := 200 * time.Millisecond
-	for attempt := 0; attempt <= n.maxRetries; attempt++ {
+func (n *Notifier) sendWithRetry(url string, payload []byte, retries int) bool {
+	backoff := n.retryDelay
+	for attempt := 0; ; attempt++ {
 		if n.post(url, payload) {
 			return true
 		}
-		if attempt < n.maxRetries {
-			time.Sleep(backoff)
-			backoff *= 2
+		if attempt >= retries || !n.wait(backoff) {
+			return false
 		}
+		backoff *= 2
 	}
-	return false
+}
+
+// wait attend d, ou retourne false si le Notifier est fermé entre-temps.
+func (n *Notifier) wait(d time.Duration) bool {
+	timer := time.NewTimer(d)
+	defer timer.Stop()
+	select {
+	case <-timer.C:
+		return true
+	case <-n.ctx.Done():
+		return false
+	}
 }
 
 func (n *Notifier) post(url string, payload []byte) bool {
-	request, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	request, err := http.NewRequestWithContext(n.ctx, http.MethodPost, url, bytes.NewReader(payload))
 	if err != nil {
 		return false
 	}
@@ -281,9 +338,11 @@ func (n *Notifier) post(url string, payload []byte) bool {
 	return response.StatusCode >= 200 && response.StatusCode < 300
 }
 
+// Close arrête les workers sans attendre la fin d'un backoff ni d'une requête
+// en cours ; les alertes encore en file sont abandonnées.
 func (n *Notifier) Close() {
-	close(n.stop)
-	<-n.done
+	n.cancel()
+	n.workers.Wait()
 }
 
 // encode formate le payload selon le type de sink. Discord et Slack reçoivent un

@@ -174,6 +174,10 @@ change: "FR-26 : avertissement au démarrage pour tout domains[].upstream rendu 
   - `waf_alerts_failed_total{trigger}` : livraisons abandonnées (tentatives épuisées)
   - `waf_alerts_pending` : jauge des alertes en attente d'envoi. Une jauge ne porte pas le suffixe `_total`, réservé aux compteurs Prometheus (la v1 de cette spec la nommait `waf_alerts_pending_total`)
 - Les webhooks NE DOIVENT PAS bloquer le pipeline de traitement des requêtes (exécution asynchrone via channel)
+- Un webhook défaillant NE DOIT PAS retarder la livraison aux autres : chaque sink a sa file (256 alertes) et son worker. Avec un worker unique, un webhook hors service immobilisait l'envoi (max_retries+1 timeouts de 5 s plus les backoffs par alerte), la file se remplissait et les alertes suivantes étaient jetées sans trace
+- Après une livraison abandonnée, un sink ne reçoit plus qu'**une** tentative par alerte jusqu'à son prochain succès, qui rétablit les retries : un webhook hors service coûte un timeout par alerte
+- Une alerte jetée parce que la file de son sink est pleine DOIT être comptée dans `waf_alerts_failed_total`
+- L'arrêt du WAF interrompt le backoff et la requête en cours ; les alertes encore en file sont abandonnées
 
 ## FR-30 — Auto-protection du WAF
 

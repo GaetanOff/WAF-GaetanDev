@@ -81,6 +81,13 @@ Feature: Alerting & Webhooks
     Then la requête cliente est traitée et répond normalement
     And le webhook est géré en arrière-plan dans sa propre goroutine
 
+  Scenario: Webhook hors service — les autres sinks restent livrés
+    Given un sink Slack qui ne répond plus et un sink generic sain
+    When trois alertes sont émises
+    Then le sink generic reçoit les trois alertes sans attendre les timeouts du sink Slack
+    And le sink Slack ne reçoit plus qu'une tentative par alerte après sa première livraison abandonnée
+    And une alerte jetée faute de place dans la file du sink Slack incrémente waf_alerts_failed_total
+
   Scenario: Déduplication — pas de spam d'alertes
     Given le trigger "block" se déclenche toutes les 5 secondes pour le même domaine
     Then le WAF envoie seulement 1 alerte par alerting.cooldown (défaut: 5m) et par trigger + domaine

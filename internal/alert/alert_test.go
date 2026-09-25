@@ -171,8 +171,8 @@ func TestCooldownDeduplicatesAndStaysBounded(t *testing.T) {
 	}
 }
 
-// recordingObserver consigne l'issue des livraisons ; outcomes est fermé à la
-// première issue attendue pour éviter les attentes à durée fixe.
+// recordingObserver consigne l'issue des livraisons ; outcome est signalé à
+// chaque issue, pour attendre sans durée fixe.
 type recordingObserver struct {
 	mu      sync.Mutex
 	sent    []string
@@ -188,14 +188,27 @@ func (o *recordingObserver) AlertSent(trigger string) {
 	o.mu.Lock()
 	o.sent = append(o.sent, trigger)
 	o.mu.Unlock()
-	o.outcome <- struct{}{}
+	o.signal()
 }
 
 func (o *recordingObserver) AlertFailed(trigger string) {
 	o.mu.Lock()
 	o.failed = append(o.failed, trigger)
 	o.mu.Unlock()
-	o.outcome <- struct{}{}
+	o.signal()
+}
+
+func (o *recordingObserver) signal() {
+	select {
+	case o.outcome <- struct{}{}:
+	default:
+	}
+}
+
+func (o *recordingObserver) counts() (sent int, failed int) {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return len(o.sent), len(o.failed)
 }
 
 func (o *recordingObserver) wait(t *testing.T, outcomes int) {
@@ -234,5 +247,141 @@ func TestNotifierReportsDeliveryOutcomes(t *testing.T) {
 	}
 	if len(observer.failed) != 1 || observer.failed[0] != TriggerHoneypot {
 		t.Fatalf("failed = %v, want [honeypot]", observer.failed)
+	}
+}
+
+func withRetryDelay(delay time.Duration) Option {
+	return func(n *Notifier) { n.retryDelay = delay }
+}
+
+// hangingServer ne répond qu'à la fin du test : un webhook hors service.
+func hangingServer(t *testing.T) *httptest.Server {
+	t.Helper()
+	release := make(chan struct{})
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(func() {
+		close(release)
+		server.Close()
+	})
+	return server
+}
+
+// Un webhook hors service ne retarde pas la livraison aux autres sinks : avec
+// un worker unique, chaque alerte attendait ses timeouts et retries.
+func TestFailingSinkDoesNotDelayOtherSinks(t *testing.T) {
+	var delivered atomic.Int32
+	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		delivered.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer healthy.Close()
+	hanging := hangingServer(t)
+
+	n := NewNotifier([]Sink{{Type: SinkGeneric, URL: hanging.URL}, {Type: SinkGeneric, URL: healthy.URL}}, time.Hour, 3, &http.Client{})
+	defer n.Close()
+	for range 3 {
+		n.Notify(Event{Trigger: TriggerUnderAttackStart, Domain: "example.com", Immediate: true})
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for delivered.Load() < 3 && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if got := delivered.Load(); got != 3 {
+		t.Fatalf("healthy sink received %d alerts, want 3 while the other sink hangs", got)
+	}
+}
+
+// Après une livraison abandonnée, le sink ne reçoit plus qu'une tentative par
+// alerte jusqu'à son prochain succès.
+func TestFailingSinkGetsOneAttemptUntilItRecovers(t *testing.T) {
+	var attempts atomic.Int32
+	var healthy atomic.Bool
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
+		if healthy.Load() {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	observer := newRecordingObserver()
+	n := NewNotifier([]Sink{{Type: SinkGeneric, URL: server.URL}}, time.Hour, 3, server.Client(), WithObserver(observer), withRetryDelay(time.Millisecond))
+	defer n.Close()
+	notify := func() {
+		n.Notify(Event{Trigger: TriggerUnderAttackStart, Domain: "example.com", Immediate: true})
+		observer.wait(t, 1)
+	}
+
+	notify()
+	if got := attempts.Swap(0); got != 4 {
+		t.Fatalf("first failed delivery made %d attempts, want 4 (1 + max_retries)", got)
+	}
+	notify()
+	if got := attempts.Swap(0); got != 1 {
+		t.Fatalf("delivery to a failing sink made %d attempts, want 1", got)
+	}
+	healthy.Store(true)
+	notify()
+	healthy.Store(false)
+	attempts.Store(0)
+	notify()
+	if got := attempts.Load(); got != 4 {
+		t.Fatalf("delivery after a recovery made %d attempts, want 4 (retries restored)", got)
+	}
+	if sent, failed := observer.counts(); sent != 1 || failed != 3 {
+		t.Fatalf("sent/failed = %d/%d, want 1/3", sent, failed)
+	}
+}
+
+// Une alerte jetée faute de place dans la file n'est plus silencieuse : elle
+// compte dans waf_alerts_failed_total.
+func TestFullQueueCountsDroppedAlertsAsFailed(t *testing.T) {
+	hanging := hangingServer(t)
+	observer := newRecordingObserver()
+	n := NewNotifier([]Sink{{Type: SinkGeneric, URL: hanging.URL}}, time.Hour, 0, &http.Client{}, WithObserver(observer))
+	defer n.Close()
+
+	for range sinkQueueSize + 2 {
+		n.Notify(Event{Trigger: TriggerUnderAttackStart, Domain: "example.com", Immediate: true})
+	}
+
+	if _, failed := observer.counts(); failed < 1 {
+		t.Fatalf("failed = %d, want the dropped alerts counted", failed)
+	}
+	if pending := n.Pending(); pending < sinkQueueSize-1 {
+		t.Fatalf("pending = %d, want a full queue", pending)
+	}
+}
+
+// Close n'attend ni la fin d'un backoff ni celle d'une requête en cours.
+func TestCloseInterruptsRetryBackoff(t *testing.T) {
+	var attempts atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attempts.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer server.Close()
+	n := NewNotifier([]Sink{{Type: SinkGeneric, URL: server.URL}}, time.Hour, 3, server.Client(), withRetryDelay(time.Hour))
+	n.Notify(Event{Trigger: TriggerUnderAttackStart, Domain: "example.com", Immediate: true})
+	for attempts.Load() == 0 {
+		time.Sleep(time.Millisecond)
+	}
+
+	closed := make(chan struct{})
+	go func() {
+		n.Close()
+		close(closed)
+	}()
+	select {
+	case <-closed:
+	case <-time.After(2 * time.Second):
+		t.Fatal("Close blocked on the retry backoff")
 	}
 }
