@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
@@ -17,6 +19,7 @@ const (
 	actionRateLimit    = "RATE_LIMIT"
 	actionCircuitBreak = "CIRCUIT_BREAK"
 	actionHoneypot     = "HONEYPOT"
+	actionTarpit       = "TARPIT"
 )
 
 type Metrics struct {
@@ -33,6 +36,11 @@ type Metrics struct {
 	visitorsByState *prometheus.GaugeVec
 	powDifficulty   prometheus.Gauge
 	globalPressure  *prometheus.GaugeVec
+	pressureGauges  [len(pressureLevels)]prometheus.Gauge
+	// pressureLevel est l'index publié dans pressureGauges (unknownPressure :
+	// niveau inconnu, toutes à 0). pressureMu sérialise les republications.
+	pressureLevel   atomic.Int32
+	pressureMu      sync.Mutex
 	underAttack     *prometheus.GaugeVec
 	underAttackHits *prometheus.CounterVec
 	clusterEvents   *prometheus.CounterVec
@@ -41,6 +49,8 @@ type Metrics struct {
 	cfRangeUpdates  *prometheus.CounterVec
 	storageDegraded prometheus.Gauge
 	storageErrors   *prometheus.CounterVec
+	alertsSent      *prometheus.CounterVec
+	alertsFailed    *prometheus.CounterVec
 	visitors        *visitorTracker
 	domains         domainLabels
 	now             func() time.Time
@@ -131,10 +141,22 @@ func New() *Metrics {
 			Name: "waf_storage_errors_total",
 			Help: "Storage backend errors by operation (ADR-021).",
 		}, []string{"operation"}),
+		alertsSent: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_alerts_sent_total",
+			Help: "Webhook alert deliveries accepted by a sink, by trigger (FR-29).",
+		}, []string{"trigger"}),
+		alertsFailed: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_alerts_failed_total",
+			Help: "Webhook alert deliveries abandoned, by trigger (FR-29).",
+		}, []string{"trigger"}),
 		now: time.Now,
 	}
 	m.visitors = newVisitorTracker(defaultVisitorWindow, defaultMaxVisitors, m.activeVisitors, m.visitorsByState)
-	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors)
+	for i, level := range pressureLevels {
+		m.pressureGauges[i] = m.globalPressure.WithLabelValues(level)
+	}
+	m.pressureLevel.Store(unpublishedPressure)
+	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors, m.alertsSent, m.alertsFailed)
 	// La liste compilée est en vigueur au démarrage : publier son cardinal tout
 	// de suite évite une jauge à 0 qui se lirait comme « aucune plage connue ».
 	m.cfRanges.Set(float64(len(cloudflare.Ranges())))
@@ -210,6 +232,27 @@ func (m *Metrics) IncStorageError(operation string) {
 	m.storageErrors.WithLabelValues(operation).Inc()
 }
 
+// AlertSent compte une alerte acceptée par un sink (FR-29). Le trigger est
+// une valeur de l'enum d'alert.schema.json : cardinalité bornée.
+func (m *Metrics) AlertSent(trigger string) {
+	m.alertsSent.WithLabelValues(trigger).Inc()
+}
+
+// AlertFailed compte une alerte abandonnée pour un sink (FR-29).
+func (m *Metrics) AlertFailed(trigger string) {
+	m.alertsFailed.WithLabelValues(trigger).Inc()
+}
+
+// WithAlertsPending publie waf_alerts_pending, le nombre d'alertes en attente
+// d'envoi, lu à chaque scrape. À appeler une fois, quand l'alerting est actif.
+func (m *Metrics) WithAlertsPending(pending func() int) *Metrics {
+	m.registry.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "waf_alerts_pending",
+		Help: "Webhook alerts waiting to be delivered (FR-29).",
+	}, func() float64 { return float64(pending()) }))
+	return m
+}
+
 // IncClusterSync compte un événement de synchronisation cluster appliqué (FR-20).
 func (m *Metrics) IncClusterSync(eventType string) {
 	m.clusterEvents.WithLabelValues(eventType).Inc()
@@ -272,18 +315,46 @@ func (m *Metrics) observeVisitor(r *http.Request, scores *trust.ScoreManager) {
 	m.visitors.observe(visitor.IPHash, scores.State(visitor.Score), m.now())
 }
 
+// pressureLevels sont les niveaux de waf_global_pressure, jauge one-hot.
+var pressureLevels = [...]string{"normal", "elevated", "high", "critical"}
+
+const (
+	unknownPressure     = -1 // niveau hors de pressureLevels : toutes à 0
+	unpublishedPressure = -2 // aucune requête observée
+
+	// headerGlobalPressure est X-WAF-Global-Pressure sous sa forme canonique :
+	// Header.Get n'a pas à la recalculer (une allocation par appel).
+	headerGlobalPressure = "X-Waf-Global-Pressure"
+)
+
+// observeGlobalPressure ne republie la jauge one-hot qu'au changement de
+// niveau : quatre WithLabelValues().Set() par requête (recherche de série
+// par label) pour une valeur qui ne change qu'avec la pression.
 func (m *Metrics) observeGlobalPressure(r *http.Request) {
-	current := r.Header.Get("X-WAF-Global-Pressure")
+	current := r.Header.Get(headerGlobalPressure)
 	if current == "" {
 		current = "normal"
 	}
-	for _, level := range []string{"normal", "elevated", "high", "critical"} {
+	level := int32(unknownPressure)
+	for i, name := range pressureLevels {
+		if name == current {
+			level = int32(i)
+			break
+		}
+	}
+	if m.pressureLevel.Load() == level {
+		return
+	}
+	m.pressureMu.Lock()
+	defer m.pressureMu.Unlock()
+	for i, gauge := range m.pressureGauges {
 		value := 0.0
-		if level == current {
+		if int32(i) == level {
 			value = 1
 		}
-		m.globalPressure.WithLabelValues(level).Set(value)
+		gauge.Set(value)
 	}
+	m.pressureLevel.Store(level)
 }
 
 // observeUnderAttack publie l'état du mode sous attaque par domaine (FR-39) et
@@ -303,13 +374,18 @@ func (m *Metrics) observeUnderAttack(r *http.Request, action string, domain stri
 // normalizedAction dérive l'action depuis X-WAF-Action. Sans cet en-tête, le
 // statut vient de l'upstream (et non d'une décision WAF) : action PASS, pour ne
 // pas gonfler waf_blocked_total avec les 5xx d'origine (cf. logger.normalizedAction).
+// TARPIT n'est retenu que sur la réponse, posé par le tarpit qui la sert : sur
+// la requête, c'est une classification qui atteint l'upstream sans déception.
 func normalizedAction(r *http.Request, recorder *statusRecorder) string {
 	action := recorder.Header().Get("X-WAF-Action")
 	if action == "" {
 		action = r.Header.Get("X-WAF-Action")
+		if action == actionTarpit {
+			return actionPass
+		}
 	}
 	switch action {
-	case actionPass, actionChallenge, actionBlock, actionRateLimit, actionCircuitBreak, actionHoneypot:
+	case actionPass, actionChallenge, actionBlock, actionRateLimit, actionCircuitBreak, actionHoneypot, actionTarpit:
 		return action
 	default:
 		return actionPass

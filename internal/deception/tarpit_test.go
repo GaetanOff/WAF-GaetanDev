@@ -39,6 +39,10 @@ func TestDispatchServesSlowFakeHTML(t *testing.T) {
 	if !strings.Contains(body, "<html>") || !strings.Contains(body, "</html>") {
 		t.Fatalf("tarpit body is not a full fake HTML page: %q", body)
 	}
+	// Journalisée et comptée TARPIT par le logger et les métriques.
+	if got := response.Header().Get("X-WAF-Action"); got != "TARPIT" {
+		t.Fatalf("X-WAF-Action = %q, want TARPIT", got)
+	}
 }
 
 func TestDispatchReturns429WhenSemaphoreFull(t *testing.T) {
@@ -54,6 +58,9 @@ func TestDispatchReturns429WhenSemaphoreFull(t *testing.T) {
 
 	if response.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429 when tarpit pool is full", response.Code)
+	}
+	if action, reason := response.Header().Get("X-WAF-Action"), response.Header().Get("X-WAF-Reason"); action != "TARPIT" || reason != ReasonSaturated {
+		t.Fatalf("X-WAF-Action/Reason = %q/%q, want TARPIT/%s", action, reason, ReasonSaturated)
 	}
 }
 

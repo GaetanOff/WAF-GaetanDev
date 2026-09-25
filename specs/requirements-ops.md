@@ -1,7 +1,7 @@
 ---
 status: implemented
-version: 3.5.2
-last-reviewed: 2026-09-24
+version: 3.6.0
+last-reviewed: 2026-09-25
 extends: requirements-advanced.md (v2.0.0)
 change: "FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
@@ -150,7 +150,7 @@ change: "FR-26 : avertissement au démarrage pour tout domains[].upstream rendu 
 
 - Le WAF DOIT supporter l'envoi de **webhooks** sur des événements de sécurité configurables :
   - Format : HTTP POST vers une URL configurée, body JSON (voir `schemas/alert.schema.json`)
-  - Retry : 3 tentatives avec backoff exponentiel (1s, 5s, 25s)
+  - Retry : `alerting.max_retries` nouvelles tentatives (défaut 3) avec backoff exponentiel (1s, 5s, 25s, plafonné à 25s au-delà)
   - Timeout par appel : 5s
 - **Triggers émis** (enum `trigger` de `schemas/alert.schema.json`) :
   | Trigger | Description |
@@ -169,8 +169,15 @@ change: "FR-26 : avertissement au démarrage pour tout domains[].upstream rendu 
   - Slack (format Slack Incoming Webhook)
   - Discord (format Discord Webhook)
   - Generic HTTP (JSON libre, configurable)
-- Le WAF DOIT exposer les métriques d'alertes : `waf_alerts_sent_total{trigger}`, `waf_alerts_failed_total`
+- Le WAF DOIT exposer les métriques d'alertes, comptées par livraison (une alerte × un sink) :
+  - `waf_alerts_sent_total{trigger}` : livraisons acceptées par le sink (réponse 2xx)
+  - `waf_alerts_failed_total{trigger}` : livraisons abandonnées (tentatives épuisées)
+  - `waf_alerts_pending` : jauge des alertes en attente d'envoi. Une jauge ne porte pas le suffixe `_total`, réservé aux compteurs Prometheus (la v1 de cette spec la nommait `waf_alerts_pending_total`)
 - Les webhooks NE DOIVENT PAS bloquer le pipeline de traitement des requêtes (exécution asynchrone via channel)
+- Un webhook défaillant NE DOIT PAS retarder la livraison aux autres : chaque sink a sa file (256 alertes) et son worker. Avec un worker unique, un webhook hors service immobilisait l'envoi (max_retries+1 timeouts de 5 s plus les backoffs par alerte), la file se remplissait et les alertes suivantes étaient jetées sans trace
+- Après une livraison abandonnée, un sink ne reçoit plus qu'**une** tentative par alerte jusqu'à son prochain succès, qui rétablit les retries : un webhook hors service coûte un timeout par alerte
+- Une alerte jetée parce que la file de son sink est pleine DOIT être comptée dans `waf_alerts_failed_total`
+- L'arrêt du WAF interrompt le backoff et la requête en cours ; les alertes encore en file sont abandonnées
 
 ## FR-30 — Auto-protection du WAF
 

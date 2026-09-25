@@ -58,6 +58,7 @@ type WAFStats struct {
 	RequestsChallenged  int64 `json:"requests_challenged"`
 	RequestsBlocked     int64 `json:"requests_blocked"`
 	RequestsRateLimited int64 `json:"requests_rate_limited"`
+	RequestsTarpitted   int64 `json:"requests_tarpitted"`
 	ActiveVisitors      int   `json:"active_visitors"`
 	TrustedVisitors     int   `json:"trusted_visitors"`
 	MonitoredVisitors   int   `json:"monitored_visitors"`

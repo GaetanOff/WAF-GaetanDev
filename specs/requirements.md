@@ -1,7 +1,7 @@
 ---
 status: implemented
-version: 2.3.3
-last-reviewed: 2026-09-24
+version: 2.4.0
+last-reviewed: 2026-09-25
 reviewed-by: GaetanDev
 change: "FR-09 : les refus slowloris, flood de /waf/verify et strict_host sont journalisés et comptés. FR-07 : un User-Agent de `whitelist_user_agents` n'est plus pénalisé par les heuristiques « client non navigateur » (en-têtes manquants, UA d'outil) — Googlebot était bloqué en huit requêtes. Précédent (2.3.2) — FR-09 : le label `domain` des métriques est borné aux hôtes de `domains[]`, tout autre hôte est compté sous `_undeclared`. Précédent (2.3.1) — FR-08 : seul un refus du rate limit du WAF (`X-WAF-Action: RATE_LIMIT`) est une violation de circuit-breaker, jamais un 429 de l'upstream. Précédent (2.3.0) — FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
 ---
@@ -112,6 +112,7 @@ change: "FR-09 : les refus slowloris, flood de /waf/verify et strict_host sont j
 - Le WAF DOIT journaliser chaque événement de sécurité (bloc, challenge, rate-limit) en JSON structuré
 - L'`action` loggée DOIT refléter une décision RÉELLE du WAF (en-tête `X-WAF-Action` posé par un middleware) ; un statut provenant de l'**upstream** (ex: 502 origine indisponible, 403/404 applicatif) DOIT être loggé `action=PASS` avec son `upstream_status` réel — jamais comme un blocage WAF (sinon métriques `waf_blocked_total` faussées et fausses alertes webhook)
 - Chaque log DOIT contenir : timestamp, request_id, ip, domain, path, action, reason, trust_score
+- Une soumission rejetée par `POST /waf/verify` (400 : corps invalide, token invalide ou expiré, PoW faux, timing ou rendu WebGL headless refusé ; 405 : méthode autre que POST) est une décision du WAF : elle DOIT être journalisée et comptée `BLOCK`, avec la reason `verify_<code d'erreur>` (ex. `verify_invalid_pow`, `verify_token_expired`). Sans action posée, ces attaques du point de vérification étaient enregistrées `PASS`
 - Les refus pris en amont de la chaîne de décision DOIVENT être journalisés et comptés comme toute décision du WAF : slowloris (`RATE_LIMIT`, `too_many_connections_per_ip`, FR-23), flood de `/waf/verify` (`RATE_LIMIT`, `self_protect_flood`, FR-30) et `server.strict_host` (`BLOCK`, `host_not_declared`, ADR-020). Montés au-dessus du journal et des métriques, ils étaient absents de `waf_requests_total`, du journal de sécurité et de `GET /waf/admin/events`
 - Le WAF DOIT supporter les niveaux de log : debug, info, warn, error
 - Le WAF DOIT supporter deux formats de sortie (`logging.format`), aux contrats explicitement distincts :

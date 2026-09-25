@@ -9,6 +9,7 @@ const (
 	ActionRateLimit    = "RATE_LIMIT"
 	ActionCircuitBreak = "CIRCUIT_BREAK"
 	ActionHoneypot     = "HONEYPOT"
+	ActionTarpit       = "TARPIT"
 )
 
 type SecurityEvent struct {

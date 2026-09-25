@@ -135,6 +135,9 @@ func TestHandlerRejectsOversizedBody(t *testing.T) {
 	if response.Code != http.StatusRequestEntityTooLarge {
 		t.Fatalf("status = %d, want 413", response.Code)
 	}
+	if got := response.Header().Get("X-WAF-Action"); got != "BLOCK" {
+		t.Fatalf("X-WAF-Action = %q, want BLOCK (refus journalisé et compté)", got)
+	}
 }
 
 func TestHandlerSkipsWhenPassMarked(t *testing.T) {

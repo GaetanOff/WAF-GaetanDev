@@ -65,21 +65,29 @@ Feature: Alerting & Webhooks
     And le body JSON est conforme à schemas/alert.schema.json
     And il contient les champs: id (UUID v4), timestamp, trigger, severity, domain, title, message
 
-  @deferred
   Scenario: Retry en cas d'échec du webhook
-    Given l'URL de webhook retourne HTTP 500 lors du premier envoi
+    Given alerting.max_retries = 3 (défaut)
+    And l'URL de webhook retourne HTTP 500 lors du premier envoi
     When le WAF retente avec backoff exponentiel
     Then le 2ème envoi est effectué après 1 seconde
     And le 3ème envoi après 5 secondes (si le 2ème échoue)
     And le 4ème envoi après 25 secondes (si le 3ème échoue)
-    And après 3 tentatives échouées, l'alerte est abandonnée
+    And après 3 nouvelles tentatives échouées, l'alerte est abandonnée
     And la métrique waf_alerts_failed_total est incrémentée
+    # Au-delà de max_retries = 3, le délai reste plafonné à 25 s.
 
   Scenario: Webhook timeout — pas de blocage du pipeline WAF
     Given l'URL de webhook ne répond pas (timeout réseau)
     When le webhook est envoyé de manière asynchrone
     Then la requête cliente est traitée et répond normalement
     And le webhook est géré en arrière-plan dans sa propre goroutine
+
+  Scenario: Webhook hors service — les autres sinks restent livrés
+    Given un sink Slack qui ne répond plus et un sink generic sain
+    When trois alertes sont émises
+    Then le sink generic reçoit les trois alertes sans attendre les timeouts du sink Slack
+    And le sink Slack ne reçoit plus qu'une tentative par alerte après sa première livraison abandonnée
+    And une alerte jetée faute de place dans la file du sink Slack incrémente waf_alerts_failed_total
 
   Scenario: Déduplication — pas de spam d'alertes
     Given le trigger "block" se déclenche toutes les 5 secondes pour le même domaine
@@ -115,10 +123,11 @@ Feature: Alerting & Webhooks
     And la réponse API indique si le webhook a répondu (HTTP 200 ou erreur)
     Note: Utile pour valider la configuration sans attendre une vraie attaque
 
-  @deferred
   Scenario: Métriques alertes
-    When GET /waf/metrics
+    Given un sink qui répond HTTP 200 et un sink qui répond HTTP 500
+    When un événement honeypot déclenche une alerte
+    And GET /waf/metrics
     Then les métriques contiennent:
-      | waf_alerts_sent_total{trigger}   | par type de trigger |
-      | waf_alerts_failed_total{trigger} | échecs d'envoi      |
-      | waf_alerts_pending_total         | en attente d'envoi  |
+      | waf_alerts_sent_total{trigger="honeypot"}   | 1 (livraison acceptée) |
+      | waf_alerts_failed_total{trigger="honeypot"} | 1 (livraison abandonnée) |
+      | waf_alerts_pending                          | alertes en attente d'envoi |

@@ -42,8 +42,8 @@
     },
     "action": {
       "type": "string",
-      "enum": ["PASS", "CHALLENGE", "BLOCK", "RATE_LIMIT", "CIRCUIT_BREAK", "HONEYPOT"],
-      "description": "Action décidée par le WAF pour cette requête"
+      "enum": ["PASS", "CHALLENGE", "BLOCK", "RATE_LIMIT", "CIRCUIT_BREAK", "HONEYPOT", "TARPIT"],
+      "description": "Action décidée par le WAF pour cette requête. TARPIT : réponse servie par le tarpit (FR-15) ; une requête classée TARPIT sans couche de déception atteint l'upstream et reste PASS"
     },
     "reason": {
       "type": "string",

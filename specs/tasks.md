@@ -1,7 +1,7 @@
 ---
 status: implemented
-sprint: 19
-last-updated: 2026-09-24
+sprint: 20
+last-updated: 2026-09-25
 ---
 
 # Tasks — WAF Anti-DDoS / Anti-Bot
@@ -953,4 +953,38 @@ last-updated: 2026-09-24
 - [ ] Constat annexe, hors audit : sans moteur de risque, `geo.challenge_countries` n'a pas d'effet (contribution lue par le seul moteur) — documente dans geo-rules.feature, a traiter comme le 1.2 si besoin
 - [ ] Fonctionnalites differees (`@deferred`) de geo-rules, threat-intelligence, adaptive-protection : a planifier ou a retirer des specs
 - **Validation 2026-09-24** : `go build ./...`, `go vet ./...`, `go test ./...` (723 tests et sous-tests, 45 paquets testes), `golangci-lint run` (0 issue), `spectral lint` (0 erreur), `govulncheck` (0 vulnerabilite atteignable, 1 non atteinte) ; execution reelle du binaire sur `config.example.yaml` avec `strict_host` : Host non declare 400 journalise `BLOCK host_not_declared` et compte sous `_undeclared`, `/waf/metrics` par IP 400, `/waf/health` 200. `go test -race` non executable localement — couvert par la CI.
+- **Statut** : implemente.
+
+## Sprint 20 - Remediation du cinquieme audit du 2026-09-25 (Phase 20)
+
+> Cinquieme audit externe du 2026-09-25 : chaque point a ete verifie contre le
+> code avant correction, sur la branche `fix/audit-5-remediation`, a raison
+> d'un commit par correction. Un point est infirme par la mesure (4.2) ; deux
+> sont exacts mais plus larges que decrit (2.3, 3.1) ; la raison est consignee.
+
+### T20.1 - Observabilite
+- [x] 1.1 `TARPIT` absent des actions connues du logger et des metriques : une requete tarpitee etait comptee PASS et absente de `GET /waf/admin/events`. Le tarpit pose `X-WAF-Action: TARPIT` sur la reponse qu'il sert ; `requests_tarpitted` dans `GET /waf/stats`. Posee sur la seule requete (sans couche de deception, elle atteint l'upstream), la classification reste PASS
+- [x] 1.2 Echecs de `/waf/verify` (400, 405) sans action : journalises PASS avec un `upstream_status` 400 fictif. `BLOCK`, reason `verify_<code>` ; le 500 d'emission du cookie reste une erreur interne
+- [x] 1.3 413 de l'integrite (`BLOCK body_too_large`) et 429 du tarpit sature (`TARPIT tarpit_saturated`, et non `RATE_LIMIT` qui aurait compte une violation de circuit-breaker)
+- **Spec** : requirements.md FR-09 (v2.4.0) ; requirements-advanced.md FR-15 (v2.6.0) ; security-event.schema.json (enum `action`) ; admin.openapi.yaml (v1.2.0) ; features/deception-layer, js-challenge, request-integrity
+
+### T20.2 - Specs et invariants SDD
+- [x] 2.1 `waf_alerts_sent_total{trigger}`, `waf_alerts_failed_total{trigger}` et `waf_alerts_pending` (la spec nommait la jauge `waf_alerts_pending_total`, suffixe reserve aux compteurs) ; scenario « Metriques alertes » actif
+- [x] 2.2 Invariant 3 : sept reponses inline d'admin.openapi.yaml sans `additionalProperties: false` (v1.2.1) ; un test parcourt le contrat
+- [x] 2.3 Scenario de retry `@deferred` : le retry existait, mais avec un backoff 200 ms x2 au lieu de 1 s / 5 s / 25 s. Backoff aligne sur FR-29 (x5, plafond 25 s), scenario actif
+- [x] 2.4 `add_header` sans `header` : charge puis inerte. Refuse au chargement (nom absent ou non token RFC 9110) ; rule.schema.json v2.1.0
+- **Spec** : requirements-ops.md FR-29 (v3.6.0) ; requirements-advanced.md FR-17 ; features/webhook-alerts, rules-engine
+
+### T20.3 - Concurrence
+- [x] 3.1 Canal `errs` de capacite 1 pour quatre serveurs : une deuxieme erreur bloquait sa goroutine. Une place par serveur ; de plus, l'API admin remontait `http.ErrServerClosed` et pouvait faire echouer un arret normal
+- [x] 3.2 Worker d'alerting unique : un webhook hors service (~21 s par alerte avec les defauts) retardait les autres sinks et saturait la file, dont les alertes suivantes etaient jetees sans trace. File et worker par sink ; une tentative par alerte tant que le sink est en echec ; alerte jetee comptee `failed` ; `Close` interrompt backoff et requete
+- **Spec** : requirements-ops.md FR-29 ; features/webhook-alerts
+
+### T20.4 - Performance du chemin proxifie
+- [x] 4.1 `Pool.next` : mutex remplace par `atomic.Uint64` (round_robin, 20 goroutines : ~160-220 -> ~75-95 ns/op)
+- [x] 4.2 FNV-1a : **infirme par la mesure**. `fnv.New32a` est inline et la conversion ne s'echappe pas : 0 allocation, y compris pour une cle IPv6 de 39 caracteres (`TestPoolPickDoesNotAllocate` du Sprint 19). Non modifie
+- [x] 4.3 Token d'origine : HMAC-SHA256 par requete (~920 ns, 10 allocs). Cache par Host de l'heure courante, borne a 1 024 hotes (~24 ns, 0 alloc)
+- [x] 4.4 `observeGlobalPressure` : quatre `WithLabelValues().Set()` par requete. Jauges resolues une fois, republiees au seul changement de niveau (~350 ns / 1 alloc -> ~55 ns / 0)
+- [ ] Constat annexe, hors audit : les en-tetes internes `X-WAF-*` sont lus sous une forme non canonique : chaque `Header.Get` recanonicalise la cle (1 allocation). Corrige pour la seule pression globale (4.4)
+- **Validation 2026-09-25** : `go build ./...`, `go vet ./...`, `go test ./...` (747 tests et sous-tests), `golangci-lint run` (0 issue), `spectral lint` (0 erreur), `govulncheck` (0 vulnerabilite atteignable, 1 non atteinte) ; execution reelle du binaire sur `configs/config.example.yaml` : POST `/waf/verify` invalide 400 et GET 405 journalises `BLOCK verify_invalid_token` / `verify_method_not_allowed` (`upstream_status: null`), presents dans `GET /waf/admin/events`, `requests_blocked` = 2 et `waf_requests_total{action="BLOCK"} 2`. `go test -race` non executable localement — couvert par la CI.
 - **Statut** : implemente.

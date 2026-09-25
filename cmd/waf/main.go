@@ -325,8 +325,9 @@ func run() error {
 		for _, wh := range cfg.Alerting.Webhooks {
 			sinks = append(sinks, alert.Sink{Type: wh.Type, URL: wh.URL})
 		}
-		notifier = alert.NewNotifier(sinks, cooldown, cfg.Alerting.MaxRetries, nil)
+		notifier = alert.NewNotifier(sinks, cooldown, cfg.Alerting.MaxRetries, nil, alert.WithObserver(metrics))
 		defer notifier.Close()
+		metrics.WithAlertsPending(notifier.Pending)
 		securityLogger.Alerter = notifier
 	}
 	// Mode sous attaque (FR-39) : à chaque entrée/sortie, on publie la métrique
@@ -410,21 +411,15 @@ func run() error {
 	}
 	tlsEnabled := acmeManager != nil || tlsManager != nil
 
-	errs := make(chan error, 1)
-	go func() {
-		slog.Info("starting waf", "listen", server.Addr, "tls", tlsEnabled)
-		var serveErr error
-		if tlsEnabled {
-			serveErr = server.ListenAndServeTLS("", "") // certs fournis par autocert ou tlsmgr (GetCertificate)
-		} else {
-			serveErr = server.ListenAndServe()
-		}
-		if serveErr != nil && !errors.Is(serveErr, http.ErrServerClosed) {
-			errs <- serveErr
-			return
-		}
-		errs <- nil
-	}()
+	// Un emplacement par serveur : avec un canal de capacité 1, une deuxième
+	// erreur (ex. ports 443 et 80 déjà pris) bloquait sa goroutine pour toujours.
+	errs := make(chan error, maxListeners)
+	slog.Info("starting waf", "listen", server.Addr, "tls", tlsEnabled)
+	if tlsEnabled {
+		listenInBackground(errs, func() error { return server.ListenAndServeTLS("", "") }) // certs fournis par autocert ou tlsmgr (GetCertificate)
+	} else {
+		listenInBackground(errs, server.ListenAndServe)
+	}
 	// Serveur HTTP-01 (challenge ACME + redirection HTTPS) sur le port 80.
 	if acmeManager != nil {
 		challengeServer := &http.Server{
@@ -433,11 +428,7 @@ func run() error {
 			ReadHeaderTimeout:   headerTimeout,
 			MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
 		}
-		go func() {
-			if err := challengeServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				errs <- err
-			}
-		}()
+		listenInBackground(errs, challengeServer.ListenAndServe)
 		defer func() { _ = challengeServer.Close() }()
 	}
 	// Redirection HTTP -> HTTPS (FR-33) quand le WAF termine lui-même le TLS par
@@ -449,20 +440,12 @@ func run() error {
 			ReadHeaderTimeout:   headerTimeout,
 			MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
 		}
-		go func() {
-			if err := redirectServer.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-				errs <- err
-			}
-		}()
+		listenInBackground(errs, redirectServer.ListenAndServe)
 		defer func() { _ = redirectServer.Close() }()
 	}
 	if adminServer != nil {
-		go func() {
-			slog.Info("starting admin api", "listen", cfg.Server.AdminListen)
-			if err := adminServer.ListenAndServe(); err != nil {
-				errs <- err
-			}
-		}()
+		slog.Info("starting admin api", "listen", cfg.Server.AdminListen)
+		listenInBackground(errs, adminServer.ListenAndServe)
 	}
 
 	stop := make(chan os.Signal, 1)
@@ -488,7 +471,32 @@ func run() error {
 		}
 	}
 
-	return <-errs
+	return drainedError(errs)
+}
+
+// maxListeners est le nombre maximal de serveurs HTTP démarrés par run :
+// public, challenge ACME HTTP-01, redirection HTTP→HTTPS et API admin.
+const maxListeners = 4
+
+// listenInBackground lance listen dans une goroutine et remonte son erreur sur
+// errs. http.ErrServerClosed, qui signale un arrêt demandé, n'en est pas une :
+// l'API admin la remontait, et un arrêt normal pouvait sortir en erreur.
+func listenInBackground(errs chan<- error, listen func() error) {
+	go func() {
+		if err := listen(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			errs <- err
+		}
+	}()
+}
+
+// drainedError retourne une erreur de serveur déjà remontée, sans attendre.
+func drainedError(errs <-chan error) error {
+	select {
+	case err := <-errs:
+		return err
+	default:
+		return nil
+	}
 }
 
 // warnUntrustedInfrastructureHeaders signale les contrôles privés d'entrée par

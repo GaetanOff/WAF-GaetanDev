@@ -190,13 +190,20 @@ func currentTrustScore(r *http.Request, scores *trust.ScoreManager, ip string) i
 // observé vient alors de l'UPSTREAM (ex: 502 origine down, 403/404 applicatif)
 // et ne doit PAS être compté comme un blocage WAF — sinon faux BLOCK dans les
 // métriques/logs et fausses alertes webhook à chaque hoquet d'origine.
+//
+// TARPIT n'est retenu que sur la réponse : posé sur la requête, ce n'est
+// qu'une classification (moteur de risque, règles) que seul le tarpit rend
+// effective. Sans couche de déception, la requête classée atteint l'upstream.
 func normalizedAction(r *http.Request, recorder *statusRecorder) string {
 	action := recorder.Header().Get("X-WAF-Action")
 	if action == "" {
 		action = r.Header.Get("X-WAF-Action")
+		if action == ActionTarpit {
+			return ActionPass
+		}
 	}
 	switch action {
-	case ActionPass, ActionChallenge, ActionBlock, ActionRateLimit, ActionCircuitBreak, ActionHoneypot:
+	case ActionPass, ActionChallenge, ActionBlock, ActionRateLimit, ActionCircuitBreak, ActionHoneypot, ActionTarpit:
 		return action
 	default:
 		return ActionPass

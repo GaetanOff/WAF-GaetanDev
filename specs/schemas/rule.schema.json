@@ -3,7 +3,7 @@
   "$id": "https://github.com/GaetanDev/WAF/schemas/rule.schema.json",
   "title": "WAFRule",
   "description": "Règle personnalisée du moteur de règles (FR-17). Le fichier rules.file a pour racine {\"rules\": [WAFRule, …]} et est décodé strictement : toute clé absente de ce schéma est refusée au chargement. Une règle matche quand TOUTES ses conditions sont vraies (ET implicite) ; les règles sont évaluées par priorité croissante et la première qui matche exécute ses actions, sauf continue: true.",
-  "$comment": "Version 2.0.1 (2026-09-24) — description de trust_score : le score est lu dans le gestionnaire de score (audit 3, point 1.1), le contrat est inchangé. Version 2.0.0 (2026-09-24) — schéma réaligné sur le contrat réellement chargé par internal/rules (audit du 2026-09-24, point 2.1). La v1 décrivait un groupe hiérarchique AND/OR/NOT, des clés op/header_name/param_name, des params d'action et des champs/actions sans implémentation. Différés, sans implémentation : opérateurs OR/NOT, champs ip_cidr, body_param, asn, asn_type, behavioral_score, ja3_hash, request_size, content_type, hour_of_day, referer ; opérateurs not_equals, not_contains, not_in_list, not_exists, between, in_asn ; actions challenge, rate_limit, redirect, remove_header, allow ; clés description, domains, case_sensitive ; statut et message configurables du block.",
+  "$comment": "Version 2.1.0 (2026-09-25) — add_header exige header, un nom d'en-tête HTTP valide (token RFC 9110) : sans lui, la règle se chargeait et ne posait rien (audit 5, point 2.4). Version 2.0.1 (2026-09-24) — description de trust_score : le score est lu dans le gestionnaire de score (audit 3, point 1.1), le contrat est inchangé. Version 2.0.0 (2026-09-24) — schéma réaligné sur le contrat réellement chargé par internal/rules (audit du 2026-09-24, point 2.1). La v1 décrivait un groupe hiérarchique AND/OR/NOT, des clés op/header_name/param_name, des params d'action et des champs/actions sans implémentation. Différés, sans implémentation : opérateurs OR/NOT, champs ip_cidr, body_param, asn, asn_type, behavioral_score, ja3_hash, request_size, content_type, hour_of_day, referer ; opérateurs not_equals, not_contains, not_in_list, not_exists, between, in_asn ; actions challenge, rate_limit, redirect, remove_header, allow ; clés description, domains, case_sensitive ; statut et message configurables du block.",
   "type": "object",
   "additionalProperties": false,
   "required": ["name", "conditions", "actions"],
@@ -113,9 +113,16 @@
         },
         "header": {
           "type": "string",
-          "description": "add_header : nom de l'en-tête de réponse"
+          "pattern": "^[!#$%&'*+.^_`|~0-9A-Za-z-]+$",
+          "description": "add_header : nom de l'en-tête de réponse (token RFC 9110), obligatoire"
         }
-      }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "type": { "const": "add_header" } } },
+          "then": { "required": ["header"] }
+        }
+      ]
     }
   }
 }

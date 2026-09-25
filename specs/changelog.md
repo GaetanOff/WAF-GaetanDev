@@ -6,6 +6,41 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — cinquième audit du 2026-09-25 (phase 20)
+
+- Les réponses du tarpit, les refus de `POST /waf/verify` (PoW invalide, token
+  expiré ou forgé, rendu WebGL headless) et le 413 de taille de body sont
+  journalisés, comptés et publiés sur `GET /waf/admin/events` avec leur action
+  (`TARPIT`, `BLOCK`) : ils passaient pour du trafic légitime (`PASS`).
+- Un webhook hors service ne retarde plus les autres et ne fait plus
+  disparaître en silence les alertes suivantes : file et worker par sink, une
+  tentative par alerte tant que le sink échoue, alertes jetées comptées.
+
+### Added — cinquième audit du 2026-09-25
+
+- Métriques `waf_alerts_sent_total{trigger}`, `waf_alerts_failed_total{trigger}`
+  et `waf_alerts_pending`.
+- Action `TARPIT` dans le journal de sécurité, `waf_requests_total` et
+  `GET /waf/admin/events` ; compteur `requests_tarpitted` dans `GET /waf/stats`
+  (API admin 1.2.0).
+
+### Fixed — cinquième audit du 2026-09-25
+
+- Retry des webhooks après 1 s, 5 s et 25 s (FR-29) au lieu de 200/400/800 ms.
+- Une règle `add_header` sans nom d'en-tête valide est refusée au chargement
+  (`rule.schema.json` 2.1.0) ; elle se chargeait et ne posait rien.
+- Plusieurs échecs de démarrage de serveurs ne bloquent plus de goroutine, et
+  un arrêt normal ne sort plus en erreur à cause de l'API admin.
+- Les réponses inline de l'API admin sont fermées (`additionalProperties:
+  false`, API admin 1.2.1).
+
+### Changed — cinquième audit du 2026-09-25
+
+- La jauge `waf_alerts_pending_total` de la spec devient `waf_alerts_pending`.
+- Chemin proxifié : compteur round-robin atomique, token d'origine mis en cache
+  pour l'heure courante, jauge de pression globale republiée au seul
+  changement de niveau.
+
 ### Security — quatrième audit du 2026-09-24 (phase 19)
 
 - Sans moteur de risque (`risk_engine.enabled: false`), les déclencheurs

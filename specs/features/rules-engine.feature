@@ -113,6 +113,12 @@ Feature: Moteur de Règles Personnalisées
     Then le démarrage échoue avec: rule "r": unsupported action type "challenge"
     # Chargée puis ignorée, l'action donnait l'illusion d'une protection.
 
+  Scenario: add_header sans nom d'en-tête — démarrage refusé
+    Given une règle "r" avec une action type: "add_header" sans clé header
+    When le WAF charge les règles au démarrage
+    Then le démarrage échoue avec: rule "r": add_header action requires a valid header name
+    # Chargée, l'action ne posait aucun en-tête.
+
   Scenario: Clé inconnue — démarrage refusé
     Given une règle écrite avec "op: equals" au lieu de "operator: equals"
     When le WAF charge les règles au démarrage

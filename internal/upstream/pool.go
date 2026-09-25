@@ -6,7 +6,6 @@ package upstream
 
 import (
 	"hash/fnv"
-	"sync"
 	"sync/atomic"
 )
 
@@ -38,8 +37,7 @@ func (u *Upstream) Inflight() int64   { return u.inflight.Load() }
 type Pool struct {
 	strategy  string
 	upstreams []*Upstream
-	mu        sync.Mutex
-	counter   uint64
+	counter   atomic.Uint64
 }
 
 func NewPool(strategy string, upstreams []*Upstream) *Pool {
@@ -99,13 +97,10 @@ func isCandidate(u *Upstream, backup bool) bool {
 	return u.Backup == backup && u.Healthy()
 }
 
-// next retourne puis avance le compteur de rotation.
+// next retourne puis avance le compteur de rotation. Atomique : un mutex
+// sérialisait toutes les requêtes proxifiées en round_robin et weighted.
 func (p *Pool) next() uint64 {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	current := p.counter
-	p.counter++
-	return current
+	return p.counter.Add(1) - 1
 }
 
 // nthCandidate retourne le n-ième candidat. Un membre qui change d'état entre

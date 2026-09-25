@@ -157,3 +157,82 @@ func TestMiddlewareBoundsTheDomainLabelToDeclaredDomains(t *testing.T) {
 		t.Fatalf("an undeclared Host became a label value:\n%s", body)
 	}
 }
+
+// FR-15 : une réponse servie par le tarpit est comptée TARPIT ; la seule
+// classification posée sur la requête (sans déception, elle atteint l'upstream)
+// reste PASS.
+func TestMiddlewareCountsTarpitOnlyWhenServed(t *testing.T) {
+	cases := []struct {
+		name       string
+		handler    http.HandlerFunc
+		wantAction string
+	}{
+		{
+			name: "served by the tarpit",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("X-WAF-Action", actionTarpit)
+				w.WriteHeader(http.StatusOK)
+			},
+			wantAction: actionTarpit,
+		},
+		{
+			name: "classified but proxied",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				r.Header.Set("X-WAF-Action", actionTarpit)
+				w.WriteHeader(http.StatusOK)
+			},
+			wantAction: actionPass,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			metrics := New().WithDomains([]string{"example.test"})
+			scores, store := newTestScoreManager(t)
+			defer store.Close()
+			request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
+			request.RemoteAddr = "1.2.3.4:1234"
+
+			metrics.Middleware(scores, tc.handler).ServeHTTP(httptest.NewRecorder(), request)
+
+			assertMetricContains(t, scrape(t, metrics), `waf_requests_total{action="`+tc.wantAction+`",domain="example.test"} 1`)
+		})
+	}
+}
+
+// FR-29 : métriques d'alertes webhook.
+func TestAlertMetrics(t *testing.T) {
+	metrics := New().WithAlertsPending(func() int { return 3 })
+
+	metrics.AlertSent("block")
+	metrics.AlertSent("block")
+	metrics.AlertFailed("honeypot")
+
+	body := scrape(t, metrics)
+	assertMetricContains(t, body, `waf_alerts_sent_total{trigger="block"} 2`)
+	assertMetricContains(t, body, `waf_alerts_failed_total{trigger="honeypot"} 1`)
+	assertMetricContains(t, body, `waf_alerts_pending 3`)
+}
+
+// La jauge one-hot suit les changements de niveau, et n'est pas republiée
+// tant que le niveau ne change pas.
+func TestGlobalPressureGaugeFollowsLevelChanges(t *testing.T) {
+	metrics := New()
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
+
+	request.Header.Set("X-WAF-Global-Pressure", "critical")
+	metrics.observeGlobalPressure(request)
+	request.Header.Set("X-WAF-Global-Pressure", "elevated")
+	metrics.observeGlobalPressure(request)
+
+	body := scrape(t, metrics)
+	assertMetricContains(t, body, `waf_global_pressure{level="critical"} 0`)
+	assertMetricContains(t, body, `waf_global_pressure{level="elevated"} 1`)
+
+	if allocs := testing.AllocsPerRun(100, func() { metrics.observeGlobalPressure(request) }); allocs != 0 {
+		t.Fatalf("%v allocations per unchanged observation, want 0", allocs)
+	}
+
+	request.Header.Set("X-WAF-Global-Pressure", "bogus")
+	metrics.observeGlobalPressure(request)
+	assertMetricContains(t, scrape(t, metrics), `waf_global_pressure{level="elevated"} 0`)
+}
