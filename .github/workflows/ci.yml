@@ -59,6 +59,21 @@ jobs:
           GOOS: linux
         run: go build -o waf ./cmd/waf
 
+  security:
+    name: Security (govulncheck)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: go.mod
+          cache: true
+      # G5 : même commande que `make security`. Semgrep et Trivy ont leurs
+      # propres workflows ; aucun ne détecte une vulnérabilité connue ATTEIGNABLE
+      # dans les dépendances Go ou la toolchain (ex. GO-2026-5856, crypto/tls).
+      - name: govulncheck
+        run: make security
+
   spec-lint:
     name: Spec Lint (spectral)
     runs-on: ubuntu-latest
