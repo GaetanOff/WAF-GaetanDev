@@ -37,7 +37,8 @@ type Store struct {
 	bucketSeed  maphash.Seed
 	bucketLocks [bucketLockStripes]sync.Mutex
 
-	done chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // Option configure un Store à la construction.
@@ -258,12 +259,11 @@ func (s *Store) cleanupBuckets(now time.Time) {
 	}
 }
 
+// Close arrête la boucle de nettoyage. Idempotent, y compris en appels
+// concurrents : le select/default précédent laissait deux appelants simultanés
+// passer tous deux par default, et le second close paniquait.
 func (s *Store) Close() {
-	select {
-	case <-s.done:
-	default:
-		close(s.done)
-	}
+	s.closeOnce.Do(func() { close(s.done) })
 }
 
 func (s *Store) cleanupLoop() {

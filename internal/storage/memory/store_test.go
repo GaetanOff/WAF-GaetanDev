@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"sync"
 	"testing"
 	"time"
 
@@ -139,5 +140,18 @@ func TestStoreGetSetBucket(t *testing.T) {
 	}
 	if bucket.Tokens != 10 {
 		t.Fatalf("Tokens = %f, want 10", bucket.Tokens)
+	}
+}
+
+// Deux Close simultanés passaient tous deux le select/default et le second
+// close(done) paniquait.
+func TestStoreCloseIsSafeUnderConcurrentCalls(t *testing.T) {
+	for range 100 {
+		store := New(10)
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(store.Close)
+		}
+		wg.Wait()
 	}
 }
