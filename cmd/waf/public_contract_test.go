@@ -16,6 +16,7 @@ import (
 
 type publicResponse struct {
 	Ref     string         `yaml:"$ref"`
+	Headers map[string]any `yaml:"headers"`
 	Content map[string]any `yaml:"content"`
 }
 
@@ -160,6 +161,34 @@ func TestEnvelopeRefusalsAreDocumented(t *testing.T) {
 		contract.assertConforms(t, probe, response)
 		if _, ok := contract.Paths[probe.path][strings.ToLower(probe.method)].Responses["429"]; !ok {
 			t.Errorf("%s %s: slowloris 429 undocumented", probe.method, probe.path)
+		}
+	}
+}
+
+// Les en-têtes que POST /waf/verify renvoie sont au contrat : no-store et la
+// décision journalisée (X-WAF-Action, X-WAF-Reason) sur un refus JSON, la
+// décision seule sur un 405.
+func TestVerifyResponseHeadersAreDocumented(t *testing.T) {
+	contract := loadPublicContract(t)
+	handler := publicTestHandler(t, config.Default())
+	responses := contract.Paths["/waf/verify"]["post"].Responses
+
+	for _, tc := range []struct {
+		probe   contractProbe
+		headers []string
+	}{
+		{contractProbe{http.MethodPost, "/waf/verify", `{}`}, []string{"Cache-Control", "Pragma", "Expires", "X-WAF-Action", "X-WAF-Reason"}},
+		{contractProbe{http.MethodGet, "/waf/verify", ""}, []string{"X-WAF-Action", "X-WAF-Reason"}},
+	} {
+		response := serveProbe(handler, tc.probe, "example.test")
+		documented := contract.resolve(responses[strconv.Itoa(response.Code)])
+		for _, name := range tc.headers {
+			if response.Header().Get(name) == "" {
+				t.Fatalf("%s %s %d: %s not sent", tc.probe.method, tc.probe.path, response.Code, name)
+			}
+			if _, ok := documented.Headers[name]; !ok {
+				t.Errorf("%s %s %d sends %s, absent from the contract", tc.probe.method, tc.probe.path, response.Code, name)
+			}
 		}
 	}
 }

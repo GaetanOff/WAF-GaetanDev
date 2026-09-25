@@ -8,7 +8,7 @@ info:
     WAF : ces chemins ne sont jamais transmis à l'upstream. L'API
     d'administration, sur son port privé, a son propre contrat
     (admin.openapi.yaml).
-  version: 1.2.0
+  version: 1.3.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -107,6 +107,33 @@ components:
       description: Secondes avant de réessayer
       schema:
         type: integer
+    CacheControl:
+      description: Réponse jamais mise en cache (navigateur et CDN)
+      schema:
+        type: string
+        const: "no-store, no-cache, must-revalidate, max-age=0"
+    Pragma:
+      description: Équivalent HTTP/1.0 de Cache-Control no-cache
+      schema:
+        type: string
+        const: "no-cache"
+    Expires:
+      description: Réponse déjà expirée
+      schema:
+        type: string
+        const: "0"
+    WafAction:
+      description: Décision du WAF pour la requête, journalisée et comptée (FR-09)
+      schema:
+        type: string
+        enum: [BLOCK, RATE_LIMIT]
+    WafReason:
+      description: >-
+        Raison de la décision : verify_<code d'erreur> pour une soumission
+        refusée, self_protect_flood, too_many_connections_per_ip ou
+        host_not_declared pour un refus d'enveloppe
+      schema:
+        type: string
 
 paths:
   /waf/verify:
@@ -136,6 +163,12 @@ paths:
               description: Cookie signé (challenge.cookie_name), HttpOnly, Secure, SameSite=Lax
               schema:
                 type: string
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Pragma:
+              $ref: "#/components/headers/Pragma"
+            Expires:
+              $ref: "#/components/headers/Expires"
           content:
             application/json:
               schema:
@@ -144,7 +177,20 @@ paths:
           description: >-
             Soumission rejetée (corps invalide, token invalide ou expiré, PoW
             faux, timing ou fingerprint refusé) en JSON ; en texte brut, Host
-            non déclaré sous server.strict_host (ADR-020).
+            non déclaré sous server.strict_host (ADR-020). X-WAF-Action vaut
+            BLOCK ; Cache-Control, Pragma et Expires accompagnent le seul refus
+            JSON.
+          headers:
+            X-WAF-Action:
+              $ref: "#/components/headers/WafAction"
+            X-WAF-Reason:
+              $ref: "#/components/headers/WafReason"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Pragma:
+              $ref: "#/components/headers/Pragma"
+            Expires:
+              $ref: "#/components/headers/Expires"
           content:
             application/json:
               schema:
@@ -153,7 +199,12 @@ paths:
               schema:
                 type: string
         "405":
-          description: Méthode autre que POST
+          description: Méthode autre que POST (X-WAF-Action BLOCK, X-WAF-Reason verify_method_not_allowed)
+          headers:
+            X-WAF-Action:
+              $ref: "#/components/headers/WafAction"
+            X-WAF-Reason:
+              $ref: "#/components/headers/WafReason"
         "429":
           description: >-
             Trop de soumissions pour cette IP (auto-protection FR-30,
@@ -162,8 +213,19 @@ paths:
           headers:
             Retry-After:
               $ref: "#/components/headers/RetryAfter"
+            X-WAF-Action:
+              $ref: "#/components/headers/WafAction"
+            X-WAF-Reason:
+              $ref: "#/components/headers/WafReason"
         "500":
           description: Émission du cookie impossible
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Pragma:
+              $ref: "#/components/headers/Pragma"
+            Expires:
+              $ref: "#/components/headers/Expires"
           content:
             application/json:
               schema:
