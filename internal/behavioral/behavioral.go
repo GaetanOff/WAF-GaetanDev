@@ -27,7 +27,7 @@ const (
 	actionPass           = wafheader.ActionPass
 	// reasonStaticAsset est posé par internal/staticassets (FR-24) sur les
 	// requêtes d'assets qu'il marque PASS.
-	reasonStaticAsset = "static_asset"
+	reasonStaticAsset = wafheader.ReasonStaticAsset
 
 	defaultMaxRecords  = 50
 	defaultMaxVisitors = 100000

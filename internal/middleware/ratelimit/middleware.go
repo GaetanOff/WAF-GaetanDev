@@ -8,7 +8,6 @@ import (
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
-	"github.com/gaetandev/waf/internal/staticassets"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/ttlcache"
@@ -143,7 +142,7 @@ func (m *Middleware) Throttle(ip string) {
 // Celui du bypass d'assets (FR-24) lève le challenge et le trust score, pas le
 // rate limit : les requêtes d'assets restent comptées (static-assets-bypass.feature).
 func isExempt(r *http.Request) bool {
-	return r.Header.Get(wafheader.Action) == wafheader.ActionPass && r.Header.Get(wafheader.Reason) != staticassets.Reason
+	return r.Header.Get(wafheader.Action) == wafheader.ActionPass && r.Header.Get(wafheader.Reason) != wafheader.ReasonStaticAsset
 }
 
 func (m *Middleware) Handler(next http.Handler) http.Handler {

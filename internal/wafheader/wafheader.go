@@ -48,6 +48,12 @@ const (
 	RiskBehavioral  = "X-WAF-Risk-behavioral"
 )
 
+// ReasonStaticAsset est la raison du PASS posé par le bypass d'assets (FR-24).
+// Ce PASS lève le challenge et le trust score, pas le rate limit : le rate
+// limit et l'analyse comportementale le distinguent du PASS de la whitelist IP
+// par cette raison, sans dépendre du package qui la pose.
+const ReasonStaticAsset = "static_asset"
+
 // Valeurs de X-WAF-Action.
 const (
 	ActionPass         = "PASS"

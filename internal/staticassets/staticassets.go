@@ -17,9 +17,8 @@ import (
 	"github.com/gaetandev/waf/internal/wafheader"
 )
 
-// Reason est la raison posée sur les requêtes d'assets. Le rate limit la lit
-// pour distinguer ce bypass partiel du PASS total de la whitelist IP.
-const Reason = "static_asset"
+// Reason est la raison posée sur les requêtes d'assets (wafheader).
+const Reason = wafheader.ReasonStaticAsset
 
 // Bypass marque les requêtes d'assets statiques en PASS : par extension, par
 // préfixe de répertoire ou par chemin exact (FR-24).
