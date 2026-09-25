@@ -52,6 +52,9 @@ func TestPublicEndpointsConformToTheirContract(t *testing.T) {
 		{http.MethodGet, "/waf/origin/verify", ""},
 		{http.MethodGet, "/waf/metrics", ""},
 		{http.MethodGet, "/waf/health", ""},
+		{http.MethodPost, "/waf/health", ""},
+		{http.MethodDelete, "/waf/metrics", ""},
+		{http.MethodPost, "/waf/origin/verify", ""},
 	}
 	probed := map[string]bool{}
 	for _, probe := range probes {
@@ -64,10 +67,16 @@ func TestPublicEndpointsConformToTheirContract(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s is served but absent from public.openapi.yaml", probe.path)
 		}
-		operation, ok := operations[strings.ToLower(probe.method)]
-		if !ok {
-			// Méthode non décrite : le contrat doit alors documenter le 405.
-			operation = operations["post"]
+		operation, described := operations[strings.ToLower(probe.method)]
+		if !described {
+			// Méthode non décrite : la seule opération du chemin doit alors
+			// documenter le 405, et c'est ce que le WAF doit répondre.
+			for _, only := range operations {
+				operation = only
+			}
+			if response.Code != http.StatusMethodNotAllowed {
+				t.Fatalf("%s %s answered %d, want 405 for an undescribed method", probe.method, probe.path, response.Code)
+			}
 		}
 		probed[probe.path] = true
 		if operation.OperationID == "" {

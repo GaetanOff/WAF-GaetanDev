@@ -138,13 +138,13 @@ func newStore(cfg config.Config, observer redisstore.Observer) (storage.Store, e
 func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflogger.Logger, metrics *wafmetrics.Metrics, antiDDoS antiddos.Middleware, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, riskMiddleware *risk.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, detectors []func(http.Handler) http.Handler, proxyHandler http.Handler) http.Handler {
 	guard := envelopeGuard(cfg)
 	mux := http.NewServeMux()
-	mux.HandleFunc("/waf/health", healthHandler)
-	mux.Handle("/waf/metrics", guard(metrics.Handler()))
+	mux.Handle("/waf/health", allowGet(http.HandlerFunc(healthHandler)))
+	mux.Handle("/waf/metrics", guard(allowGet(metrics.Handler())))
 	if cfg.OriginProtection.Enabled {
 		// Protection de l'origine (FR-19) : endpoint de vérification + injection
 		// du token signé vers l'upstream (le proxy transmet le header).
 		signer := origin.NewSigner(cfg.OriginProtection.Secret)
-		mux.Handle("/waf/origin/verify", guard(http.HandlerFunc(signer.VerifyHandler)))
+		mux.Handle("/waf/origin/verify", guard(allowGet(http.HandlerFunc(signer.VerifyHandler))))
 		proxyHandler = signer.Injector(proxyHandler)
 	}
 	// FR-34 / FR-04 : une décision CHALLENGE du moteur de risque ou du trust score
@@ -288,6 +288,21 @@ func hostAllowed(host string, patterns []string) bool {
 		}
 	}
 	return false
+}
+
+// allowGet restreint un endpoint du WAF à GET (et HEAD) : enregistrés sans
+// méthode, /waf/health, /waf/metrics et /waf/origin/verify répondaient 200 à
+// un POST ou un DELETE. Un motif « GET /waf/health » ne suffit pas : les autres
+// méthodes retomberaient sur « / », donc sur l'upstream.
+func allowGet(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet && r.Method != http.MethodHead {
+			w.Header().Set("Allow", "GET, HEAD")
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 func healthHandler(w http.ResponseWriter, _ *http.Request) {

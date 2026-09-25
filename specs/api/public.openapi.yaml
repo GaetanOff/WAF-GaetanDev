@@ -8,7 +8,7 @@ info:
     WAF : ces chemins ne sont jamais transmis à l'upstream. L'API
     d'administration, sur son port privé, a son propre contrat
     (admin.openapi.yaml).
-  version: 1.0.1
+  version: 1.1.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -70,6 +70,16 @@ components:
         status:
           type: string
           enum: [ok]
+
+  responses:
+    MethodNotAllowed:
+      description: Méthode autre que GET ou HEAD
+      headers:
+        Allow:
+          description: Méthodes acceptées
+          schema:
+            type: string
+            const: "GET, HEAD"
 
   headers:
     RetryAfter:
@@ -168,6 +178,8 @@ paths:
                 $ref: "#/components/schemas/OriginVerification"
               example:
                 valid: false
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
 
   /waf/metrics:
     get:
@@ -185,6 +197,8 @@ paths:
             text/plain:
               schema:
                 type: string
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
 
   /waf/health:
     get:
@@ -199,6 +213,8 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
 
 tags:
   - name: Challenge
