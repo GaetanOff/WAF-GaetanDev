@@ -27,3 +27,14 @@ func TestPoolPickDoesNotAllocate(t *testing.T) {
 func fiveUpstreams() []*Upstream {
 	return []*Upstream{{Address: "a"}, {Address: "b", Weight: 3}, {Address: "c"}, {Address: "d"}, {Address: "e", Backup: true}}
 }
+
+// Le compteur de rotation est partagé par toutes les requêtes concurrentes.
+func BenchmarkPoolPickParallel(b *testing.B) {
+	pool := NewPool(StrategyRoundRobin, fiveUpstreams())
+	b.ReportAllocs()
+	b.RunParallel(func(pb *testing.PB) {
+		for pb.Next() {
+			pool.Pick("203.0.113.10")
+		}
+	})
+}
