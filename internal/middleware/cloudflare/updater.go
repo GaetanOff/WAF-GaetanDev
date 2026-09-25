@@ -9,6 +9,8 @@ import (
 	"net/netip"
 	"strings"
 	"time"
+
+	"github.com/gaetandev/waf/internal/httpbody"
 )
 
 const (
@@ -182,7 +184,10 @@ func (u *Updater) fetchList(ctx context.Context, url string, wantIPv4 bool) ([]n
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = response.Body.Close() }()
+	defer func() {
+		httpbody.Drain(response.Body)
+		_ = response.Body.Close()
+	}()
 
 	if response.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("unexpected status %d", response.StatusCode)

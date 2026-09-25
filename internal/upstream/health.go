@@ -4,6 +4,8 @@ import (
 	"context"
 	"net/http"
 	"time"
+
+	"github.com/gaetandev/waf/internal/httpbody"
 )
 
 // HealthChecker sonde activement chaque upstream et met à jour son état sain
@@ -84,6 +86,9 @@ func (h *HealthChecker) probe(ctx context.Context, address string) bool {
 	if err != nil {
 		return false
 	}
-	defer func() { _ = response.Body.Close() }()
+	defer func() {
+		httpbody.Drain(response.Body)
+		_ = response.Body.Close()
+	}()
 	return response.StatusCode >= 200 && response.StatusCode < 400
 }
