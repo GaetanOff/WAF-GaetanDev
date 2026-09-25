@@ -134,13 +134,34 @@ func TestRetryOnFailureThenSuccess(t *testing.T) {
 	}))
 	defer server.Close()
 
-	n := NewNotifier([]Sink{{Type: SinkGeneric, URL: server.URL}}, time.Minute, 3, server.Client())
+	observer := newRecordingObserver()
+	n := NewNotifier([]Sink{{Type: SinkGeneric, URL: server.URL}}, time.Minute, 3, server.Client(), WithObserver(observer), withRetryDelay(time.Millisecond))
 	defer n.Close()
 	n.Notify(Event{Trigger: "block", Domain: "example.com", Reason: "blocked"})
-	time.Sleep(500 * time.Millisecond)
+	observer.wait(t, 1)
 
-	if a := attempts.Load(); a < 2 {
-		t.Fatalf("attempts = %d, want >= 2 (retry)", a)
+	if a := attempts.Load(); a != 2 {
+		t.Fatalf("attempts = %d, want 2 (retry)", a)
+	}
+	if sent, failed := observer.counts(); sent != 1 || failed != 0 {
+		t.Fatalf("sent/failed = %d/%d, want 1/0", sent, failed)
+	}
+}
+
+// webhook-alerts.feature, « Retry en cas d'échec du webhook » : 2e envoi après
+// 1 s, 3e après 5 s, 4e après 25 s.
+func TestRetryBackoffFollowsTheSpecifiedSchedule(t *testing.T) {
+	delay := defaultRetryDelay
+	var schedule []time.Duration
+	for range 4 {
+		schedule = append(schedule, delay)
+		delay = nextBackoff(delay)
+	}
+	want := []time.Duration{time.Second, 5 * time.Second, 25 * time.Second, 25 * time.Second}
+	for i := range want {
+		if schedule[i] != want[i] {
+			t.Fatalf("backoff schedule = %v, want %v (plafond 25 s)", schedule, want)
+		}
 	}
 }
 

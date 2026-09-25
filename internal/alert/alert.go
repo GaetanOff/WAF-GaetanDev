@@ -144,8 +144,13 @@ type sinkQueue struct {
 // sinkQueueSize borne la file de chaque sink.
 const sinkQueueSize = 256
 
-// defaultRetryDelay est le délai avant la première nouvelle tentative.
-const defaultRetryDelay = 200 * time.Millisecond
+// Backoff des retries (FR-29) : 1 s, 5 s puis 25 s, plafonné à 25 s au-delà
+// de max_retries = 3.
+const (
+	defaultRetryDelay  = time.Second
+	retryBackoffGrowth = 5
+	maxRetryDelay      = 25 * time.Second
+)
 
 func NewNotifier(sinks []Sink, cooldown time.Duration, maxRetries int, client *http.Client, options ...Option) *Notifier {
 	if client == nil {
@@ -308,8 +313,12 @@ func (n *Notifier) sendWithRetry(url string, payload []byte, retries int) bool {
 		if attempt >= retries || !n.wait(backoff) {
 			return false
 		}
-		backoff *= 2
+		backoff = nextBackoff(backoff)
 	}
+}
+
+func nextBackoff(delay time.Duration) time.Duration {
+	return min(delay*retryBackoffGrowth, maxRetryDelay)
 }
 
 // wait attend d, ou retourne false si le Notifier est fermé entre-temps.

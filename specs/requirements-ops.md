@@ -150,7 +150,7 @@ change: "FR-26 : avertissement au démarrage pour tout domains[].upstream rendu 
 
 - Le WAF DOIT supporter l'envoi de **webhooks** sur des événements de sécurité configurables :
   - Format : HTTP POST vers une URL configurée, body JSON (voir `schemas/alert.schema.json`)
-  - Retry : 3 tentatives avec backoff exponentiel (1s, 5s, 25s)
+  - Retry : `alerting.max_retries` nouvelles tentatives (défaut 3) avec backoff exponentiel (1s, 5s, 25s, plafonné à 25s au-delà)
   - Timeout par appel : 5s
 - **Triggers émis** (enum `trigger` de `schemas/alert.schema.json`) :
   | Trigger | Description |

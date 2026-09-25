@@ -65,15 +65,16 @@ Feature: Alerting & Webhooks
     And le body JSON est conforme à schemas/alert.schema.json
     And il contient les champs: id (UUID v4), timestamp, trigger, severity, domain, title, message
 
-  @deferred
   Scenario: Retry en cas d'échec du webhook
-    Given l'URL de webhook retourne HTTP 500 lors du premier envoi
+    Given alerting.max_retries = 3 (défaut)
+    And l'URL de webhook retourne HTTP 500 lors du premier envoi
     When le WAF retente avec backoff exponentiel
     Then le 2ème envoi est effectué après 1 seconde
     And le 3ème envoi après 5 secondes (si le 2ème échoue)
     And le 4ème envoi après 25 secondes (si le 3ème échoue)
-    And après 3 tentatives échouées, l'alerte est abandonnée
+    And après 3 nouvelles tentatives échouées, l'alerte est abandonnée
     And la métrique waf_alerts_failed_total est incrémentée
+    # Au-delà de max_retries = 3, le délai reste plafonné à 25 s.
 
   Scenario: Webhook timeout — pas de blocage du pipeline WAF
     Given l'URL de webhook ne répond pas (timeout réseau)
