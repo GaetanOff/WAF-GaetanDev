@@ -410,3 +410,40 @@ func failPow(t *testing.T, token string, difficultyBits int) string {
 	t.Fatal("could not find invalid PoW")
 	return ""
 }
+
+// Une soumission rejetée par /waf/verify est une décision du WAF : sans
+// X-WAF-Action, le journal et les métriques l'enregistraient PASS.
+func TestMiddlewareVerifyTagsRejectionsAsBlock(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+	token, err := middleware.tokenIssuer.GenerateForRedirect("3.3.3.3", "example.test", "/page")
+	if err != nil {
+		t.Fatalf("GenerateForRedirect() error = %v", err)
+	}
+	tests := []struct {
+		name       string
+		request    *http.Request
+		wantStatus int
+		wantReason string
+	}{
+		{name: "invalid pow", request: verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, "0", 1200)), wantStatus: http.StatusBadRequest, wantReason: "verify_invalid_pow"},
+		{name: "invalid token", request: verifyRequest(t, "3.3.3.3:1234", submissionJSON("forged", "0", 1200)), wantStatus: http.StatusBadRequest, wantReason: "verify_invalid_token"},
+		{name: "method", request: httptest.NewRequest(http.MethodGet, "http://example.test/waf/verify", nil), wantStatus: http.StatusMethodNotAllowed, wantReason: "verify_method_not_allowed"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+
+			middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, tt.request)
+
+			if response.Code != tt.wantStatus {
+				t.Fatalf("status = %d, want %d", response.Code, tt.wantStatus)
+			}
+			if got := response.Header().Get("X-WAF-Action"); got != "BLOCK" {
+				t.Fatalf("X-WAF-Action = %q, want BLOCK", got)
+			}
+			if got := response.Header().Get("X-WAF-Reason"); got != tt.wantReason {
+				t.Fatalf("X-WAF-Reason = %q, want %s", got, tt.wantReason)
+			}
+		})
+	}
+}

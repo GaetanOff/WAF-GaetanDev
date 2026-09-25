@@ -167,6 +167,13 @@ Feature: Challenge JavaScript
     And la réponse contient {"error": "invalid_pow"}
     And le score du visiteur est décrémenté de 20
 
+  Scenario: Soumission rejetée journalisée et comptée BLOCK
+    Given un visiteur soumet POST /waf/verify avec un nonce incorrect
+    When le WAF retourne HTTP 400 avec {"error": "invalid_pow"}
+    Then l'événement de sécurité porte action = "BLOCK" et reason = "verify_invalid_pow"
+    And la requête est comptée dans waf_requests_total{action="BLOCK"}
+    And l'événement figure dans GET /waf/admin/events
+
   Scenario: Résolution rapide acceptée (plancher désactivé par défaut)
     Given challenge.min_elapsed_ms = 0 (défaut)
     And un visiteur soumet POST /waf/verify avec elapsed_ms = 30 et une PoW valide

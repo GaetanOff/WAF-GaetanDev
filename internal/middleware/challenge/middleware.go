@@ -24,8 +24,13 @@ const (
 	verifyPath = "/waf/verify"
 
 	headerAction    = "X-WAF-Action"
+	headerReason    = "X-WAF-Reason"
 	actionPass      = "PASS"
 	actionChallenge = "CHALLENGE"
+	actionBlock     = "BLOCK"
+	// reasonPrefix préfixe le code d'erreur d'une soumission rejetée dans la
+	// reason journalisée (ex. verify_invalid_pow).
+	reasonPrefix = "verify_"
 	// headerFingerprintHash transmet au moteur de risque le fingerprint lié au
 	// cookie de clearance (preuve « fingerprint stable », FR-37).
 	headerFingerprintHash = "X-WAF-Fingerprint-Hash"
@@ -223,17 +228,18 @@ func (m Middleware) Enforcer(next http.Handler) http.Handler {
 
 func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
+		markRejected(w, "method_not_allowed")
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
 
 	var submission Submission
 	if err := jsonstrict.Decode(r.Body, &submission); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_submission")
+		rejectSubmission(w, "invalid_submission")
 		return
 	}
 	if err := validateSubmission(submission); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid_submission")
+		rejectSubmission(w, "invalid_submission")
 		return
 	}
 
@@ -252,26 +258,26 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	}
 	if !ValidatePow(submission.Token, submission.Nonce, powDifficulty) {
 		m.scores.Apply(ip, host, trust.DeltaChallengeFailed)
-		writeError(w, http.StatusBadRequest, "invalid_pow")
+		rejectSubmission(w, "invalid_pow")
 		return
 	}
 	if submission.ElapsedMS < m.minElapsedMS {
 		m.scores.Apply(ip, host, trust.DeltaChallengeFailed)
-		writeError(w, http.StatusBadRequest, "challenge_too_fast")
+		rejectSubmission(w, "challenge_too_fast")
 		return
 	}
 	if submission.ElapsedMS > m.maxElapsedMS {
-		writeError(w, http.StatusBadRequest, "challenge_timeout")
+		rejectSubmission(w, "challenge_timeout")
 		return
 	}
 	parsedFingerprint, err := browserfp.Parse(submission.Fingerprint)
 	if err != nil {
 		if errors.Is(err, browserfp.ErrHeadlessRenderer) {
 			m.scores.Apply(ip, host, browserfp.HeadlessRendererDelta)
-			writeError(w, http.StatusBadRequest, "headless_webgl_renderer")
+			rejectSubmission(w, "headless_webgl_renderer")
 			return
 		}
-		writeError(w, http.StatusBadRequest, "invalid_submission")
+		rejectSubmission(w, "invalid_submission")
 		return
 	}
 
@@ -403,12 +409,26 @@ func validateSubmission(submission Submission) error {
 func writeTokenError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, ErrTokenExpired):
-		writeError(w, http.StatusBadRequest, "token_expired")
+		rejectSubmission(w, "token_expired")
 	case errors.Is(err, ErrTokenInvalid):
-		writeError(w, http.StatusBadRequest, "invalid_token")
+		rejectSubmission(w, "invalid_token")
 	default:
-		writeError(w, http.StatusBadRequest, "invalid_token")
+		rejectSubmission(w, "invalid_token")
 	}
+}
+
+// rejectSubmission refuse une soumission (400). L'action BLOCK et la reason
+// sont posées sur la réponse : sans elles, une PoW invalide, un token expiré ou
+// un rendu WebGL headless étaient journalisés et comptés PASS, avec un
+// upstream_status 400 qu'aucun upstream n'avait renvoyé.
+func rejectSubmission(w http.ResponseWriter, code string) {
+	markRejected(w, code)
+	writeError(w, http.StatusBadRequest, code)
+}
+
+func markRejected(w http.ResponseWriter, code string) {
+	w.Header().Set(headerAction, actionBlock)
+	w.Header().Set(headerReason, reasonPrefix+code)
 }
 
 func writeError(w http.ResponseWriter, status int, code string) {
