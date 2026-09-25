@@ -80,3 +80,62 @@ func walkOpenObjects(node any, path string, report func(string)) {
 		}
 	}
 }
+
+type adminResponse struct {
+	Ref         string         `yaml:"$ref"`
+	Headers     map[string]any `yaml:"headers"`
+	Content     map[string]any `yaml:"content"`
+	Description string         `yaml:"description"`
+}
+
+type adminContract struct {
+	Paths map[string]map[string]struct {
+		Responses map[string]adminResponse `yaml:"responses"`
+	} `yaml:"paths"`
+	Components struct {
+		Responses map[string]adminResponse `yaml:"responses"`
+	} `yaml:"components"`
+}
+
+// resolve suit une référence #/components/responses/<nom>.
+func (c adminContract) resolve(response adminResponse) adminResponse {
+	const prefix = "#/components/responses/"
+	if strings.HasPrefix(response.Ref, prefix) {
+		return c.Components.Responses[strings.TrimPrefix(response.Ref, prefix)]
+	}
+	return response
+}
+
+// Les statuts que le code renvoie sont au contrat : 429 (verrouillage
+// anti-brute-force, avec Retry-After) sur toute opération authentifiée, 409
+// avec l'enveloppe Error sur les deux ajouts d'IP, et aucun 503 fictif sur
+// GET /waf/health, qui répond toujours 200.
+func TestAdminContractDocumentsTheStatusesTheCodeReturns(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "specs", "api", "admin.openapi.yaml"))
+	if err != nil {
+		t.Fatalf("read contract: %v", err)
+	}
+	var contract adminContract
+	if err := yaml.Unmarshal(raw, &contract); err != nil {
+		t.Fatalf("decode contract: %v", err)
+	}
+	for _, r := range newTestServer(t).routeTable() {
+		responses := contract.Paths[r.specPath][strings.ToLower(r.method)].Responses
+		if r.public {
+			if _, ok := responses["503"]; ok {
+				t.Errorf("%s %s documents a 503 the handler never returns", r.method, r.specPath)
+			}
+			continue
+		}
+		locked := contract.resolve(responses["429"])
+		if _, ok := locked.Headers["Retry-After"]; !ok || locked.Content == nil {
+			t.Errorf("%s %s: 429 lockout undocumented or without Retry-After and body", r.method, r.specPath)
+		}
+	}
+	for _, path := range []string{"/waf/admin/whitelist", "/waf/admin/blacklist"} {
+		conflict := contract.resolve(contract.Paths[path]["post"].Responses["409"])
+		if conflict.Content == nil {
+			t.Errorf("POST %s: 409 undocumented or without the Error envelope", path)
+		}
+	}
+}
