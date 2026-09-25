@@ -250,6 +250,8 @@ func TestConformanceVerifyRejectsMalformedBody(t *testing.T) {
 	}{
 		{name: "invalid json", body: "{not-json"},
 		{name: "unknown field", body: `{"token":"t","nonce":"1","elapsed_ms":1200,"surprise":true}`},
+		// waf-self-protection.feature : nonce ^[0-9]+$ (challenge-submission.schema.json).
+		{name: "non-numeric nonce", body: `{"token":"t","nonce":"'; DROP TABLE sessions; --","elapsed_ms":1200}`},
 		// encoding/json v1 acceptait ces deux corps : le membre dupliqué selon la
 		// règle « le dernier gagne » (différentiel de parseur avec l'origine), et
 		// l'UTF-8 invalide en le remplaçant par U+FFFD (valeur inspectée altérée).
