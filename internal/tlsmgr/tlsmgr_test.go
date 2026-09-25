@@ -116,6 +116,40 @@ func TestGetCertificateMatchesWildcard(t *testing.T) {
 	}
 }
 
+// Régression : le parcours linéaire retenait la première entrée déclarée qui
+// correspondait — un wildcard listé avant un hôte exact lui prenait son SNI.
+func TestGetCertificatePrefersExactThenMostSpecificWildcard(t *testing.T) {
+	dir := t.TempDir()
+	wideCert, wideKey := writeCertPair(t, dir, "wide", "*.example.com")
+	apiWildCert, apiWildKey := writeCertPair(t, dir, "apiwild", "*.api.example.com")
+	apiCert, apiKey := writeCertPair(t, dir, "api", "api.example.com")
+
+	mgr, err := New(baseConfig(
+		config.DomainConfig{Host: "*.example.com", Upstream: "http://w", TLS: &config.DomainTLS{CertFile: wideCert, KeyFile: wideKey}},
+		config.DomainConfig{Host: "*.api.example.com", Upstream: "http://aw", TLS: &config.DomainTLS{CertFile: apiWildCert, KeyFile: apiWildKey}},
+		config.DomainConfig{Host: "api.example.com", Upstream: "http://a", TLS: &config.DomainTLS{CertFile: apiCert, KeyFile: apiKey}},
+	))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+
+	for sni, wantCN := range map[string]string{
+		"api.example.com":    "api.example.com",
+		"v1.api.example.com": "*.api.example.com",
+		"www.example.com":    "*.example.com",
+		"example.com":        "*.example.com",
+		"WWW.Example.COM":    "*.example.com",
+	} {
+		got, err := mgr.getCertificate(&tls.ClientHelloInfo{ServerName: sni})
+		if err != nil {
+			t.Fatalf("getCertificate(%q) error = %v", sni, err)
+		}
+		if cn := leafCN(t, got); cn != wantCN {
+			t.Fatalf("getCertificate(%q) CN = %q, want %q", sni, cn, wantCN)
+		}
+	}
+}
+
 func TestGetCertificateUnknownSNIFallsBackToDefault(t *testing.T) {
 	dir := t.TempDir()
 	domainCertFile, domainKey := writeCertPair(t, dir, "alpha", "alpha.example.com")

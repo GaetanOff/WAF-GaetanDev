@@ -33,6 +33,14 @@ Feature: Terminaison TLS par domaine (sélection par SNI)
     When le handshake TLS se déroule
     Then le WAF présente le certificat wildcard de "*.api.example.com"
 
+  Scenario: Hôte exact prioritaire sur un wildcard, quel que soit l'ordre de déclaration
+    Given le domaine "*.example.com" est déclaré avant "api.example.com", chacun avec son certificat
+    And le domaine "*.api.example.com" a un certificat wildcard
+    When un client ouvre une connexion TLS avec SNI "api.example.com"
+    Then le WAF présente le certificat de "api.example.com"
+    When un client ouvre une connexion TLS avec SNI "v1.api.example.com"
+    Then le WAF présente le certificat wildcard le plus spécifique, "*.api.example.com"
+
   Scenario: SNI inconnu avec certificat par défaut configuré
     Given server.tls.cert_file et server.tls.key_file sont configurés (certificat par défaut)
     And un client ouvre une connexion TLS avec SNI "inconnu.example.org"
