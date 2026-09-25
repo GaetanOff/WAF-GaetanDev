@@ -3,6 +3,7 @@ package origin
 import (
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
 	"time"
 )
@@ -153,5 +154,55 @@ func TestCaptureInboundTokenWithoutHeader(t *testing.T) {
 
 	if response.Code != http.StatusUnauthorized {
 		t.Fatalf("status = %d, want 401 sans token", response.Code)
+	}
+}
+
+// Le token de l'heure courante est mis en cache : même valeur que le calcul
+// direct, renouvelée au changement d'heure.
+func TestCachedTokenMatchesTheSignatureAndRotates(t *testing.T) {
+	signer := NewSigner("origin-secret-key-min-16")
+	base := time.Date(2126, 1, 1, 12, 30, 0, 0, time.UTC)
+	signer.now = func() time.Time { return base }
+	hour := base.Unix() / 3600
+
+	for range 2 { // le second appel est servi par le cache
+		if got, want := signer.Token("Example.com:443"), signer.tokenForHour("example.com", hour); got != want {
+			t.Fatalf("Token() = %q, want %q", got, want)
+		}
+	}
+
+	signer.now = func() time.Time { return base.Add(time.Hour) }
+	if got, want := signer.Token("Example.com:443"), signer.tokenForHour("example.com", hour+1); got != want {
+		t.Fatalf("Token() after the hour change = %q, want %q", got, want)
+	}
+}
+
+// Le Host, clé du cache, est fourni par le client : le cache est borné.
+func TestTokenCacheIsBounded(t *testing.T) {
+	signer := NewSigner("origin-secret-key-min-16")
+	for i := range maxCachedTokens * 2 {
+		signer.Token("host-" + strconv.Itoa(i) + ".test")
+	}
+	if size := signer.tokens.Load().size.Load(); size > maxCachedTokens {
+		t.Fatalf("cached tokens = %d, want at most %d", size, maxCachedTokens)
+	}
+	if got, want := signer.Token("uncached.test"), signer.tokenForHour("uncached.test", signer.now().Unix()/3600); got != want {
+		t.Fatalf("Token() beyond the bound = %q, want %q", got, want)
+	}
+}
+
+func TestTokenDoesNotAllocateOnceCached(t *testing.T) {
+	signer := NewSigner("origin-secret-key-min-16")
+	signer.Token("example.com")
+	if allocs := testing.AllocsPerRun(100, func() { signer.Token("example.com") }); allocs != 0 {
+		t.Fatalf("%v allocations per cached Token, want 0", allocs)
+	}
+}
+
+func BenchmarkToken(b *testing.B) {
+	signer := NewSigner("origin-secret-key-min-16")
+	b.ReportAllocs()
+	for b.Loop() {
+		signer.Token("example.com")
 	}
 }

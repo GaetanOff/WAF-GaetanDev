@@ -11,6 +11,8 @@ import (
 	"encoding/hex"
 	"net/http"
 	"strconv"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gaetandev/waf/internal/hostname"
@@ -21,12 +23,26 @@ const (
 	HeaderToken = "X-WAF-Origin-Token"
 
 	toleranceHours = 2
+
+	// maxCachedTokens borne le cache des tokens de l'heure courante : le Host,
+	// qui en est la clé, est fourni par le client.
+	maxCachedTokens = 1024
 )
 
 // Signer génère et vérifie les tokens d'origine.
 type Signer struct {
 	secret []byte
 	now    func() time.Time
+	// tokens garde les tokens de l'heure courante : le HMAC-SHA256 était
+	// recalculé à chaque requête proxifiée pour une valeur fixe pendant 1 h.
+	tokens atomic.Pointer[hourTokens]
+}
+
+// hourTokens associe un Host, tel que reçu, au token de l'heure hour.
+type hourTokens struct {
+	hour   int64
+	byHost sync.Map
+	size   atomic.Int64
 }
 
 func NewSigner(secret string) *Signer {
@@ -35,7 +51,35 @@ func NewSigner(secret string) *Signer {
 
 // Token retourne le token courant pour un domaine (rotatif horaire).
 func (s *Signer) Token(domain string) string {
-	return s.tokenForHour(domain, s.now().Unix()/3600)
+	hour := s.now().Unix() / 3600
+	cache := s.tokensFor(hour)
+	if token, ok := cache.byHost.Load(domain); ok {
+		return token.(string)
+	}
+	token := s.tokenForHour(domain, hour)
+	// Au-delà de la borne, le token est calculé à chaque appel, comme avant.
+	if cache.size.Load() < maxCachedTokens {
+		if _, loaded := cache.byHost.LoadOrStore(domain, token); !loaded {
+			cache.size.Add(1)
+		}
+	}
+	return token
+}
+
+// tokensFor retourne le cache de l'heure hour, remplacé au changement d'heure.
+func (s *Signer) tokensFor(hour int64) *hourTokens {
+	current := s.tokens.Load()
+	if current != nil && current.hour == hour {
+		return current
+	}
+	fresh := &hourTokens{hour: hour}
+	if s.tokens.CompareAndSwap(current, fresh) {
+		return fresh
+	}
+	if latest := s.tokens.Load(); latest.hour == hour {
+		return latest
+	}
+	return fresh // horloges concurrentes à cheval sur l'heure : cache jetable
 }
 
 // tokenForHour signe le domaine normalisé : le token injecté pour un Host
