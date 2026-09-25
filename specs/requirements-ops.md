@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.8.0
+version: 3.8.1
 last-reviewed: 2026-09-25
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+change: "FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -306,7 +306,9 @@ change: "FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contr
 
 ## FR-31 — TLS Termination & ACME/Let's Encrypt
 
-- Quand le WAF est configuré pour terminer TLS (`server.tls.enabled: true`) :
+- Quand le WAF est configuré pour terminer TLS — bloc `acme` (Let's Encrypt) ou
+  `server.tls` (certificats statiques par SNI, FR-33), mutuellement exclusifs sur
+  un même listener ; il n'existe pas de sous-bloc `server.tls.acme` :
   - Le WAF DOIT supporter des certificats statiques (cert + key file) configurable
   - Le WAF DOIT supporter **ACME/Let's Encrypt** avec renouvellement automatique (≥ 30 jours avant expiration)
   - Le défi ACME `HTTP-01` DOIT être géré automatiquement (bypass du challenge WAF pour les paths `/.well-known/acme-challenge/`)
@@ -315,9 +317,13 @@ change: "FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contr
     certificats ACME renouvelés sont pris en compte sans redémarrage
     (autocert). **Différé** : rechargement des certificats statiques sans
     redémarrage (`SIGHUP`, cf. FR-33)
-  - Une métrique `waf_tls_cert_expiry_seconds{domain}` DOIT être exposée
+  - Une métrique `waf_tls_cert_expiry_seconds{domain}` DOIT être exposée pour
+    les certificats statiques. **Différé** : la même jauge pour les
+    certificats ACME
 - Le WAF DOIT supporter **TLS 1.2 et 1.3** côté client, configurable
-- Le WAF DOIT supporter la configuration des cipher suites (liste configurable avec défaut sécurisé)
+  (`server.tls.min_version` ; plancher fixe TLS 1.2 en mode ACME)
+- Le WAF DOIT supporter la configuration des cipher suites (liste configurable
+  avec défaut sécurisé, `server.tls.cipher_suites`, certificats statiques)
 - **Différé** : certificat expirant dans < 7 jours → alert webhook (FR-29) ;
   aujourd'hui seule la jauge `waf_tls_cert_expiry_seconds{domain}` (timestamp
   NotAfter des certificats statiques, publiée au démarrage) est exposée

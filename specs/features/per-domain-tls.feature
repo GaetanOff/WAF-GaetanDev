@@ -65,6 +65,13 @@ Feature: Terminaison TLS par domaine (sélection par SNI)
     When un client se connecte en TLS 1.3 avec SNI "alpha.example.com"
     Then la connexion est établie normalement
 
+  Scenario: Cipher suites configurables
+    Given server.tls.min_version = "1.2"
+    And server.tls.cipher_suites sont spécifiés (liste explicite)
+    When un client TLS 1.2 ne propose qu'un cipher suite absent de la liste
+    Then la connexion TLS est refusée (handshake failure)
+    # Un nom de cipher suite inconnu empêche le démarrage (fail-fast).
+
   Scenario: Redirection HTTP vers HTTPS
     Given server.tls.redirect_http = true
     When un client envoie une requête HTTP sur "http://alpha.example.com/page"
