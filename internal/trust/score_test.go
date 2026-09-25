@@ -341,3 +341,23 @@ func TestPeekNeverWrites(t *testing.T) {
 		t.Fatalf("expired visitor score = %d, want the initial score 50", expired.Score)
 	}
 }
+
+// La clé est persistée (Redis, cookie de clearance, token de challenge) : son
+// format ne doit pas changer d'une version à l'autre.
+func TestHashIPIsStable(t *testing.T) {
+	for ip, want := range map[string]string{
+		"203.0.113.7": "fec52565aa0cf18f",
+		"2001:db8::1": "5afd19e856d1c18d",
+	} {
+		if got := HashIP(ip); got != want {
+			t.Fatalf("HashIP(%q) = %q, want %q", ip, got, want)
+		}
+	}
+}
+
+func BenchmarkHashIP(b *testing.B) {
+	b.ReportAllocs()
+	for b.Loop() {
+		HashIP("2001:db8::1234:5678")
+	}
+}
