@@ -20,7 +20,11 @@ import (
 
 // Manager détient les certificats chargés et construit le tls.Config du serveur.
 type Manager struct {
-	certs        []domainCert
+	certs []domainCert
+	// exact et wildcard indexent certs par hôte (wildcard : suffixe sans
+	// "*."), pour une sélection en O(labels du SNI) au handshake.
+	exact        map[string]*tls.Certificate
+	wildcard     map[string]*tls.Certificate
 	defaultCert  *tls.Certificate
 	minVersion   uint16
 	cipherSuites []uint16
@@ -79,8 +83,26 @@ func New(cfg config.Config) (*Manager, error) {
 	if len(m.certs) == 0 && m.defaultCert == nil {
 		return nil, fmt.Errorf("tls enabled but no certificate configured")
 	}
+	m.index()
 
 	return m, nil
+}
+
+// index construit les tables de sélection une fois m.certs complet (les
+// pointeurs visent ses éléments). À hôte dupliqué, le premier déclaré gagne,
+// comme le faisait le parcours linéaire.
+func (m *Manager) index() {
+	m.exact = make(map[string]*tls.Certificate, len(m.certs))
+	m.wildcard = make(map[string]*tls.Certificate)
+	for i := range m.certs {
+		table := m.exact
+		if m.certs[i].wildcard {
+			table = m.wildcard
+		}
+		if _, taken := table[m.certs[i].host]; !taken {
+			table[m.certs[i].host] = &m.certs[i].cert
+		}
+	}
 }
 
 // TLSConfig retourne la configuration TLS à attacher au serveur HTTPS.
@@ -92,13 +114,25 @@ func (m *Manager) TLSConfig() *tls.Config {
 	}
 }
 
-// getCertificate sélectionne le certificat selon le SNI du ClientHello.
+// getCertificate sélectionne le certificat selon le SNI du ClientHello : un
+// hôte exact d'abord, puis le wildcard le plus spécifique (l'hôte lui-même, puis
+// chaque domaine parent). Le parcours linéaire précédent retenait la première
+// entrée déclarée qui correspondait : un "*.example.com" listé avant
+// "api.example.com" lui prenait son SNI.
 func (m *Manager) getCertificate(hello *tls.ClientHelloInfo) (*tls.Certificate, error) {
 	host := hostname.Normalize(hello.ServerName)
-	for i := range m.certs {
-		if m.certs[i].matches(host) {
-			return &m.certs[i].cert, nil
+	if cert, ok := m.exact[host]; ok {
+		return cert, nil
+	}
+	for suffix := host; suffix != ""; {
+		if cert, ok := m.wildcard[suffix]; ok {
+			return cert, nil
 		}
+		_, parent, found := strings.Cut(suffix, ".")
+		if !found {
+			break
+		}
+		suffix = parent
 	}
 	if m.defaultCert != nil {
 		return m.defaultCert, nil
@@ -123,13 +157,6 @@ func (m *Manager) Expiries() map[string]time.Time {
 		out[host] = m.certs[i].leaf.NotAfter
 	}
 	return out
-}
-
-func (d domainCert) matches(host string) bool {
-	if d.wildcard {
-		return host == d.host || strings.HasSuffix(host, "."+d.host)
-	}
-	return host == d.host
 }
 
 func loadPair(certFile string, keyFile string) (tls.Certificate, error) {

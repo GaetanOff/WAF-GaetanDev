@@ -14,6 +14,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/gaetandev/waf/internal/httpbody"
 	"github.com/gaetandev/waf/internal/ttlcache"
 )
 
@@ -343,7 +344,10 @@ func (n *Notifier) post(url string, payload []byte) bool {
 	if err != nil {
 		return false
 	}
-	defer func() { _ = response.Body.Close() }()
+	defer func() {
+		httpbody.Drain(response.Body)
+		_ = response.Body.Close()
+	}()
 	return response.StatusCode >= 200 && response.StatusCode < 300
 }
 

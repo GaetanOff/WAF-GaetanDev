@@ -4,7 +4,9 @@ Feature: Terminaison TLS par domaine (sélection par SNI)
   Afin d'intercaler le WAF devant plusieurs vhosts en réutilisant les certificats existants.
 
   # Spec : requirements-ops.md FR-33 ; décision : ADR-017 ; schéma : config.schema.json
-  # Statut : draft — implémentation différée.
+  # Statut : implemented — internal/tlsmgr (T11.1, validé le 2026-06-10 par
+  # go test et un handshake réel openssl s_client). Le rechargement à chaud
+  # des certificats (SIGHUP) reste différé (FR-31) et n'est pas un scénario ici.
 
   Background:
     Given le WAF est configuré avec server.tls.enabled = true
@@ -30,6 +32,14 @@ Feature: Terminaison TLS par domaine (sélection par SNI)
     And un client ouvre une connexion TLS avec SNI "v1.api.example.com"
     When le handshake TLS se déroule
     Then le WAF présente le certificat wildcard de "*.api.example.com"
+
+  Scenario: Hôte exact prioritaire sur un wildcard, quel que soit l'ordre de déclaration
+    Given le domaine "*.example.com" est déclaré avant "api.example.com", chacun avec son certificat
+    And le domaine "*.api.example.com" a un certificat wildcard
+    When un client ouvre une connexion TLS avec SNI "api.example.com"
+    Then le WAF présente le certificat de "api.example.com"
+    When un client ouvre une connexion TLS avec SNI "v1.api.example.com"
+    Then le WAF présente le certificat wildcard le plus spécifique, "*.api.example.com"
 
   Scenario: SNI inconnu avec certificat par défaut configuré
     Given server.tls.cert_file et server.tls.key_file sont configurés (certificat par défaut)
@@ -62,6 +72,13 @@ Feature: Terminaison TLS par domaine (sélection par SNI)
     Then la connexion est refusée (version non supportée)
     When un client se connecte en TLS 1.3 avec SNI "alpha.example.com"
     Then la connexion est établie normalement
+
+  Scenario: Cipher suites configurables
+    Given server.tls.min_version = "1.2"
+    And server.tls.cipher_suites sont spécifiés (liste explicite)
+    When un client TLS 1.2 ne propose qu'un cipher suite absent de la liste
+    Then la connexion TLS est refusée (handshake failure)
+    # Un nom de cipher suite inconnu empêche le démarrage (fail-fast).
 
   Scenario: Redirection HTTP vers HTTPS
     Given server.tls.redirect_http = true

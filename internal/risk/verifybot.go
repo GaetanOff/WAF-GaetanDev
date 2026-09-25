@@ -84,6 +84,7 @@ type BotVerifier struct {
 
 	mu       sync.Mutex
 	inFlight map[string]bool
+	closed   bool
 }
 
 type verifyJob struct {
@@ -158,6 +159,9 @@ func (v *BotVerifier) Check(ip string, userAgent string) BotVerification {
 	}
 	v.mu.Lock()
 	defer v.mu.Unlock()
+	if v.closed {
+		return BotVerification{Bot: bot, State: BotVerificationUnverified}
+	}
 	if v.inFlight[key] {
 		return BotVerification{Bot: bot, State: BotVerificationPending}
 	}
@@ -170,8 +174,16 @@ func (v *BotVerifier) Check(ip string, userAgent string) BotVerification {
 	}
 }
 
-// Close arrête les workers de vérification.
+// Close arrête les workers de vérification. Idempotent ; sous v.mu comme Check,
+// dont un envoi concurrent sur la file fermée paniquait sinon. Après Close, un
+// crawler non encore en cache reste non vérifié.
 func (v *BotVerifier) Close() {
+	v.mu.Lock()
+	defer v.mu.Unlock()
+	if v.closed {
+		return
+	}
+	v.closed = true
 	close(v.jobs)
 }
 

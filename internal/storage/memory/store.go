@@ -3,7 +3,7 @@ package memory
 import (
 	"container/list"
 	"hash/maphash"
-	"sort"
+	"slices"
 	"sync"
 	"time"
 
@@ -37,7 +37,8 @@ type Store struct {
 	bucketSeed  maphash.Seed
 	bucketLocks [bucketLockStripes]sync.Mutex
 
-	done chan struct{}
+	done      chan struct{}
+	closeOnce sync.Once
 }
 
 // Option configure un Store à la construction.
@@ -225,45 +226,57 @@ func (s *Store) CleanupExpired() {
 // Les buckets n'ont pas
 // d'éviction LRU propre (SetBucket est lock-free) : sans cette borne, la map
 // grossit indéfiniment avec le nombre d'IP vues.
+// cleanupBuckets purge les buckets expirés puis, au-delà de la borne, évince
+// les moins récemment rechargés. Le premier passage ne fait que compter : la
+// liste des buckets vivants (jusqu'à trust.max_visitors × 3 entrées) était
+// construite par ajouts successifs à chaque passe, même sous la borne, qui est
+// le cas courant.
 func (s *Store) cleanupBuckets(now time.Time) {
-	type agedBucket struct {
-		key  string
-		last time.Time
-	}
-	live := make([]agedBucket, 0)
+	live := 0
 	s.buckets.Range(func(key, value any) bool {
-		keyString, ok := key.(string)
-		if !ok {
-			return true
-		}
 		bucket, ok := value.(storage.RateBucket)
-		if !ok {
-			s.buckets.Delete(keyString)
+		if !ok || isExpired(now, bucket.ExpiresAt) {
+			s.buckets.Delete(key)
 			return true
 		}
-		if isExpired(now, bucket.ExpiresAt) {
-			s.buckets.Delete(keyString)
-			return true
-		}
-		live = append(live, agedBucket{key: keyString, last: bucket.LastRefill})
+		live++
 		return true
 	})
 	maxBuckets := s.maxVisitors * bucketsPerVisitor
-	if len(live) <= maxBuckets {
+	if live <= maxBuckets {
 		return
 	}
-	sort.Slice(live, func(i, j int) bool { return live[i].last.Before(live[j].last) })
-	for _, b := range live[:len(live)-maxBuckets] {
+	s.evictOldestBuckets(live, maxBuckets)
+}
+
+// evictOldestBuckets retire les buckets les moins récemment rechargés jusqu'à
+// revenir à maxBuckets. live dimensionne la collecte en une allocation.
+func (s *Store) evictOldestBuckets(live int, maxBuckets int) {
+	type agedBucket struct {
+		key  any
+		last time.Time
+	}
+	aged := make([]agedBucket, 0, live)
+	s.buckets.Range(func(key, value any) bool {
+		if bucket, ok := value.(storage.RateBucket); ok {
+			aged = append(aged, agedBucket{key: key, last: bucket.LastRefill})
+		}
+		return true
+	})
+	if len(aged) <= maxBuckets {
+		return
+	}
+	slices.SortFunc(aged, func(a, b agedBucket) int { return a.last.Compare(b.last) })
+	for _, b := range aged[:len(aged)-maxBuckets] {
 		s.buckets.Delete(b.key)
 	}
 }
 
+// Close arrête la boucle de nettoyage. Idempotent, y compris en appels
+// concurrents : le select/default précédent laissait deux appelants simultanés
+// passer tous deux par default, et le second close paniquait.
 func (s *Store) Close() {
-	select {
-	case <-s.done:
-	default:
-		close(s.done)
-	}
+	s.closeOnce.Do(func() { close(s.done) })
 }
 
 func (s *Store) cleanupLoop() {

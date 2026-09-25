@@ -113,8 +113,10 @@ func TestCheckerCacheIsBounded(t *testing.T) {
 	for i := range maxCachedVerdicts + 500 {
 		checker.resolveSync(fmt.Sprintf("10.%d.%d.%d", i>>16&0xff, i>>8&0xff, i&0xff))
 	}
-	if got := checker.cache.Len(); got != maxCachedVerdicts {
-		t.Fatalf("cached verdicts = %d, want %d", got, maxCachedVerdicts)
+	// Cache segmenté (ttlcache) : borné, un segment pouvant évincer avant que
+	// les autres soient pleins.
+	if got := checker.cache.Len(); got > maxCachedVerdicts || got < maxCachedVerdicts*98/100 {
+		t.Fatalf("cached verdicts = %d, want at most %d and nearly full", got, maxCachedVerdicts)
 	}
 }
 
@@ -186,5 +188,25 @@ func TestHTTPSourceScoreTiersAndFailures(t *testing.T) {
 				t.Fatalf("level = %d, want %d", v.Level, tc.want)
 			}
 		})
+	}
+}
+
+// Close est appelé à l'arrêt du WAF : un double appel, ou un miss concurrent
+// (requête encore en vol), ne doivent pas paniquer sur la file fermée.
+func TestCheckerCloseIsIdempotentAndSafeWithConcurrentMisses(t *testing.T) {
+	checker := NewChecker(time.Hour, NewStaticSource())
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for i := range 1000 {
+			checker.Verdict(fmt.Sprintf("10.0.%d.%d", i/256, i%256))
+		}
+	}()
+	checker.Close()
+	checker.Close()
+	<-done
+
+	if v := checker.Verdict("10.9.9.9"); v.Level != LevelClean {
+		t.Fatalf("level after Close = %d, want clean", v.Level)
 	}
 }

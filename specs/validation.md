@@ -295,6 +295,19 @@ last-reviewed: 2026-09-25
 | 2026-09-24 | `ttlcache` sous contention | Benchmark `Get` parallèle (non versionné), 1/4/8/16 cœurs | mesure | 37 / 91 / 85 / 108 ns/op : ~10 M lectures/s par cache, sharding non justifié |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `Example.com:8080` compté sous `domain="example.com"` ; `attack-1.test`, `attack-2.test` sous `_undeclared` ; `GET /waf/admin/config` masque les secrets |
 
+| 2026-09-25 | Sprint 21 (audit 6) | `go test ./...` | pass | 757 tests et sous-tests, 47 paquets |
+| 2026-09-25 | Sprint 21 (audit 6) | `go vet ./...` + `go build ./...` | pass | |
+| 2026-09-25 | Sprint 21 (audit 6) | `golangci-lint run ./...` | pass | 0 issue |
+| 2026-09-25 | Sprint 21 (audit 6) | `spectral lint` admin + public | pass | 0 erreur |
+| 2026-09-25 | Sprint 21 (audit 6) | `govulncheck ./...` | **non exécuté localement** | proxy Go injoignable depuis le poste ; job `security` ajouté à la CI |
+| 2026-09-25 | Sprint 21 (audit 6) | `go test -race` | **non exécuté localement** | cgo indisponible sur le poste ; couvert par la CI |
+| 2026-09-25 | Assets et rate limit | `TestMiddlewareCountsStaticAssetRequests` | pass | 0 requête limitée sur l'ancien code |
+| 2026-09-25 | Nonce non numérique | `TestConformanceVerifyRejectsMalformedBody/non-numeric_nonce` | pass | `invalid_token` sur l'ancien code |
+| 2026-09-25 | Arrêts | `TestCheckerCloseIsIdempotentAndSafeWithConcurrentMisses`, `TestMiddlewareCloseStopsBotVerifierWorkers`, `TestStoreCloseIsSafeUnderConcurrentCalls` | pass | Double `Close` en panic sur l'ancien code |
+| 2026-09-25 | Keep-alive sortant | `TestDrainKeepsConnectionReusable`, `TestDrainBoundsTheRead` | pass | 3 connexions pour 3 requêtes sans drainage |
+| 2026-09-25 | SNI | `TestGetCertificatePrefersExactThenMostSpecificWildcard` | pass | Wildcard servi pour l'hôte exact sur l'ancien code |
+| 2026-09-25 | Chemin chaud | `BenchmarkHashIP`, `BenchmarkCacheGetParallel`, `BenchmarkCleanupBucketsUnderBound` | mesure | HashIP ~204 → ~117 ns, 2 → 1 alloc ; ttlcache 20 threads ~90-107 → ~42-45 ns/op ; nettoyage 300 000 buckets 111 ms / 70 Mo → ~42 ms / 0 o |
+| 2026-09-25 | Binaire | Exécution réelle sur `configs/config.example.yaml` | pass | serveur public et API admin démarrés, `/waf/health` 200, `-healthcheck` ok |
 | 2026-09-25 | Sprint 20 (audit 5) | `go test ./...` | pass | 747 tests et sous-tests |
 | 2026-09-25 | Sprint 20 (audit 5) | `go vet ./...` + `go build ./...` | pass | |
 | 2026-09-25 | Sprint 20 (audit 5) | `golangci-lint run ./...` | pass | 0 issue |
@@ -321,6 +334,32 @@ last-reviewed: 2026-09-25
 | 2026-09-24 | Pool d'upstreams | `BenchmarkPoolPick`, `TestPoolPickDoesNotAllocate` | pass | 1 alloc (48 B/op) avant, 0 après, 4 stratégies |
 | 2026-09-24 | Verrous visiteurs / DDoS | Benchmarks parallèles (non versionnés), 1 et 8 cœurs | mesure | `observe` 93 / 131 ns/op ; `Record` 60 / 117 ; `Observe` 98 / 284 : verrous occupés < 1 % à 20 000 req/s |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` + `strict_host` | pass | Host non déclaré : 400, `BLOCK host_not_declared` journalisé, `waf_blocked_total{domain="_undeclared"}` ; `/waf/metrics` par IP 400 ; `/waf/health` 200 |
+
+### Sprint 21 — sixième audit du 2026-09-25 : ce qui était exact, ce qui ne l'était pas
+
+- **Exact et corrigé** : désynchronisations de waf-self-protection,
+  per-domain-tls et acme-tls ; `Close` de threat intel et du vérificateur de
+  crawlers ; drainage des corps ; `HashIP` ; `ttlcache` ; `cleanupBuckets` ;
+  govulncheck en CI ; découpage de `run()`. Chaque correctif de code a un test
+  ou une mesure.
+- **Exact, différent de sa description** : assets statiques — la contradiction
+  opposait FR-24 au scénario, le code suivait FR-24 ; tranchée pour le scénario.
+  Threat intel — 16 workers, non 4. `Store.Close` — sûr en double appel
+  séquentiel, pas en appels concurrents. `tlsmgr` — la recherche linéaire
+  masquait une erreur de sélection (ordre de déclaration), corrigée avec.
+- **Infirmé** : fuite de `time.After` dans le tarpit — impossible depuis Go 1.23
+  (timers non référencés collectés), le module exige go1.27.0.
+- **Approche abandonnée par la mesure** : verrou partagé + seconde chance pour
+  `ttlcache` (aucun gain : `RWMutex.RLock` contend lui aussi) ; remplacé par la
+  segmentation.
+- **Écarts hors audit trouvés en vérifiant** : `nonce` non numérique accepté
+  malgré le schéma (corrigé) ; bypass d'assets par préfixe et par chemin exact
+  et `waf_asset_requests_total` absents (consigné, T21.1).
+- **Changements de comportement** : les requêtes d'assets statiques sont
+  comptées par le rate limit (429 au-delà) ; un `nonce` non numérique reçoit
+  `invalid_submission` sans pénalité de score ; un hôte exact l'emporte sur un
+  wildcard au handshake TLS quel que soit l'ordre de `domains[]` ; à saturation,
+  un grand `ttlcache` segmenté occupe ~99 % de sa borne.
 
 ### Sprint 20 — cinquième audit du 2026-09-25 : ce qui était exact, ce qui ne l'était pas
 
@@ -648,9 +687,9 @@ critère d'acceptation.
 
 | Check | Status | Notes |
 |-------|--------|-------|
-| `go test ./...` | ✅ | 747 tests et sous-tests |
+| `go test ./...` | ✅ | 757 tests et sous-tests |
 | `go test -race ./...` | ⬜ | non exécutable localement (pas de toolchain C sous Windows) — exécuté par la CI (`ci.yml`, job Test) |
-| Scénarios non implémentés isolés (`@deferred`) | ✅ | rules-engine, upstream-health, audit-trail, deception-layer, origin-protection, acme-tls, webhook-alerts, geo-rules, threat-intelligence, adaptive-protection |
+| Scénarios non implémentés isolés (`@deferred`) | ✅ | rules-engine, upstream-health, audit-trail, deception-layer, origin-protection, acme-tls, webhook-alerts, geo-rules, threat-intelligence, adaptive-protection, waf-self-protection |
 
 ### G5 — Security
 ```bash

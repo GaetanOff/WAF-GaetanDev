@@ -169,6 +169,36 @@ func TestMiddlewareSkipsWhitelistedRequests(t *testing.T) {
 	}
 }
 
+// static-assets-bypass.feature : le bypass d'assets lève le challenge et le
+// trust score, pas le rate limit. Les requêtes d'assets marquées PASS
+// "static_asset" sont comptées et reçoivent 429 au-delà du burst.
+func TestMiddlewareCountsStaticAssetRequests(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+
+	cfg := testConfig(5, 5)
+	cfg.Trust.BlockThreshold = -1
+	middleware := newTestMiddlewareFromConfig(t, store, cfg)
+	now := time.Date(2026, 6, 4, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+
+	rateLimited := 0
+	for range 10 {
+		request := requestFrom("10.0.0.2:1234")
+		request.Header.Set("X-WAF-Action", "PASS")
+		request.Header.Set("X-WAF-Reason", "static_asset")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code == http.StatusTooManyRequests {
+			rateLimited++
+		}
+	}
+	if rateLimited != 5 {
+		t.Fatalf("rate limited asset requests = %d, want 5 (assets count toward the rate limit)", rateLimited)
+	}
+}
+
 func TestPressureThrottlesSustainedRateButKeepsBurst(t *testing.T) {
 	store := memory.New(100)
 	t.Cleanup(store.Close)

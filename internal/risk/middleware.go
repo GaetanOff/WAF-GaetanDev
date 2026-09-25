@@ -66,6 +66,14 @@ func NewMiddlewareWithVerifier(scores *trust.ScoreManager, fusion FusionConfig, 
 	}
 }
 
+// Close arrête les workers de vérification des crawlers (FR-36). Le
+// vérificateur est construit avec le middleware, moteur de risque actif ou non.
+func (m *Middleware) Close() {
+	if m.bots != nil {
+		m.bots.Close()
+	}
+}
+
 // GrantChallengePass enregistre la preuve humaine d'un challenge réussi
 // (FR-37) : challenge réussi et fingerprint, que le cookie de clearance
 // retransmet ensuite via X-WAF-Fingerprint-Hash.

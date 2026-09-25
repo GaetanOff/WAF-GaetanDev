@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -112,6 +113,8 @@ type Store struct {
 	degradedUntil atomic.Int64 // instant de fin de fenêtre dégradée, en nanosecondes Unix
 	probing       atomic.Bool  // fenêtre écoulée : la prochaine erreur re-bascule aussitôt
 	degradedGauge atomic.Bool  // dernier état publié à l'Observer
+
+	closeOnce sync.Once
 }
 
 // Option configure un Store à la construction.
@@ -507,11 +510,15 @@ func (s *Store) storeLocalBuckets(keys []string, next []storage.RateBucket) {
 	}
 }
 
+// Close libère le store local et le client Redis, une seule fois : un second
+// appel comptait une erreur « close » factice (client déjà fermé).
 func (s *Store) Close() {
-	s.local.Close()
-	if err := s.client.Close(); err != nil {
-		s.observeError("close")
-	}
+	s.closeOnce.Do(func() {
+		s.local.Close()
+		if err := s.client.Close(); err != nil {
+			s.observeError("close")
+		}
+	})
 }
 
 // write sérialise et écrit une valeur, hors mode dégradé.

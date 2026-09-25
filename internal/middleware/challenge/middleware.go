@@ -400,10 +400,25 @@ func validateSubmission(submission Submission) error {
 	if submission.Token == "" || submission.Nonce == "" {
 		return errors.New("missing token or nonce")
 	}
+	// challenge-submission.schema.json : nonce ^[0-9]+$. Validé à la frontière,
+	// un nonce non numérique aboutissait à invalid_token ou invalid_pow — ce
+	// dernier pénalisant le score comme un vrai échec de challenge.
+	if !isDigits(submission.Nonce) {
+		return errors.New("non-numeric nonce")
+	}
 	if submission.ElapsedMS < 0 {
 		return errors.New("negative elapsed_ms")
 	}
 	return nil
+}
+
+func isDigits(value string) bool {
+	for i := range len(value) {
+		if value[i] < '0' || value[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 func writeTokenError(w http.ResponseWriter, err error) {

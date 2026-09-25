@@ -691,7 +691,7 @@ static_assets:
     # ...
 ```
 
-Les requêtes vers des assets statiques (CSS, JS, images, fonts…) ne déclenchent pas le challenge JS. Cela évite que la page de challenge elle-même soit bloquée par le WAF.
+Les requêtes vers des assets statiques (CSS, JS, images, fonts…) ne déclenchent pas le challenge JS et n'affectent pas le trust score. Cela évite que la page de challenge elle-même soit bloquée par le WAF. La blacklist et le rate limit s'appliquent toujours : les requêtes d'assets sont comptées dans les buckets de l'IP.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|

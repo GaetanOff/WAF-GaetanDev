@@ -1,6 +1,6 @@
 ---
 status: implemented
-sprint: 20
+sprint: 21
 last-updated: 2026-09-25
 ---
 
@@ -987,4 +987,42 @@ last-updated: 2026-09-25
 - [x] 4.4 `observeGlobalPressure` : quatre `WithLabelValues().Set()` par requete. Jauges resolues une fois, republiees au seul changement de niveau (~350 ns / 1 alloc -> ~55 ns / 0)
 - [ ] Constat annexe, hors audit : les en-tetes internes `X-WAF-*` sont lus sous une forme non canonique : chaque `Header.Get` recanonicalise la cle (1 allocation). Corrige pour la seule pression globale (4.4)
 - **Validation 2026-09-25** : `go build ./...`, `go vet ./...`, `go test ./...` (747 tests et sous-tests), `golangci-lint run` (0 issue), `spectral lint` (0 erreur), `govulncheck` (0 vulnerabilite atteignable, 1 non atteinte) ; execution reelle du binaire sur `configs/config.example.yaml` : POST `/waf/verify` invalide 400 et GET 405 journalises `BLOCK verify_invalid_token` / `verify_method_not_allowed` (`upstream_status: null`), presents dans `GET /waf/admin/events`, `requests_blocked` = 2 et `waf_requests_total{action="BLOCK"} 2`. `go test -race` non executable localement — couvert par la CI.
+- **Statut** : implemente.
+
+## Sprint 21 - Remediation du sixieme audit du 2026-09-25 (Phase 21)
+
+> Sixieme audit externe du 2026-09-25 : chaque point a ete verifie contre le
+> code avant correction, sur la branche `fix/audit-6-remediation`, a raison
+> d'un commit par correction. Un point est infirme (fuite de timer du tarpit) ;
+> quatre sont exacts mais differents de leur description (contradiction interne
+> aux specs pour les assets, nombre de workers, Close du store, tlsmgr) ; deux
+> ecarts hors audit ont ete trouves en verifiant.
+
+### T21.1 - Specs et invariants SDD
+- [x] 1.1 Assets statiques et rate limit : la contradiction etait **interne aux specs** — FR-24 exemptait les assets du rate limit, le scenario de static-assets-bypass.feature exigeait de les compter ; le code suivait FR-24. Tranche pour le scenario (securite > perf : toute URL en `.css` inondait l'origine sans borne). Le rate limit compte les PASS de raison `static_asset` ; seul le PASS de la whitelist IP en exempte
+- [x] 1.2 waf-self-protection.feature : rejeu (`token_already_used`), `challenge.max_pending_nonces`, amplification, blacklists automatiques, `admin.allowed_ips`, `metrics.auth_token` absents du code et d'OpenAPI. Le token de challenge est un HMAC sans etat : aucun store de nonces. Scenarios `@deferred` ; les actifs suivent le contrat reel (`verify_max_per_minute`, `admin_max_failures`/`admin_lockout`, `invalid_submission`)
+- [x] 1.3 per-domain-tls.feature marquee `draft` alors qu'implementee depuis T11.1 ; acme-tls.feature configurait un `server.tls.acme.*` inexistant (bloc `acme` de premier niveau, exclusif de `server.tls`). Reecrite sur le contrat reel ; jauge d'expiration ACME `@deferred` ; scenario cipher suites deplace vers per-domain-tls
+- [x] Constat annexe : `nonce` non numerique accepte par `POST /waf/verify` malgre `^[0-9]+$` (challenge-submission.schema.json) — il finissait en `invalid_token` ou `invalid_pow`, ce dernier penalisant le score. Refuse a la frontiere en `invalid_submission`
+- [ ] Constat annexe, hors audit : FR-24 et static-assets-bypass.feature exigent aussi un bypass par prefixe (`/static/`, `/assets/`...) et par chemin exact (`/robots.txt`, `/sitemap.xml`) et la metrique `waf_asset_requests_total` ; seul le bypass par extension existe. A implementer ou a passer en `@deferred`
+- **Spec** : requirements-ops.md FR-24, FR-30, FR-31 (v3.8.1) ; architecture.md (v1.4.4) ; features/static-assets-bypass, waf-self-protection, per-domain-tls, acme-tls
+
+### T21.2 - Arrets et ressources
+- [x] 2.1 `threatintel.Checker.Close` jamais appele : 16 workers (et non 4) survivaient a l'arret. `Close` idempotent et serialise avec `triggerAsync` (un miss concurrent envoyait sur la file fermee), differe par `run()`
+- [x] 2.2 `BotVerifier` (8 workers) sans `Close` expose : `risk.Middleware.Close`, meme durcissement
+- [x] 2.3 Corps de reponse fermes sans drainage (health checks, webhooks, et aussi AbuseIPDB et plages Cloudflare) : connexion keep-alive perdue a chaque appel. `httpbody.Drain` borne a 64 Kio
+- [x] 2.4 `Store.Close` : le `select/default` couvrait le double appel sequentiel, pas le concurrent. `sync.Once` (memory et redis)
+- [x] 2.5 `time.After` dans la boucle du tarpit : **infirme**. Depuis Go 1.23 un timer non reference est collecte meme non expire ; le module exige go1.27.0. Non modifie
+- **Spec** : requirements-advanced.md FR-13 ; requirements-detection.md FR-36 ; requirements-ops.md FR-25, FR-29
+
+### T21.3 - Performance
+- [x] 3.1 `trust.HashIP` : n'encode plus que les 8 octets conserves (~204 -> ~117 ns, 2 -> 1 allocation, cle identique, epinglee par un test). Le cache en contexte de requete n'est pas fait : la moitie des appelants ne recoit que l'IP, ~15 signatures dans 8 paquets pour ~1 us par requete
+- [x] 3.2 `ttlcache.Get` sous verrou exclusif (MoveToFront) : un verrou partage avec bit de seconde chance, essaye d'abord, n'apportait rien (`RWMutex.RLock` contend sur son compteur). Segmentation en 32 LRU au-dela de 8 192 entrees (Get parallele, 20 threads : ~90-107 -> ~42-45 ns/op)
+- [x] 3.3 `cleanupBuckets` : passe de comptage sans allocation sous la borne (300 000 buckets : 111 ms / 70 Mo -> ~42 ms / 0 o)
+- [x] 3.4 `tlsmgr.getCertificate` : table par hote. La recherche lineaire masquait un defaut — l'ordre de declaration decidait, un `*.example.com` declare avant `api.example.com` lui prenait son SNI. Exact d'abord, puis wildcard le plus specifique
+- **Spec** : features/per-domain-tls (scenario de precedence)
+
+### T21.4 - CI et architecture
+- [x] 4.1 Job `security` (`make security`, govulncheck) dans ci.yml : la porte G5 n'y etait pas
+- [x] 4.2 `run()` (~400 lignes) : etapes de construction sur une structure `app`, arrets sur une pile executee en ordre inverse (ordre des `defer` conserve). `routes()` inchange
+- **Validation 2026-09-25** : `go build ./...`, `go vet ./...`, `go test ./...` (757 tests et sous-tests, 47 paquets), `golangci-lint run` (0 issue), `spectral lint` (0 erreur) ; execution reelle du binaire sur `configs/config.example.yaml` (`/waf/health` 200, `-healthcheck` ok). `go test -race` et `govulncheck` non executables localement (pas de cgo ; proxy Go injoignable) — couverts par la CI.
 - **Statut** : implemente.

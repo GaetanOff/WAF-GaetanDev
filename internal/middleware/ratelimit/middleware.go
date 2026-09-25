@@ -8,6 +8,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
+	"github.com/gaetandev/waf/internal/staticassets"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -114,9 +115,16 @@ func buildWindows(cfg config.RateLimit) []window {
 	return windows
 }
 
+// isExempt : seul le PASS de la whitelist IP (FR-04) exempte du rate limit.
+// Celui du bypass d'assets (FR-24) lève le challenge et le trust score, pas le
+// rate limit : les requêtes d'assets restent comptées (static-assets-bypass.feature).
+func isExempt(r *http.Request) bool {
+	return r.Header.Get("X-WAF-Action") == "PASS" && r.Header.Get("X-WAF-Reason") != staticassets.Reason
+}
+
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !m.enabled.Load() || r.Header.Get("X-WAF-Action") == "PASS" {
+		if !m.enabled.Load() || isExempt(r) {
 			next.ServeHTTP(w, r)
 			return
 		}

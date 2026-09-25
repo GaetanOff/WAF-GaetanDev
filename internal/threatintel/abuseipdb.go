@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"net/url"
 	"time"
+
+	"github.com/gaetandev/waf/internal/httpbody"
 )
 
 // HTTPSource interroge une API de réputation type AbuseIPDB v2. Le lookup est
@@ -54,7 +56,10 @@ func (s HTTPSource) Lookup(ip net.IP) Verdict {
 	if err != nil {
 		return Verdict{Level: LevelClean}
 	}
-	defer func() { _ = response.Body.Close() }()
+	defer func() {
+		httpbody.Drain(response.Body)
+		_ = response.Body.Close()
+	}()
 	if response.StatusCode != http.StatusOK {
 		return Verdict{Level: LevelClean}
 	}
