@@ -3,6 +3,7 @@ package admin
 import (
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -40,6 +41,42 @@ func TestEveryAdminRouteHasAnOpenAPIOperation(t *testing.T) {
 			if !served[method+" "+path] {
 				t.Errorf("admin.openapi.yaml describes %s %s, which the admin API does not serve", strings.ToUpper(method), path)
 			}
+		}
+	}
+}
+
+// Invariant #3 : toute forme de données du contrat est fermée. Un objet qui
+// déclare ses properties, en composant comme en réponse inline, porte
+// additionalProperties: false. Seul GET /waf/admin/config, sans properties,
+// renvoie à config.schema.json.
+func TestAdminContractObjectsAreClosed(t *testing.T) {
+	raw, err := os.ReadFile(filepath.Join("..", "..", "specs", "api", "admin.openapi.yaml"))
+	if err != nil {
+		t.Fatalf("read contract: %v", err)
+	}
+	var contract any
+	if err := yaml.Unmarshal(raw, &contract); err != nil {
+		t.Fatalf("decode contract: %v", err)
+	}
+	walkOpenObjects(contract, "#", func(path string) {
+		t.Errorf("%s declares properties without additionalProperties: false", path)
+	})
+}
+
+func walkOpenObjects(node any, path string, report func(string)) {
+	switch value := node.(type) {
+	case map[string]any:
+		_, hasProperties := value["properties"]
+		_, isClosed := value["additionalProperties"]
+		if hasProperties && value["type"] == "object" && !isClosed {
+			report(path)
+		}
+		for key, child := range value {
+			walkOpenObjects(child, path+"/"+key, report)
+		}
+	case []any:
+		for i, child := range value {
+			walkOpenObjects(child, path+"/"+strconv.Itoa(i), report)
 		}
 	}
 }

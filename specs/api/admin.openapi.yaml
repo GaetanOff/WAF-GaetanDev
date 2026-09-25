@@ -6,7 +6,7 @@ info:
     API d'administration du WAF Anti-DDoS/Anti-Bot.
     Exposée sur un port séparé (défaut: 9090), protégée par Bearer token.
     Ne jamais exposer ce port publiquement.
-  version: 1.2.0
+  version: 1.2.1
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -287,6 +287,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: false
                 required: [status, version]
                 properties:
                   status:
@@ -354,6 +355,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: false
                 required: [updated_fields]
                 properties:
                   updated_fields:
@@ -393,6 +395,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: false
                 required: [items, total]
                 properties:
                   items:
@@ -465,6 +468,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: false
                 required: [items, total]
                 properties:
                   items:
@@ -547,6 +551,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: false
                 required: [items, total]
                 properties:
                   items:
@@ -634,6 +639,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: false
                 required: [items, total]
                 properties:
                   items:
@@ -671,6 +677,7 @@ paths:
             application/json:
               schema:
                 type: object
+                additionalProperties: false
                 required: [items, total]
                 properties:
                   items:
