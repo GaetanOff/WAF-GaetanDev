@@ -251,3 +251,26 @@ func TestApplyBotVerificationDoesNotCapUnverifiedCrawler(t *testing.T) {
 		t.Fatalf("Decision = %s, want BLOCK unchanged for an unverified crawler", updated.Decision)
 	}
 }
+
+// Le middleware construit son vérificateur (8 workers) et n'exposait aucun
+// moyen de l'arrêter : Close les libère, et reste sûr en double appel comme
+// face à un Check postérieur.
+func TestMiddlewareCloseStopsBotVerifierWorkers(t *testing.T) {
+	before := runtime.NumGoroutine()
+	verifier := NewBotVerifier(BotVerifierConfig{Enabled: true, Crawlers: []string{"googlebot"}}, nil)
+	middleware := NewMiddlewareWithVerifier(nil, FusionConfig{}, DecisionConfig{}, nil, verifier, false)
+
+	middleware.Close()
+	middleware.Close()
+
+	deadline := time.Now().Add(2 * time.Second)
+	for runtime.NumGoroutine() > before && time.Now().Before(deadline) {
+		time.Sleep(10 * time.Millisecond)
+	}
+	if grown := runtime.NumGoroutine() - before; grown > 0 {
+		t.Fatalf("%d verifier goroutines still running after Close", grown)
+	}
+	if state := verifier.Check("66.249.66.1", "Googlebot").State; state != BotVerificationUnverified {
+		t.Fatalf("state after Close = %q, want unverified", state)
+	}
+}

@@ -213,6 +213,7 @@ func run() error {
 	if err != nil {
 		return err
 	}
+	defer riskMiddleware.Close()
 	// Détecteurs avancés : publient des contributions de signal consommées par le
 	// moteur de risque ; exécutés juste avant lui (Phase 8).
 	detectors := []func(http.Handler) http.Handler{
