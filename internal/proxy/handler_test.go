@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -97,6 +100,36 @@ func TestHandlerReturnsBadGatewayWhenUpstreamIsDown(t *testing.T) {
 
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want 502", response.Code)
+	}
+}
+
+// Un 502 journalise sa cause et l'upstream en cause, sans la query ; un
+// client parti (context.Canceled) n'est pas journalisé comme une panne.
+func TestBadGatewayLogsTheUpstreamError(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	handler := newTestHandler(t, "http://127.0.0.1:1", nil)
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.test/page?token=secret", nil))
+
+	line := logs.String()
+	for _, want := range []string{"upstream request failed", "upstream=127.0.0.1:1", "path=/page", "error="} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("logs = %q, want %q", line, want)
+		}
+	}
+	if strings.Contains(line, "secret") {
+		t.Fatalf("logs = %q, must not carry the query", line)
+	}
+
+	logs.Reset()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.test/page", nil).WithContext(ctx))
+	if logs.Len() != 0 {
+		t.Fatalf("logs = %q, want nothing for a canceled client", logs.String())
 	}
 }
 
