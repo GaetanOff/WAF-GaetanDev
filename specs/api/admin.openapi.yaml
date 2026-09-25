@@ -6,7 +6,9 @@ info:
     API d'administration du WAF Anti-DDoS/Anti-Bot.
     Exposée sur un port séparé (défaut: 9090), protégée par Bearer token.
     Ne jamais exposer ce port publiquement.
-  version: 1.2.1
+    Tout corps de requête est borné à 64 Kio : au-delà, le décodage échoue et
+    l'opération répond son 400.
+  version: 1.4.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -261,7 +263,51 @@ components:
         type: string
       description: Filtrer par domaine
 
+  headers:
+    RetryAfter:
+      description: Secondes avant de réessayer
+      schema:
+        type: integer
+
   responses:
+    Locked:
+      description: >-
+        IP verrouillée après self_protection.admin_max_failures échecs
+        d'authentification (FR-30), pendant self_protection.admin_lockout,
+        token valide compris.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "locked"
+            message: "Too many failed attempts"
+
+    Conflict:
+      description: Entrée déjà existante
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "already_exists"
+            message: "Entry already exists"
+
+    AccessRulesSyncFailed:
+      description: >-
+        Les règles appliquées n'ont pas pu suivre la suppression : l'entrée est
+        conservée, rien n'a changé.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "access_rules_sync_failed"
+            message: "Access rules could not be updated; the entry was kept"
+
     Unauthorized:
       description: Token Bearer manquant ou invalide
       content:
@@ -297,8 +343,6 @@ paths:
                     type: string
                   uptime_seconds:
                     type: integer
-        "503":
-          description: WAF en erreur
 
   /waf/stats:
     get:
@@ -315,6 +359,8 @@ paths:
                 $ref: "#/components/schemas/WAFStats"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
   /waf/admin/config:
     get:
@@ -336,6 +382,8 @@ paths:
                 type: object
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
     patch:
       operationId: updateConfig
@@ -372,6 +420,8 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
         "503":
           description: Hot-reload indisponible sur cette instance (aucune modification appliquée)
           content:
@@ -406,6 +456,8 @@ paths:
                     type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
     post:
       operationId: addToWhitelist
@@ -432,9 +484,11 @@ paths:
               schema:
                 $ref: "#/components/schemas/Error"
         "409":
-          description: Entrée déjà existante
+          $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
   /waf/admin/whitelist/{ip}:
     delete:
@@ -449,8 +503,12 @@ paths:
           description: Entrée supprimée
         "404":
           description: IP non trouvée
+        "500":
+          $ref: "#/components/responses/AccessRulesSyncFailed"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
   /waf/admin/blacklist:
     get:
@@ -479,6 +537,8 @@ paths:
                     type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
     post:
       operationId: addToBlacklist
@@ -504,8 +564,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Error"
+        "409":
+          $ref: "#/components/responses/Conflict"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
   /waf/admin/blacklist/{ip}:
     delete:
@@ -520,8 +584,12 @@ paths:
           description: Entrée supprimée
         "404":
           description: IP non trouvée
+        "500":
+          $ref: "#/components/responses/AccessRulesSyncFailed"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
   /waf/admin/visitors:
     get:
@@ -562,6 +630,8 @@ paths:
                     type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
   /waf/admin/visitors/{ip_hash}:
     get:
@@ -586,6 +656,8 @@ paths:
           description: Visiteur non trouvé
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
     delete:
       operationId: resetVisitor
@@ -605,6 +677,8 @@ paths:
           description: Visiteur non trouvé
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
   /waf/admin/events:
     get:
@@ -656,6 +730,8 @@ paths:
                 $ref: "#/components/schemas/Error"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
   /waf/admin/audit:
     get:
@@ -688,6 +764,8 @@ paths:
                     type: integer
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
   /waf/admin/gdpr/erase:
     post:
@@ -721,6 +799,8 @@ paths:
                 message: "ip is required"
         "401":
           $ref: "#/components/responses/Unauthorized"
+        "429":
+          $ref: "#/components/responses/Locked"
 
 tags:
   - name: System

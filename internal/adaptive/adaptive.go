@@ -29,8 +29,11 @@ type Controller struct {
 	maxDifficulty  int
 	tau            time.Duration
 
-	mu          sync.Mutex
-	counts      map[int64]int
+	mu sync.Mutex
+	// counts compte les requêtes des windowSeconds dernières secondes, une case
+	// par seconde (seconde modulo windowSeconds). Une map, parcourue en entier
+	// à chaque requête pour purger les secondes échues, tenait ce rôle.
+	counts      [windowSeconds]secondCount
 	baseline    float64
 	currentBits float64
 	lastDecay   time.Time
@@ -48,7 +51,6 @@ func NewController(baseDifficulty int, maxDifficulty int, tau time.Duration) *Co
 		baseDifficulty: baseDifficulty,
 		maxDifficulty:  maxDifficulty,
 		tau:            tau,
-		counts:         make(map[int64]int),
 		now:            time.Now,
 	}
 }
@@ -65,13 +67,26 @@ func (c *Controller) SetBaseDifficulty(base int) {
 	}
 }
 
-// Observe enregistre une requête dans la fenêtre glissante courante.
-func (c *Controller) Observe() {
+// secondCount est le nombre de requêtes observées pendant la seconde sec.
+type secondCount struct {
+	sec int64
+	n   int
+}
+
+// Observe enregistre une requête dans la fenêtre glissante courante et
+// retourne la difficulté courante, sans faire avancer la décroissance (valeur
+// de Snapshot) : un seul verrou par requête là où Observe puis Snapshot en
+// prenaient deux.
+func (c *Controller) Observe() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	sec := c.now().Unix()
-	c.counts[sec]++
-	c.prune(sec)
+	slot := &c.counts[uint64(sec)%windowSeconds]
+	if slot.sec != sec {
+		slot.sec, slot.n = sec, 0
+	}
+	slot.n++
+	return c.snapshotLocked()
 }
 
 // ObservePressure applique immédiatement un plancher de difficulté selon la
@@ -93,10 +108,7 @@ func (c *Controller) Difficulty() int {
 	defer c.mu.Unlock()
 
 	now := c.now()
-	sec := now.Unix()
-	c.prune(sec)
-
-	rate := c.rate()
+	rate := c.rate(now.Unix())
 	// Baseline EMA : suit lentement le débit "normal".
 	if c.baseline == 0 {
 		c.baseline = rate
@@ -120,6 +132,10 @@ func (c *Controller) Difficulty() int {
 func (c *Controller) Snapshot() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	return c.snapshotLocked()
+}
+
+func (c *Controller) snapshotLocked() int {
 	difficulty := min(c.baseDifficulty+int(math.Round(c.currentBits)), c.maxDifficulty)
 	if difficulty < c.baseDifficulty {
 		difficulty = c.baseDifficulty
@@ -127,20 +143,16 @@ func (c *Controller) Snapshot() int {
 	return difficulty
 }
 
-func (c *Controller) rate() float64 {
+// rate est le débit moyen des windowSeconds secondes qui précèdent sec ; une
+// case d'une seconde échue n'est pas comptée.
+func (c *Controller) rate(sec int64) float64 {
 	total := 0
-	for _, n := range c.counts {
-		total += n
-	}
-	return float64(total) / float64(windowSeconds)
-}
-
-func (c *Controller) prune(sec int64) {
-	for s := range c.counts {
-		if s <= sec-windowSeconds {
-			delete(c.counts, s)
+	for _, slot := range c.counts {
+		if slot.sec > sec-windowSeconds {
+			total += slot.n
 		}
 	}
+	return float64(total) / float64(windowSeconds)
 }
 
 // aii calcule l'Attack Intensity Indicator en pourcentage de la baseline.

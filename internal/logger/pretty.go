@@ -71,6 +71,13 @@ func (h *prettyHandler) Enabled(_ context.Context, level slog.Level) bool {
 }
 
 func (h *prettyHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
+	return h.withAttrs(attrs)
+}
+
+// withAttrs rend le type concret : groupedHandler en a besoin, et une
+// assertion sur l'interface slog.Handler retournait nil en silence si ce type
+// changeait.
+func (h *prettyHandler) withAttrs(attrs []slog.Attr) *prettyHandler {
 	if len(attrs) == 0 {
 		return h
 	}
@@ -202,8 +209,7 @@ func (h *groupedHandler) WithAttrs(attrs []slog.Attr) slog.Handler {
 	for _, attr := range attrs {
 		prefixed = append(prefixed, slog.Attr{Key: h.prefix + attr.Key, Value: attr.Value})
 	}
-	next, _ := h.parent.WithAttrs(prefixed).(*prettyHandler)
-	return &groupedHandler{parent: next, prefix: h.prefix}
+	return &groupedHandler{parent: h.parent.withAttrs(prefixed), prefix: h.prefix}
 }
 
 func (h *groupedHandler) WithGroup(name string) slog.Handler {

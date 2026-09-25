@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"sync"
 	"syscall"
 	"time"
 
@@ -35,6 +36,8 @@ import (
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/rules"
 	"github.com/gaetandev/waf/internal/storage"
+	"github.com/gaetandev/waf/internal/storage/memory"
+	redisstore "github.com/gaetandev/waf/internal/storage/redis"
 	"github.com/gaetandev/waf/internal/threatintel"
 	"github.com/gaetandev/waf/internal/tlsfp"
 	"github.com/gaetandev/waf/internal/tlsmgr"
@@ -79,6 +82,9 @@ func loadConfig(flags cliFlags) (*config.Config, error) {
 		cfg.Server.Listen = flags.listenAddress
 	}
 	warnUntrustedInfrastructureHeaders(*cfg)
+	if geoChallengeInert(*cfg) {
+		slog.Warn("geo.challenge_countries has no effect while risk_engine.enabled is false: only the risk engine reads the geo contribution", "requirement", "FR-16")
+	}
 	for _, host := range poolShadowedDomains(*cfg) {
 		slog.Warn("domains[].upstream is ignored while upstream_pool is enabled: the pool serves every host", "host", host, "requirement", "FR-26")
 	}
@@ -302,6 +308,7 @@ func (a *app) buildProtection() error {
 	if a.riskMiddleware, err = risk.NewMiddleware(a.store, scoreManager, cfg); err != nil {
 		return err
 	}
+	a.riskMiddleware.WithThrottle(a.rateLimiter.Throttle)
 	a.stop.add(a.riskMiddleware.Close)
 	return nil
 }
@@ -360,8 +367,7 @@ func (a *app) addAdaptiveDetector() error {
 	metrics := a.metrics
 	a.detectors = append(a.detectors, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			controller.Observe()
-			metrics.SetPowDifficulty(controller.Snapshot())
+			metrics.SetPowDifficulty(controller.Observe())
 			next.ServeHTTP(w, r)
 		})
 	})
@@ -537,7 +543,7 @@ func (a *app) serve(timeouts serverTimeouts) error {
 	cfg := a.cfg
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
-		Handler:           routes(*cfg, a.accessRules, a.securityLogger, a.metrics, a.antiDDoS, a.rateLimiter, a.antiBot, a.riskMiddleware, a.challengeMiddleware, a.scoreManager, a.detectors, a.origin),
+		Handler:           a.routes(),
 		ReadHeaderTimeout: timeouts.header,
 		ReadTimeout:       timeouts.read,
 		WriteTimeout:      timeouts.write,
@@ -555,6 +561,7 @@ func (a *app) serve(timeouts serverTimeouts) error {
 	// Un emplacement par serveur : avec un canal de capacité 1, une deuxième
 	// erreur (ex. ports 443 et 80 déjà pris) bloquait sa goroutine pour toujours.
 	errs := make(chan error, maxListeners)
+	servers := []namedServer{{name: "public", server: server}}
 	slog.Info("starting waf", "listen", server.Addr, "tls", tlsEnabled)
 	if tlsEnabled {
 		listenInBackground(errs, func() error { return server.ListenAndServeTLS("", "") }) // certs fournis par autocert ou tlsmgr (GetCertificate)
@@ -565,24 +572,36 @@ func (a *app) serve(timeouts serverTimeouts) error {
 	if acmeManager != nil {
 		challengeServer := a.newSideServer(cfg.ACME.HTTPChallengeListen, acmeManager.HTTPHandler(nil), timeouts.header)
 		listenInBackground(errs, challengeServer.ListenAndServe)
-		defer func() { _ = challengeServer.Close() }()
+		servers = append(servers, namedServer{name: "acme challenge", server: challengeServer})
 	}
-	// Redirection HTTP -> HTTPS (FR-33) quand le WAF termine lui-même le TLS par
+	// Redirection HTTP -> HTTPS (FR-40) quand le WAF termine lui-même le TLS par
 	// domaine et que redirect_http est actif.
 	if tlsManager != nil && cfg.Server.TLS.RedirectHTTP {
 		redirectServer := a.newSideServer(cfg.Server.Listen, redirectToHTTPS(cfg.Domains), timeouts.header)
 		listenInBackground(errs, redirectServer.ListenAndServe)
-		defer func() { _ = redirectServer.Close() }()
+		servers = append(servers, namedServer{name: "https redirect", server: redirectServer})
 	}
 	if a.adminServer != nil {
 		slog.Info("starting admin api", "listen", cfg.Server.AdminListen)
 		listenInBackground(errs, a.adminServer.ListenAndServe)
+		servers = append(servers, namedServer{name: "admin", server: a.adminServer})
 	}
-	return a.awaitShutdown(server, errs, timeouts.shutdown)
+	return awaitShutdown(servers, errs, timeouts.shutdown)
+}
+
+// gracefulServer est satisfait par *http.Server et par l'API admin.
+type gracefulServer interface {
+	Shutdown(ctx context.Context) error
+}
+
+// namedServer nomme un serveur démarré, pour situer un échec d'arrêt.
+type namedServer struct {
+	name   string
+	server gracefulServer
 }
 
 // configureTLS attache au serveur public ACME / Let's Encrypt (FR-31) ou la
-// terminaison TLS par domaine via SNI (FR-33), mutuellement exclusifs sur le
+// terminaison TLS par domaine via SNI (FR-40), mutuellement exclusifs sur le
 // même listener (garanti par config.Validate).
 func (a *app) configureTLS(server *http.Server) (*acme.Manager, *tlsmgr.Manager, error) {
 	// ACME : TLS direct avec renouvellement automatique (~30j avant
@@ -623,32 +642,52 @@ func (a *app) newSideServer(addr string, handler http.Handler, headerTimeout tim
 }
 
 // awaitShutdown attend un signal d'arrêt ou l'échec d'un serveur, puis arrête
-// le serveur public et l'API admin dans le délai de grâce.
-func (a *app) awaitShutdown(server *http.Server, errs chan error, shutdownTimeout time.Duration) error {
+// tous les serveurs démarrés. L'échec d'un listener arrêtait le processus sans
+// arrêter les autres : leurs requêtes en cours touchaient ensuite des stores
+// déjà fermés par app.stop.
+func awaitShutdown(servers []namedServer, errs chan error, shutdownTimeout time.Duration) error {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(stop)
 
+	var listenErr error
 	select {
 	case signalReceived := <-stop:
 		slog.Info("shutdown requested", "signal", signalReceived.String())
-	case err := <-errs:
-		return err
+	case listenErr = <-errs:
+		slog.Error("server failed, shutting down", "error", listenErr)
 	}
 
+	shutdownErr := shutdownAll(servers, shutdownTimeout)
+	if listenErr != nil {
+		return errors.Join(listenErr, shutdownErr)
+	}
+	if shutdownErr != nil {
+		return shutdownErr
+	}
+	return drainedError(errs)
+}
+
+// shutdownAll arrête les serveurs en parallèle, chacun disposant du délai de
+// grâce entier. Arrêtés l'un après l'autre sous un contexte commun, le serveur
+// public pouvait consommer tout le délai à drainer ses connexions : l'API admin
+// recevait un contexte déjà expiré, et les serveurs annexes n'étaient que
+// fermés (Close), sans drainage.
+func shutdownAll(servers []namedServer, shutdownTimeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
-	if err := server.Shutdown(ctx); err != nil {
-		return fmt.Errorf("shutdown server: %w", err)
+	failures := make([]error, len(servers))
+	var wg sync.WaitGroup
+	for i, s := range servers {
+		wg.Go(func() {
+			if err := s.server.Shutdown(ctx); err != nil {
+				failures[i] = fmt.Errorf("shutdown %s server: %w", s.name, err)
+			}
+		})
 	}
-	if a.adminServer != nil {
-		if err := a.adminServer.Shutdown(ctx); err != nil {
-			return fmt.Errorf("shutdown admin server: %w", err)
-		}
-	}
-
-	return drainedError(errs)
+	wg.Wait()
+	return errors.Join(failures...)
 }
 
 // listenInBackground lance listen dans une goroutine et remonte son erreur sur
@@ -670,4 +709,23 @@ func drainedError(errs <-chan error) error {
 	default:
 		return nil
 	}
+}
+
+// newStore construit le backend de stockage désigné par `storage.backend`.
+//
+// Cette sélection n'existait pas avant la phase 15 : `redis` était accepté par
+// la validation de configuration puis ignoré — le WAF servait un état par nœud
+// alors que la configuration promettait un état partagé entre instances
+// (ADR-002, sémantique d'exécution dans ADR-021).
+func newStore(cfg config.Config, observer redisstore.Observer) (storage.Store, error) {
+	if cfg.Storage.Backend != storageBackendRedis {
+		return memory.New(cfg.Trust.MaxVisitors), nil
+	}
+	if cfg.Storage.Redis == nil {
+		// Déjà refusé par config.Validate ; la garde évite qu'un appel direct
+		// déréférence un pointeur nul.
+		return nil, errors.New("storage.backend is redis but storage.redis is missing")
+	}
+	slog.Info("using redis storage backend", "address", cfg.Storage.Redis.Address)
+	return redisstore.New(*cfg.Storage.Redis, cfg.Trust.MaxVisitors, redisstore.WithObserver(observer))
 }

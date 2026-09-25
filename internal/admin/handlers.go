@@ -3,6 +3,7 @@ package admin
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -15,6 +16,11 @@ import (
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
 )
+
+// maxRequestBodyBytes borne le corps des requêtes admin (IPEntry,
+// ConfigUpdate, GDPRErasureRequest : quelques centaines d'octets). Un corps
+// plus grand échoue au décodage et reçoit le 400 de l'opération.
+const maxRequestBodyBytes = 64 << 10
 
 type errorResponse struct {
 	Error   string `json:"error"`
@@ -105,9 +111,18 @@ func (s *Server) routes() http.Handler {
 		if !r.public {
 			handler = s.auth(handler)
 		}
-		mux.Handle(r.method+" "+r.pattern, handler)
+		mux.Handle(r.method+" "+r.pattern, limitBody(handler))
 	}
 	return mux
+}
+
+// limitBody plafonne la lecture du corps : sans borne, jsonstrict.Decode
+// décodait en mémoire un flux de taille arbitraire.
+func limitBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // gdprErase efface toutes les données d'un visiteur par son IP (droit à
@@ -256,8 +271,13 @@ func (s *Server) addWhitelist(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteWhitelist(w http.ResponseWriter, r *http.Request) {
 	target := pathTail(r, "/waf/admin/whitelist/")
-	if !s.state.RemoveWhitelist(target) {
+	found, err := s.state.RemoveWhitelist(target)
+	if !found {
 		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeSyncFailure(w, err)
 		return
 	}
 	s.record("remove_whitelist", target, "removed")
@@ -274,12 +294,24 @@ func (s *Server) addBlacklist(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteBlacklist(w http.ResponseWriter, r *http.Request) {
 	target := pathTail(r, "/waf/admin/blacklist/")
-	if !s.state.RemoveBlacklist(target) {
+	found, err := s.state.RemoveBlacklist(target)
+	if !found {
 		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeSyncFailure(w, err)
 		return
 	}
 	s.record("remove_blacklist", target, "removed")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// writeSyncFailure signale que les règles appliquées n'ont pas pu suivre une
+// suppression : l'entrée est restaurée, rien n'a changé.
+func writeSyncFailure(w http.ResponseWriter, err error) {
+	slog.Error("access rules sync failed: entry restored", "error", err)
+	writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "access_rules_sync_failed", Message: "Access rules could not be updated; the entry was kept"})
 }
 
 func (s *Server) addIPEntry(w http.ResponseWriter, r *http.Request, whitelist bool) {

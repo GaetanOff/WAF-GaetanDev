@@ -16,11 +16,12 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/hostname"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
 	// HeaderToken est le header injecté vers l'upstream et vérifié par celui-ci.
-	HeaderToken = "X-WAF-Origin-Token"
+	HeaderToken = wafheader.OriginToken
 
 	toleranceHours = 2
 
@@ -53,8 +54,12 @@ func NewSigner(secret string) *Signer {
 func (s *Signer) Token(domain string) string {
 	hour := s.now().Unix() / 3600
 	cache := s.tokensFor(hour)
-	if token, ok := cache.byHost.Load(domain); ok {
-		return token.(string)
+	// Le cache ne contient que des chaînes ; l'assertion vérifiée évite qu'une
+	// valeur d'un autre type y fasse paniquer le chemin de requête.
+	if cached, ok := cache.byHost.Load(domain); ok {
+		if token, isString := cached.(string); isString {
+			return token
+		}
 	}
 	token := s.tokenForHour(domain, hour)
 	// Au-delà de la borne, le token est calculé à chaque appel, comme avant.

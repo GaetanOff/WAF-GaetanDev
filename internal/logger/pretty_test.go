@@ -213,6 +213,23 @@ func TestPrettyHandlerKeepsUnknownAndGroupedAttributes(t *testing.T) {
 	}
 }
 
+// With() après WithGroup() passe par groupedHandler.WithAttrs : les attributs
+// sont préfixés du groupe et conservés.
+func TestPrettyHandlerKeepsAttributesAddedInsideAGroup(t *testing.T) {
+	var output bytes.Buffer
+	handler := newPrettyHandler(&output, slog.LevelInfo, false)
+	logger := slog.New(handler).WithGroup("upstream").With(slog.String("pool", "backup"))
+
+	logger.Info("", slog.String("member", "10.0.0.1"))
+
+	line := output.String()
+	for _, want := range []string{"upstream.pool=backup", "upstream.member=10.0.0.1"} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("line = %q, want it to contain %q", line, want)
+		}
+	}
+}
+
 func TestColorsEnabled(t *testing.T) {
 	regularFile, err := os.CreateTemp(t.TempDir(), "log")
 	if err != nil {

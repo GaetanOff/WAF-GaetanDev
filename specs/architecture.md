@@ -111,7 +111,7 @@ internal/
 │   ├── origin/          Token HMAC vers l'upstream + oracle de vérification (FR-19)
 │   ├── upstream/        Health checks, failover, load balancing (FR-25, FR-26)
 │   ├── upstreamtime/    Mesure du temps passé côté upstream (FR-09)
-│   ├── tlsmgr/          Certificats par domaine, sélection par SNI (FR-33)
+│   ├── tlsmgr/          Certificats par domaine, sélection par SNI (FR-40)
 │   └── acme/            Let's Encrypt via autocert (FR-31)
 │
 ├── Réponse au client
@@ -143,7 +143,9 @@ internal/
     │                    le routage, le challenge, le token d'origine, la
     │                    redirection HTTPS, le scope per_domain du mode sous
     │                    attaque et la sélection SNI
-    └── jsonstrict/      Parsing JSON durci sur les entrées non fiables (FR-30)
+    ├── jsonstrict/      Parsing JSON durci sur les entrées non fiables (FR-30)
+    └── wafheader/       Noms des en-têtes internes X-WAF-* et valeurs de
+                         X-WAF-Action, source unique pour tous les middlewares
 ```
 
 ## Request Processing Pipeline
@@ -313,7 +315,8 @@ REQUÊTE ENTRANTE
       │ première entrée gagnante), repli sur
       │ upstream.address (⚠ cf. ADR-020). Pool avec health checks et
       │ load balancing si configuré (FR-25/FR-26).
-      │ Pose X-Forwarded-*, X-Real-IP et X-WAF-Score vers l'upstream.
+      │ Pose X-Forwarded-*, X-Real-IP et X-WAF-Score vers l'upstream ;
+      │ retire tout autre X-WAF-* sauf X-WAF-Origin-Token.
       ▼
 RÉPONSE UPSTREAM → [10] journalise → [9] mesure → [2] en-têtes → CLIENT
 ```

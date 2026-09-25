@@ -9,6 +9,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/ttlcache"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 // maxTrackedIPs borne le nombre d'IP comptées simultanément. Il faudrait
@@ -76,8 +77,8 @@ func PathGuard(path string, window *Window) func(http.Handler) http.Handler {
 				ip := cloudflare.RealIP(r)
 				if window.Record(ip) > window.max {
 					w.Header().Set("Retry-After", "10")
-					w.Header().Set("X-WAF-Action", "RATE_LIMIT")
-					w.Header().Set("X-WAF-Reason", "self_protect_flood")
+					w.Header().Set(wafheader.Action, wafheader.ActionRateLimit)
+					w.Header().Set(wafheader.Reason, "self_protect_flood")
 					http.Error(w, "too many requests", http.StatusTooManyRequests)
 					return
 				}

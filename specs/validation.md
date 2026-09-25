@@ -295,6 +295,21 @@ last-reviewed: 2026-09-25
 | 2026-09-24 | `ttlcache` sous contention | Benchmark `Get` parallèle (non versionné), 1/4/8/16 cœurs | mesure | 37 / 91 / 85 / 108 ns/op : ~10 M lectures/s par cache, sharding non justifié |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `Example.com:8080` compté sous `domain="example.com"` ; `attack-1.test`, `attack-2.test` sous `_undeclared` ; `GET /waf/admin/config` masque les secrets |
 
+| 2026-09-25 | Sprint 22 (audit 7) | `go test ./...` | pass | 803 tests et sous-tests, 48 paquets |
+| 2026-09-25 | Sprint 22 (audit 7) | `go vet ./...` + `go build ./...` | pass | |
+| 2026-09-25 | Sprint 22 (audit 7) | `golangci-lint run ./...` | pass | 0 issue |
+| 2026-09-25 | Sprint 22 (audit 7) | `spectral lint` admin + public | pass | 0 erreur |
+| 2026-09-25 | Sprint 22 (audit 7) | `govulncheck ./...` | pass | 0 vulnérabilité atteignable ; 1 dans un module requis, non appelée |
+| 2026-09-25 | Sprint 22 (audit 7) | `go test -race` | **non exécuté localement** | cgo indisponible sur le poste ; couvert par la CI |
+| 2026-09-25 | `asyncWriter.Close` | `TestAsyncWriterCloseIsSafeUnderConcurrentCalls` | pass | Panic `close of closed channel` sur l'ancien code |
+| 2026-09-25 | Décision THROTTLE | `TestRiskThrottleHalvesSustainedRate`, `TestRiskThrottle429IsNeutralAndExpires`, `TestMiddlewareThrottleDecisionReachesTheRateLimiter` | pass | 10 requêtes admises sur 25 au lieu de 20 ; aucun effet en shadow |
+| 2026-09-25 | Arrêt des serveurs | `TestShutdownAllGivesEveryServerTheGracePeriod`, `TestAwaitShutdownStopsEveryServerOnListenerFailure` | pass | Contexte expiré pour l'admin sur l'arrêt séquentiel |
+| 2026-09-25 | Corps bornés | `TestMiddlewareVerifyRejectsOversizedBody`, `TestAdminRejectsOversizedBody` | pass | 200 / 201 sur l'ancien code |
+| 2026-09-25 | Contrats | `TestEverySchemaObjectIsClosed`, `TestAdminContractDocumentsTheStatusesTheCodeReturns`, `TestPublicEndpointsConformToTheirContract`, `TestEnvelopeRefusalsAreDocumented`, `TestVerifyResponseHeadersAreDocumented` | pass | Chacun en échec sur l'ancien contrat ou l'ancien code (POST `/waf/health` 200) |
+| 2026-09-25 | Assets statiques | `TestExactPathsAndPrefixesAreAssets`, `TestRoutesBypassesExactAndPrefixedAssets` | pass | `/robots.txt` challengé sur l'ancien code |
+| 2026-09-25 | En-têtes vers l'upstream | `TestHandlerStripsInternalCoordinationHeaders` | pass | 5 en-têtes internes reçus par l'upstream sur l'ancien code |
+| 2026-09-25 | Chemin chaud | `TestGetDoesNotAllocate`, `BenchmarkHashIP`, `BenchmarkHashIPMiss`, `BenchmarkHandlerAllowed`, `BenchmarkObserve` | mesure | `Header.Get` 104 ns / 1 alloc → 31 ns / 0 ; HashIP répété 119 ns / 1 alloc → 12 ns / 0 (miss ~250 ns / 2) ; rate limit 28 → 19 allocs ; adaptive 77 → 33 ns |
+| 2026-09-25 | Binaire | Exécution réelle sur `configs/config.example.yaml` | pass | `/waf/health` 200, POST 405 `Allow: GET, HEAD`, DELETE `/waf/metrics` 405, `/robots.txt` bypassé (`waf_asset_requests_total` 1), 20 Ko sur `/waf/verify` → 400 `invalid_submission`, 502 journalisés avec leur cause, `-healthcheck` ok |
 | 2026-09-25 | Sprint 21 (audit 6) | `go test ./...` | pass | 757 tests et sous-tests, 47 paquets |
 | 2026-09-25 | Sprint 21 (audit 6) | `go vet ./...` + `go build ./...` | pass | |
 | 2026-09-25 | Sprint 21 (audit 6) | `golangci-lint run ./...` | pass | 0 issue |
@@ -334,6 +349,28 @@ last-reviewed: 2026-09-25
 | 2026-09-24 | Pool d'upstreams | `BenchmarkPoolPick`, `TestPoolPickDoesNotAllocate` | pass | 1 alloc (48 B/op) avant, 0 après, 4 stratégies |
 | 2026-09-24 | Verrous visiteurs / DDoS | Benchmarks parallèles (non versionnés), 1 et 8 cœurs | mesure | `observe` 93 / 131 ns/op ; `Record` 60 / 117 ; `Observe` 98 / 284 : verrous occupés < 1 % à 20 000 req/s |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` + `strict_host` | pass | Host non déclaré : 400, `BLOCK host_not_declared` journalisé, `waf_blocked_total{domain="_undeclared"}` ; `/waf/metrics` par IP 400 ; `/waf/health` 200 |
+
+### Sprint 22 — septième audit du 2026-09-25 : ce qui était exact, ce qui ne l'était pas
+
+- **Exact et corrigé** : 1.2 à 1.6, 2.1 à 2.5, 3.1 à 3.5, 4.1 à 4.4 (partie
+  `adaptive`), 4.6. Chaque correctif de code a un test ou une mesure.
+- **Exact, différent de sa description** : 1.4 — pas de serveur « orphelin »
+  (le processus sort), mais ses requêtes en cours touchaient des stores déjà
+  fermés. 3.4 — aucune panique atteignable, seulement des assertions fragiles.
+  4.3 — 28 allocations par requête et non 4 ; ramenées à 19, le zéro exigerait
+  une autre interface `Store`. 2.5 (geo) — comportement conforme à FR-16 ;
+  seul un avertissement de démarrage est ajouté.
+- **Infirmé** : 1.1 — `nthCandidate` ne rend jamais nil ; 4.5 — la passe de
+  nettoyage ne tourne pas sur le chemin de requête et ne suspend rien.
+- **Déjà infirmé par la mesure** : 4.4 pour `visitorTracker` et les
+  détecteurs anti-DDoS (T19.4).
+- **Changements de comportement** : `THROTTLE` réduit le débit du visiteur ;
+  POST/DELETE sur les endpoints GET du WAF reçoivent 405 ; corps de plus de
+  16 Kio (`/waf/verify`) ou 64 Kio (admin) refusés en 400 ; `/robots.txt`,
+  `/sitemap.xml`, `/static/`, `/assets/`, `/public/`, `/dist/` bypassent le
+  challenge par défaut ; l'upstream ne reçoit plus que `X-WAF-Score` et
+  `X-WAF-Origin-Token` parmi les `X-WAF-*` ; une adresse de pool invalide
+  empêche le démarrage.
 
 ### Sprint 21 — sixième audit du 2026-09-25 : ce qui était exact, ce qui ne l'était pas
 

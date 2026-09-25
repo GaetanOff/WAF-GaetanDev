@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"context"
 	"crypto/tls"
+	"errors"
 	"fmt"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -15,6 +18,7 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/upstream"
 	"github.com/gaetandev/waf/internal/upstreamtime"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const defaultWAFScore = "50"
@@ -49,8 +53,9 @@ func (h *Handler) WithPool(pool *upstream.Pool, tlsVerify bool, maxIdleConns int
 		}
 		proxy := newReverseProxy(target, tlsVerify, maxIdleConns, timeout, preserveHost)
 		member := u
-		proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
+		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
 			member.SetHealthy(false) // failover : exclure dès l'échec de connexion
+			logUpstreamError(r, target, err)
 			http.Error(w, "bad gateway", http.StatusBadGateway)
 		}
 		proxies[u.Address] = proxy
@@ -200,9 +205,10 @@ func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout 
 		} else {
 			pr.Out.Host = target.Host
 		}
-		pr.Out.Header.Set("X-Real-IP", clientIP)
-		if pr.Out.Header.Get("X-WAF-Score") == "" {
-			pr.Out.Header.Set("X-WAF-Score", defaultWAFScore)
+		stripInternalHeaders(pr.Out.Header)
+		pr.Out.Header.Set("X-Real-Ip", clientIP)
+		if pr.Out.Header.Get(wafheader.Score) == "" {
+			pr.Out.Header.Set(wafheader.Score, defaultWAFScore)
 		}
 	}
 	proxy.Transport = &http.Transport{
@@ -223,11 +229,44 @@ func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout 
 			MinVersion:         tls.VersionTLS12,
 		},
 	}
-	proxy.ErrorHandler = func(w http.ResponseWriter, _ *http.Request, _ error) {
+	proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
+		logUpstreamError(r, target, err)
 		http.Error(w, "bad gateway", http.StatusBadGateway)
 	}
 
 	return proxy
+}
+
+// forwardedInternalHeaders sont les seuls en-têtes internes transmis à
+// l'upstream : le score de confiance (FR-01) et le token de protection de
+// l'origine (FR-19).
+var forwardedInternalHeaders = map[string]bool{
+	wafheader.Score:       true,
+	wafheader.OriginToken: true,
+}
+
+// stripInternalHeaders retire de la requête sortante les en-têtes de
+// coordination du pipeline (X-WAF-Action, X-WAF-Reason, X-WAF-Risk-*…) :
+// l'application protégée recevait toute la mécanique de décision du WAF,
+// qu'aucun contrat ne lui promet. Les clés sont canoniques (clone de r.Header).
+func stripInternalHeaders(header http.Header) {
+	for name := range header {
+		if strings.HasPrefix(name, wafheader.Prefix) && !forwardedInternalHeaders[name] {
+			delete(header, name)
+		}
+	}
+}
+
+// logUpstreamError journalise la cause d'un 502 : l'erreur de l'upstream était
+// ignorée, et un 502 ne disait ni quel upstream ni pourquoi (refus de
+// connexion, timeout, TLS). Un client parti (context.Canceled) n'est pas une
+// panne de l'upstream. Le chemin est journalisé sans sa query, qui peut porter
+// des données personnelles.
+func logUpstreamError(r *http.Request, target *url.URL, err error) {
+	if errors.Is(err, context.Canceled) {
+		return
+	}
+	slog.Warn("upstream request failed", "upstream", target.Host, "method", r.Method, "path", r.URL.Path, "error", err)
 }
 
 func realIP(r *http.Request) string {

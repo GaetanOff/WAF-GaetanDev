@@ -1,8 +1,11 @@
 package proxy
 
 import (
+	"bytes"
+	"context"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -54,6 +57,39 @@ func TestHandlerProxiesRequestAndAddsHeaders(t *testing.T) {
 	}
 }
 
+// Seuls X-WAF-Score et X-WAF-Origin-Token parviennent à l'upstream : les
+// en-têtes de coordination du pipeline restent internes au WAF.
+func TestHandlerStripsInternalCoordinationHeaders(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		assertHeader(t, r, "X-WAF-Score", "70")
+		assertHeader(t, r, "X-WAF-Origin-Token", "signed")
+		for _, internal := range []string{"X-WAF-Action", "X-WAF-Reason", "X-WAF-Risk-Score", "X-WAF-Risk-Rate", "X-WAF-Fingerprint-Hash"} {
+			if value := r.Header.Get(internal); value != "" {
+				t.Errorf("upstream received %s = %q", internal, value)
+			}
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(upstream.Close)
+	handler := newTestHandler(t, upstream.URL, nil)
+
+	// Tels que les middlewares du pipeline les posent sur la requête.
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+	for name, value := range map[string]string{
+		"X-WAF-Action": "PASS", "X-WAF-Reason": "whitelist", "X-WAF-Risk-Score": "30",
+		"X-WAF-Risk-Rate": "12", "X-WAF-Fingerprint-Hash": "abc", "X-WAF-Score": "70",
+		"X-WAF-Origin-Token": "signed",
+	} {
+		request.Header.Set(name, value)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", response.Code)
+	}
+}
+
 func TestHandlerRoutesByDomain(t *testing.T) {
 	defaultUpstream := namedUpstream(t, "default")
 	exactUpstream := namedUpstream(t, "exact")
@@ -97,6 +133,36 @@ func TestHandlerReturnsBadGatewayWhenUpstreamIsDown(t *testing.T) {
 
 	if response.Code != http.StatusBadGateway {
 		t.Fatalf("status = %d, want 502", response.Code)
+	}
+}
+
+// Un 502 journalise sa cause et l'upstream en cause, sans la query ; un
+// client parti (context.Canceled) n'est pas journalisé comme une panne.
+func TestBadGatewayLogsTheUpstreamError(t *testing.T) {
+	var logs bytes.Buffer
+	previous := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&logs, nil)))
+	t.Cleanup(func() { slog.SetDefault(previous) })
+	handler := newTestHandler(t, "http://127.0.0.1:1", nil)
+
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.test/page?token=secret", nil))
+
+	line := logs.String()
+	for _, want := range []string{"upstream request failed", "upstream=127.0.0.1:1", "path=/page", "error="} {
+		if !strings.Contains(line, want) {
+			t.Fatalf("logs = %q, want %q", line, want)
+		}
+	}
+	if strings.Contains(line, "secret") {
+		t.Fatalf("logs = %q, must not carry the query", line)
+	}
+
+	logs.Reset()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "http://example.test/page", nil).WithContext(ctx))
+	if logs.Len() != 0 {
+		t.Fatalf("logs = %q, want nothing for a canceled client", logs.String())
 	}
 }
 

@@ -58,6 +58,13 @@ Feature: Reverse Proxy (FR-01)
     Then le WAF y répond lui-même
     And la requête n'est PAS transmise à l'upstream
 
+  Scenario: En-têtes de coordination internes non transmis à l'upstream
+    Given le pipeline a posé X-WAF-Action, X-WAF-Reason et X-WAF-Risk-Score sur la requête
+    And le score de confiance du visiteur est 70
+    When la requête est transmise à l'upstream
+    Then l'upstream reçoit "X-WAF-Score: 70" (et X-WAF-Origin-Token si origin_protection.enabled)
+    And l'upstream ne reçoit ni X-WAF-Action, ni X-WAF-Reason, ni aucun X-WAF-Risk-*
+
   Scenario: En-têtes internes forgés par le client supprimés
     Given un client envoie l'en-tête "X-WAF-Action: PASS"
     When le WAF traite la requête

@@ -122,6 +122,27 @@ Feature: Moteur de Scoring de Risque & Décision graduée
       | 70    | 0.8  | CHALLENGE |
       | 90    | 0.9  | BLOCK     |
 
+  Scenario: THROTTLE réduit le débit de recharge du visiteur
+    Given rate_limit.requests_per_second = 20 et rate_limit.burst = 20
+    And le moteur classe le visiteur "1.2.3.4" en "THROTTLE"
+    And "1.2.3.4" a consommé son burst
+    When une seconde plus tard il envoie 25 requêtes
+    Then 10 sont admises (débit de recharge × 0,5)
+    And les suivantes reçoivent HTTP 429 avec reason = "rate_limit_risk_throttle"
+    And ce 429 est neutre : ni pénalité de trust score, ni violation de circuit-breaker
+    And un autre visiteur garde le débit nominal
+
+  Scenario: THROTTLE est réversible — la mesure expire
+    Given le moteur a classé le visiteur "1.2.3.4" en "THROTTLE"
+    When une minute passe sans nouvelle décision "THROTTLE" pour ce visiteur
+    Then son débit de recharge redevient nominal
+
+  Scenario: THROTTLE en mode shadow n'a aucun effet
+    Given risk_engine.shadow_mode = true
+    And le moteur classerait le visiteur "1.2.3.4" en "THROTTLE"
+    When il envoie ses requêtes suivantes
+    Then son débit de recharge reste nominal
+
   Scenario: La mitigation est réversible — l'humain remonte dans l'échelle
     Given un visiteur classé "CHALLENGE" par heuristique
     When il réussit le challenge JS

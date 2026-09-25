@@ -689,14 +689,18 @@ static_assets:
     - ".png"
     - ".jpg"
     # ...
+  path_prefixes: ["/static/", "/assets/", "/public/", "/dist/"]
+  exact_paths: ["/favicon.ico", "/robots.txt", "/sitemap.xml"]
 ```
 
-Les requêtes vers des assets statiques (CSS, JS, images, fonts…) ne déclenchent pas le challenge JS et n'affectent pas le trust score. Cela évite que la page de challenge elle-même soit bloquée par le WAF. La blacklist et le rate limit s'appliquent toujours : les requêtes d'assets sont comptées dans les buckets de l'IP.
+Les requêtes vers des assets statiques (CSS, JS, images, fonts…) ne déclenchent pas le challenge JS et n'affectent pas le trust score. Cela évite que la page de challenge elle-même soit bloquée par le WAF. La blacklist et le rate limit s'appliquent toujours : les requêtes d'assets sont comptées dans les buckets de l'IP. Chaque requête bypassée est comptée dans `waf_asset_requests_total{domain}`.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `true` | Active le bypass des assets statiques. |
 | `extensions` | liste | Voir exemple | Extensions de fichiers bypassant le challenge. La comparaison est insensible à la casse. |
+| `path_prefixes` | liste | `["/static/", "/assets/", "/public/", "/dist/"]` | Préfixes de répertoire bypassant le challenge, **quel que soit le chemin qui suit** : n'y listez que des répertoires réellement statiques. Sensible à la casse ; chaque préfixe commence et finit par `/`, `/` seul est refusé. |
+| `exact_paths` | liste | `["/favicon.ico", "/robots.txt", "/sitemap.xml"]` | Chemins exacts bypassant le challenge (moteurs de recherche). Sensible à la casse. |
 
 ---
 

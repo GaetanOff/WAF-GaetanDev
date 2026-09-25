@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -356,5 +357,45 @@ func TestClusterBlacklistEntrySurvivesLocalAdminChanges(t *testing.T) {
 	entries := server.state.ListBlacklist()
 	if len(entries) != 2 || entries[0].Reason != clusterBlacklistReason {
 		t.Fatalf("blacklist = %+v, want both cluster entries listed with reason %q", entries, clusterBlacklistReason)
+	}
+}
+
+// Un corps admin au-delà de maxRequestBodyBytes est refusé en 400 et
+// n'ajoute rien, même s'il est par ailleurs bien formé.
+func TestAdminRejectsOversizedBody(t *testing.T) {
+	server := newTestServer(t)
+	body := `{"ip":"5.5.5.5","reason":"` + strings.Repeat("a", maxRequestBodyBytes) + `"}`
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, requestWithAuth(http.MethodPost, "/waf/admin/blacklist", body))
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", response.Code)
+	}
+	if entries := server.state.ListBlacklist(); len(entries) != 0 {
+		t.Fatalf("blacklist = %v, want empty", entries)
+	}
+}
+
+// Si les règles appliquées ne peuvent pas suivre une suppression, l'entrée est
+// restaurée et l'API répond 500 : elle ne doit pas cesser de lister une entrée
+// que le middleware continue d'appliquer.
+func TestAdminRemovalRestoresEntryWhenRulesSyncFails(t *testing.T) {
+	server := newTestServer(t)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, requestWithAuth(http.MethodPost, "/waf/admin/blacklist", `{"ip":"5.5.5.5"}`))
+	if response.Code != http.StatusCreated {
+		t.Fatalf("add status = %d, want 201", response.Code)
+	}
+	server.state.userAgents = []string{"(unclosed"} // prochaine synchronisation en échec
+
+	response = httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, requestWithAuth(http.MethodDelete, "/waf/admin/blacklist/5.5.5.5", ""))
+
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), "access_rules_sync_failed") {
+		t.Fatalf("delete status = %d body = %s, want 500 access_rules_sync_failed", response.Code, response.Body.String())
+	}
+	if entries := server.state.ListBlacklist(); len(entries) != 1 || entries[0].IP != "5.5.5.5" {
+		t.Fatalf("blacklist = %v, want the entry restored", entries)
 	}
 }

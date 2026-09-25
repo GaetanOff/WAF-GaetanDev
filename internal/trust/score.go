@@ -3,14 +3,17 @@ package trust
 import (
 	"crypto/sha256"
 	"encoding/hex"
+	"hash/maphash"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/storage"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
@@ -44,7 +47,7 @@ const (
 
 	// headerDeterministicTrigger porte un signal déterministe publié par un
 	// détecteur (threat intel critique, JA3 blacklisté ; FR-35).
-	headerDeterministicTrigger = "X-WAF-Deterministic-Trigger"
+	headerDeterministicTrigger = wafheader.DeterministicTrigger
 )
 
 // deterministicTriggers sont les signaux qui bloquent seuls, sans
@@ -228,7 +231,7 @@ func (m *ScoreManager) State(score int) string {
 
 func (m *ScoreManager) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-WAF-Action") == "PASS" {
+		if r.Header.Get(wafheader.Action) == wafheader.ActionPass {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -243,23 +246,23 @@ func (m *ScoreManager) Middleware(next http.Handler) http.Handler {
 
 		visitor := m.Get(cloudflare.RealIP(r), r.Host)
 		state := m.State(visitor.Score)
-		r.Header.Set("X-WAF-Score", strconv.Itoa(visitor.Score))
-		r.Header.Set("X-WAF-State", state)
+		r.Header.Set(wafheader.Score, strconv.Itoa(visitor.Score))
+		r.Header.Set(wafheader.State, state)
 
 		if state == StateBlocked {
-			w.Header().Set("X-WAF-Action", "BLOCK")
-			if r.Header.Get("X-WAF-Reason") == "" {
-				w.Header().Set("X-WAF-Reason", "score_below_block_threshold")
+			w.Header().Set(wafheader.Action, wafheader.ActionBlock)
+			if r.Header.Get(wafheader.Reason) == "" {
+				w.Header().Set(wafheader.Reason, "score_below_block_threshold")
 			} else {
-				w.Header().Set("X-WAF-Reason", r.Header.Get("X-WAF-Reason"))
+				w.Header().Set(wafheader.Reason, r.Header.Get(wafheader.Reason))
 			}
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		if state == StateChallenged {
-			r.Header.Set("X-WAF-Action", "CHALLENGE")
-			if r.Header.Get("X-WAF-Reason") == "" {
-				r.Header.Set("X-WAF-Reason", "score_below_challenge_threshold")
+			r.Header.Set(wafheader.Action, wafheader.ActionChallenge)
+			if r.Header.Get(wafheader.Reason) == "" {
+				r.Header.Set(wafheader.Reason, "score_below_challenge_threshold")
 			}
 		}
 
@@ -270,26 +273,52 @@ func (m *ScoreManager) Middleware(next http.Handler) http.Handler {
 // blockDeterministic refuse la requête en 403 sur un déclencheur déterministe,
 // avec la raison posée par le détecteur (ex. ja3_blacklisted).
 func blockDeterministic(w http.ResponseWriter, r *http.Request, trigger string) {
-	reason := r.Header.Get("X-WAF-Reason")
+	reason := r.Header.Get(wafheader.Reason)
 	if reason == "" {
 		reason = "deterministic_" + trigger
 	}
 	w.Header().Set(headerDeterministicTrigger, trigger)
-	w.Header().Set("X-WAF-Action", "BLOCK")
-	w.Header().Set("X-WAF-Reason", reason)
+	w.Header().Set(wafheader.Action, wafheader.ActionBlock)
+	w.Header().Set(wafheader.Reason, reason)
 	http.Error(w, "forbidden", http.StatusForbidden)
 }
 
 // ipHashBytes est la part du SHA-256 conservée : 8 octets, 16 caractères hex.
 const ipHashBytes = 8
 
-// HashIP est appelé plusieurs fois par requête (trust, rate limit, journal,
-// détecteurs). N'encoder que les octets conservés, au lieu des 64 caractères
-// tronqués ensuite, produit la même clé pour ~40 % de temps et une allocation
-// en moins.
+// hashCacheSlots est la taille du cache de HashIP (puissance de deux).
+const hashCacheSlots = 1 << 14
+
+// ipHash est une entrée du cache de HashIP.
+type ipHash struct {
+	ip   string
+	hash string
+}
+
+var (
+	hashCache [hashCacheSlots]atomic.Pointer[ipHash]
+	hashSeed  = maphash.MakeSeed()
+)
+
+// HashIP est appelé six à dix fois par requête pour la même IP (rate limit,
+// trust, journal, métriques, moteur de risque, détecteurs) : un SHA-256 et une
+// allocation à chaque fois. Un cache à correspondance directe, sans verrou,
+// retient le dernier hash calculé par emplacement : le premier appel d'une
+// requête le calcule, les suivants le relisent. Deux IP qui se disputent un
+// emplacement se l'arrachent sans erreur possible — l'IP est comparée avant de
+// rendre le hash. N'encoder que les octets conservés, au lieu des 64
+// caractères tronqués ensuite, produit la même clé.
 func HashIP(ip string) string {
+	slot := &hashCache[maphash.String(hashSeed, ip)&(hashCacheSlots-1)]
+	if cached := slot.Load(); cached != nil && cached.ip == ip {
+		return cached.hash
+	}
 	sum := sha256.Sum256([]byte(ip))
-	return hex.EncodeToString(sum[:ipHashBytes])
+	hash := hex.EncodeToString(sum[:ipHashBytes])
+	// Clone : ip peut être une sous-chaîne d'un en-tête ou de RemoteAddr, que
+	// l'entrée retiendrait sinon en mémoire.
+	slot.Store(&ipHash{ip: strings.Clone(ip), hash: hash})
+	return hash
 }
 
 func clamp(value int, minValue int, maxValue int) int {

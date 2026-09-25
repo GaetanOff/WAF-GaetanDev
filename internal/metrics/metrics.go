@@ -8,23 +8,25 @@ import (
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/wafheader"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
-	actionPass         = "PASS"
-	actionChallenge    = "CHALLENGE"
-	actionBlock        = "BLOCK"
-	actionRateLimit    = "RATE_LIMIT"
-	actionCircuitBreak = "CIRCUIT_BREAK"
-	actionHoneypot     = "HONEYPOT"
-	actionTarpit       = "TARPIT"
+	actionPass         = wafheader.ActionPass
+	actionChallenge    = wafheader.ActionChallenge
+	actionBlock        = wafheader.ActionBlock
+	actionRateLimit    = wafheader.ActionRateLimit
+	actionCircuitBreak = wafheader.ActionCircuitBreak
+	actionHoneypot     = wafheader.ActionHoneypot
+	actionTarpit       = wafheader.ActionTarpit
 )
 
 type Metrics struct {
 	registry        *prometheus.Registry
 	requests        *prometheus.CounterVec
+	assetRequests   *prometheus.CounterVec
 	blocked         *prometheus.CounterVec
 	challenged      *prometheus.CounterVec
 	duration        *prometheus.HistogramVec
@@ -64,6 +66,10 @@ func New() *Metrics {
 			Name: "waf_requests_total",
 			Help: "Total WAF requests by action and domain.",
 		}, []string{"action", "domain"}),
+		assetRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_asset_requests_total",
+			Help: "Static asset requests bypassing challenge and trust score, by domain (FR-24).",
+		}, []string{"domain"}),
 		blocked: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "waf_blocked_total",
 			Help: "Total WAF blocked requests by domain and reason.",
@@ -156,7 +162,7 @@ func New() *Metrics {
 		m.pressureGauges[i] = m.globalPressure.WithLabelValues(level)
 	}
 	m.pressureLevel.Store(unpublishedPressure)
-	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors, m.alertsSent, m.alertsFailed)
+	registry.MustRegister(m.requests, m.assetRequests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors, m.alertsSent, m.alertsFailed)
 	// La liste compilée est en vigueur au démarrage : publier son cardinal tout
 	// de suite évite une jauge à 0 qui se lirait comme « aucune plage connue ».
 	m.cfRanges.Set(float64(len(cloudflare.Ranges())))
@@ -179,9 +185,15 @@ func (m *Metrics) WithDomains(hosts []string) *Metrics {
 }
 
 // SetTLSCertExpiry publie l'instant d'expiration (NotAfter) du certificat d'un
-// domaine en timestamp Unix (FR-33). L'alerte calcule le delta avec time().
+// domaine en timestamp Unix (FR-40). L'alerte calcule le delta avec time().
 func (m *Metrics) SetTLSCertExpiry(domain string, notAfter time.Time) {
 	m.tlsCertExpiry.WithLabelValues(domain).Set(float64(notAfter.Unix()))
+}
+
+// IncAssetRequest compte une requête d'asset statique bypassée (FR-24). Le
+// ratio avec waf_requests_total sert à ajuster static_assets.
+func (m *Metrics) IncAssetRequest(host string) {
+	m.assetRequests.WithLabelValues(m.domains.label(host)).Inc()
 }
 
 // SetPowDifficulty publie la difficulté courante du PoW adaptatif (FR-14).
@@ -288,21 +300,21 @@ func (m *Metrics) Middleware(scores *trust.ScoreManager, next http.Handler) http
 }
 
 func (m *Metrics) observeRisk(r *http.Request, recorder *statusRecorder) {
-	decision := headerValue(r, recorder, "X-WAF-Risk-Decision")
+	decision := headerValue(r, recorder, wafheader.RiskDecision)
 	if decision != "" {
 		m.decisions.WithLabelValues(decision).Inc()
 	}
-	if headerValue(r, recorder, "X-WAF-Challenge-Pass-After-Flag") == "true" {
+	if headerValue(r, recorder, wafheader.ChallengePassAfterFlag) == "true" {
 		m.challengeFP.Inc()
 	}
 	if decision == actionBlock {
-		corroborated := headerValue(r, recorder, "X-WAF-Risk-Corroborated")
+		corroborated := headerValue(r, recorder, wafheader.RiskCorroborated)
 		if corroborated != "true" {
 			corroborated = "false"
 		}
 		m.hardBlocks.WithLabelValues(corroborated).Inc()
 	}
-	if bot := headerValue(r, recorder, "X-WAF-Risk-Verified-Bot"); bot != "" {
+	if bot := headerValue(r, recorder, wafheader.RiskVerifiedBot); bot != "" {
 		m.verifiedBots.WithLabelValues(bot).Inc()
 	}
 }
@@ -360,7 +372,7 @@ func (m *Metrics) observeGlobalPressure(r *http.Request) {
 // observeUnderAttack publie l'état du mode sous attaque par domaine (FR-39) et
 // compte les requêtes forcées au challenge par ce mode.
 func (m *Metrics) observeUnderAttack(r *http.Request, action string, domain string) {
-	active := r.Header.Get("X-WAF-Under-Attack") == "true"
+	active := r.Header.Get(wafheader.UnderAttack) == "true"
 	value := 0.0
 	if active {
 		value = 1
@@ -377,9 +389,9 @@ func (m *Metrics) observeUnderAttack(r *http.Request, action string, domain stri
 // TARPIT n'est retenu que sur la réponse, posé par le tarpit qui la sert : sur
 // la requête, c'est une classification qui atteint l'upstream sans déception.
 func normalizedAction(r *http.Request, recorder *statusRecorder) string {
-	action := recorder.Header().Get("X-WAF-Action")
+	action := recorder.Header().Get(wafheader.Action)
 	if action == "" {
-		action = r.Header.Get("X-WAF-Action")
+		action = r.Header.Get(wafheader.Action)
 		if action == actionTarpit {
 			return actionPass
 		}
@@ -393,10 +405,10 @@ func normalizedAction(r *http.Request, recorder *statusRecorder) string {
 }
 
 func wafReason(r *http.Request, recorder *statusRecorder) string {
-	if value := recorder.Header().Get("X-WAF-Reason"); value != "" {
+	if value := recorder.Header().Get(wafheader.Reason); value != "" {
 		return value
 	}
-	if value := r.Header.Get("X-WAF-Reason"); value != "" {
+	if value := r.Header.Get(wafheader.Reason); value != "" {
 		return value
 	}
 	return "none"

@@ -1,6 +1,6 @@
 ---
 status: implemented
-sprint: 21
+sprint: 22
 last-updated: 2026-09-25
 ---
 
@@ -1003,7 +1003,7 @@ last-updated: 2026-09-25
 - [x] 1.2 waf-self-protection.feature : rejeu (`token_already_used`), `challenge.max_pending_nonces`, amplification, blacklists automatiques, `admin.allowed_ips`, `metrics.auth_token` absents du code et d'OpenAPI. Le token de challenge est un HMAC sans etat : aucun store de nonces. Scenarios `@deferred` ; les actifs suivent le contrat reel (`verify_max_per_minute`, `admin_max_failures`/`admin_lockout`, `invalid_submission`)
 - [x] 1.3 per-domain-tls.feature marquee `draft` alors qu'implementee depuis T11.1 ; acme-tls.feature configurait un `server.tls.acme.*` inexistant (bloc `acme` de premier niveau, exclusif de `server.tls`). Reecrite sur le contrat reel ; jauge d'expiration ACME `@deferred` ; scenario cipher suites deplace vers per-domain-tls
 - [x] Constat annexe : `nonce` non numerique accepte par `POST /waf/verify` malgre `^[0-9]+$` (challenge-submission.schema.json) — il finissait en `invalid_token` ou `invalid_pow`, ce dernier penalisant le score. Refuse a la frontiere en `invalid_submission`
-- [ ] Constat annexe, hors audit : FR-24 et static-assets-bypass.feature exigent aussi un bypass par prefixe (`/static/`, `/assets/`...) et par chemin exact (`/robots.txt`, `/sitemap.xml`) et la metrique `waf_asset_requests_total` ; seul le bypass par extension existe. A implementer ou a passer en `@deferred`
+- [x] Constat annexe, hors audit (traite en T22.2, 2.4) : FR-24 et static-assets-bypass.feature exigent aussi un bypass par prefixe (`/static/`, `/assets/`...) et par chemin exact (`/robots.txt`, `/sitemap.xml`) et la metrique `waf_asset_requests_total` ; seul le bypass par extension existe. A implementer ou a passer en `@deferred`
 - **Spec** : requirements-ops.md FR-24, FR-30, FR-31 (v3.8.1) ; architecture.md (v1.4.4) ; features/static-assets-bypass, waf-self-protection, per-domain-tls, acme-tls
 
 ### T21.2 - Arrets et ressources
@@ -1025,4 +1025,46 @@ last-updated: 2026-09-25
 - [x] 4.1 Job `security` (`make security`, govulncheck) dans ci.yml : la porte G5 n'y etait pas
 - [x] 4.2 `run()` (~400 lignes) : etapes de construction sur une structure `app`, arrets sur une pile executee en ordre inverse (ordre des `defer` conserve). `routes()` inchange
 - **Validation 2026-09-25** : `go build ./...`, `go vet ./...`, `go test ./...` (757 tests et sous-tests, 47 paquets), `golangci-lint run` (0 issue), `spectral lint` (0 erreur) ; execution reelle du binaire sur `configs/config.example.yaml` (`/waf/health` 200, `-healthcheck` ok). `go test -race` et `govulncheck` non executables localement (pas de cgo ; proxy Go injoignable) — couverts par la CI.
+- **Statut** : implemente.
+
+## Sprint 22 - Remediation du septieme audit du 2026-09-25 (Phase 22)
+
+> Septieme audit externe du 2026-09-25 : chaque point a ete verifie contre le
+> code avant correction, sur la branche `fix/audit-7-remediation`, a raison
+> d'un commit par correction. Deux points sont infirmes (panic du pool, pause
+> « stop-the-world ») ; les verrous de `visitorTracker` et des detecteurs
+> anti-DDoS avaient deja ete infirmes par la mesure (T19.4).
+
+### T22.1 - Stabilite et securite
+- [x] 1.1 Panic nil pointer de `pool.pick` : **infirme**. `nthCandidate` ne rend jamais nil : a defaut de candidat, il rend le dernier vu puis `firstOfGroup`, et `pick` n'y arrive qu'avec `count > 0`, donc un pool non vide. Non modifie
+- [x] 1.2 `asyncWriter.Close` : deux appels concurrents passaient tous deux par `default` et le second `close` paniquait (reproduit par le test sur l'ancien code). `sync.Once`
+- [x] 1.3 Decision `THROTTLE` inerte : le moteur de risque la signale au rate limit, qui divise par deux le debit de recharge du visiteur pendant 1 min apres la derniere decision (le plus fort des resserrements pression / THROTTLE s'applique). 429 neutre `rate_limit_risk_throttle` (ni penalite, ni violation de breaker). Sans effet en shadow. Le rate limit precede le moteur : la mesure porte sur les requetes suivantes
+- [x] 1.4 Arret des serveurs : sequentiel sous un contexte commun (l'API admin pouvait recevoir un contexte expire), serveurs annexes seulement fermes, et l'echec d'un listener sortait sans arreter les autres. Tous les serveurs sont draines en parallele, chacun avec le delai entier, sur signal comme sur echec
+- [x] 1.5 Corps non bornes : `POST /waf/verify` (16 Kio) et toute route admin (64 Kio) passent par `http.MaxBytesReader` ; au-dela, le 400 de l'operation
+- [x] 1.6 `upstream_pool.upstreams[].address` valides comme URL absolues au demarrage
+- **Spec** : requirements.md NFR-05 ; requirements-detection.md FR-34 (v1.4.0) ; requirements-ops.md FR-25, FR-30 ; features/risk-scoring-engine (3 scenarios THROTTLE)
+
+### T22.2 - Contrats SDD
+- [x] 2.1 `alert.schema.json` : objet `data` ferme ; un test parcourt tous les schemas de `specs/schemas`
+- [x] 2.2 admin.openapi.yaml (1.3.0 puis 1.4.0) : 409 de `POST /waf/admin/blacklist` et enveloppe du 409 whitelist, 429 de verrouillage avec `Retry-After` sur les 15 operations authentifiees, 503 fictif de `GET /waf/health` retire, 500 `access_rules_sync_failed` des deux DELETE (voir 3.5)
+- [x] 2.3 public.openapi.yaml (1.1.0 a 1.4.0) : 405 avec `Allow: GET, HEAD` sur `/waf/health`, `/waf/metrics`, `/waf/origin/verify` (le code repondait 200 a POST/DELETE ; un motif « GET /… » aurait renvoye les autres methodes vers l'upstream) ; 400 strict_host et 429 slowloris des endpoints gardes ; en-tetes de reponse de `/waf/verify` ; endpoint ACME HTTP-01
+- [x] 2.4 Bypass d'assets par chemin exact et par prefixe de repertoire (`exact_paths`, `path_prefixes`, sensibles a la casse, `/` seul refuse) et `waf_asset_requests_total{domain}`. Le label `type="page"` du scenario de metriques est retire (il aurait change `waf_requests_total`)
+- [x] 2.5 Collision FR-33 : la terminaison TLS par domaine devient FR-40 (FR-33..FR-38 = moteur de risque). FR-03 ne promet plus de limites par domaine / route (ADR-022). `geo.challenge_countries` sans moteur de risque : conforme a FR-16, mais signale desormais au demarrage
+- **Spec** : requirements.md FR-01, FR-03 (v2.5.0) ; requirements-advanced.md FR-16 (v2.6.1) ; requirements-ops.md FR-24, FR-27, FR-40 (v3.9.2) ; config.schema.json ; features/static-assets-bypass, reverse-proxy, geo-rules, per-domain-tls
+
+### T22.3 - Architecture et qualite
+- [x] 3.1 `internal/wafheader` : source unique des noms `X-WAF-*` et des valeurs de `X-WAF-Action` ; les alias locaux y renvoient
+- [x] 3.2 `ratelimit` n'importe plus `staticassets` : raison `wafheader.ReasonStaticAsset`
+- [x] 3.3 `routes` devient `(*app).routes()` ; assemblage HTTP dans `routes.go`, `newStore` dans `app.go`
+- [x] 3.4 Assertions de type : aucune panique atteignable (le cache ne contient que des chaines, `WithAttrs` rend toujours un `*prettyHandler`), mais fragiles. Assertion verifiee dans `origin`, `withAttrs` type dans le logger pretty
+- [x] 3.5 Erreurs avalees : echec d'ecriture du fichier d'audit journalise ; suppression admin restauree si la resynchronisation des regles echoue (500) ; cause d'un 502 journalisee (upstream, methode, chemin sans query ; client parti ignore)
+
+### T22.4 - Performance
+- [x] 4.1 Cles d'en-tetes canoniques : `Header.Get("X-WAF-Action")` coutait 1 allocation et ~70 ns (104 ns / 1 alloc contre 31 ns / 0). Constantes `wafheader` et cles `Cf-*` canoniques, noms d'en-tete configures canonicalises une fois, en-tetes de famille du moteur precalcules
+- [x] 4.2 `trust.HashIP` : cache a correspondance directe sans verrou (16 384 cases). 119 ns / 1 alloc -> 12 ns / 0 par appel repete ; un miss coute ~250 ns / 2 allocs, soit ~840 ns / 7 allocs -> ~320 ns / 2 par requete, sans changer d'appelant
+- [x] 4.3 Rate limiter : etat de requete regroupe (tableaux bornes, buckets en place). 28 -> 19 allocations par requete admise ; le reste vient du store memoire, de `RealIP` et des cles — zero allocation exigerait une autre interface `Store`
+- [x] 4.4 `adaptive.Controller` : un verrou par requete au lieu de deux, fenetre en anneau O(1) au lieu d'une map parcourue (77 -> 33 ns). `visitorTracker` et detecteurs anti-DDoS : deja mesures en T19.4, non modifies
+- [x] 4.5 Pause « stop-the-world » de `cleanupBuckets` : **infirme**. La passe tourne dans la goroutine de nettoyage, jamais sur le chemin de requete, et le tri ne suspend pas les autres goroutines ; la passe sans allocation sous la borne date de T21.3. Non modifie
+- [x] 4.6 En-tetes internes vers l'upstream : seuls `X-WAF-Score` et `X-WAF-Origin-Token` sont transmis, les autres `X-WAF-*` sont retires dans `Rewrite`
+- **Validation 2026-09-25** : `go build ./...`, `go vet ./...`, `go test ./...` (803 tests et sous-tests, 48 paquets), `golangci-lint run` (0 issue), `spectral lint` (0 erreur), `govulncheck` (0 vulnerabilite atteignable, 1 non appelee) ; execution reelle du binaire sur `configs/config.example.yaml` (`/waf/health` 200, `POST /waf/health` 405 `Allow: GET, HEAD`, `/robots.txt` bypasse et compte, corps de 20 Ko sur `/waf/verify` refuse en `invalid_submission`, 502 journalises avec leur cause, `-healthcheck` ok). `go test -race` non executable localement (pas de cgo) — couvert par la CI.
 - **Statut** : implemente.

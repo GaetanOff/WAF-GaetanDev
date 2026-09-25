@@ -8,7 +8,12 @@ info:
     WAF : ces chemins ne sont jamais transmis à l'upstream. L'API
     d'administration, sur son port privé, a son propre contrat
     (admin.openapi.yaml).
-  version: 1.0.0
+
+    Avec acme.enabled, un serveur annexe écoute sur acme.http_challenge_listen
+    (défaut :80), hors de la chaîne de protection : il sert le challenge
+    HTTP-01 (/.well-known/acme-challenge/{token}) et redirige toute autre
+    requête GET/HEAD vers HTTPS (302 ; 400 pour les autres méthodes).
+  version: 1.4.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -71,11 +76,69 @@ components:
           type: string
           enum: [ok]
 
+  responses:
+    HostNotDeclared:
+      description: >-
+        Host absent de domains[] alors que server.strict_host est actif
+        (ADR-020) ; X-WAF-Reason vaut host_not_declared.
+      content:
+        text/plain:
+          schema:
+            type: string
+
+    TooManyRequests:
+      description: >-
+        Trop de requêtes concurrentes pour cette IP (slowloris, FR-23 ;
+        X-WAF-Reason too_many_connections_per_ip).
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        text/plain:
+          schema:
+            type: string
+
+    MethodNotAllowed:
+      description: Méthode autre que GET ou HEAD
+      headers:
+        Allow:
+          description: Méthodes acceptées
+          schema:
+            type: string
+            const: "GET, HEAD"
+
   headers:
     RetryAfter:
       description: Secondes avant de réessayer
       schema:
         type: integer
+    CacheControl:
+      description: Réponse jamais mise en cache (navigateur et CDN)
+      schema:
+        type: string
+        const: "no-store, no-cache, must-revalidate, max-age=0"
+    Pragma:
+      description: Équivalent HTTP/1.0 de Cache-Control no-cache
+      schema:
+        type: string
+        const: "no-cache"
+    Expires:
+      description: Réponse déjà expirée
+      schema:
+        type: string
+        const: "0"
+    WafAction:
+      description: Décision du WAF pour la requête, journalisée et comptée (FR-09)
+      schema:
+        type: string
+        enum: [BLOCK, RATE_LIMIT]
+    WafReason:
+      description: >-
+        Raison de la décision : verify_<code d'erreur> pour une soumission
+        refusée, self_protect_flood, too_many_connections_per_ip ou
+        host_not_declared pour un refus d'enveloppe
+      schema:
+        type: string
 
 paths:
   /waf/verify:
@@ -87,8 +150,9 @@ paths:
         challenge (FR-04). En cas de succès, émet le cookie de clearance signé
         et retourne l'URL de retour. Servi dès qu'un hôte au moins peut être
         challengé (challenge.enabled ou domains[].challenge_enabled). Borné par
-        IP (self_protection.verify_max_per_minute, FR-30). Réponses jamais
-        mises en cache (Cache-Control: no-store).
+        IP (self_protection.verify_max_per_minute, FR-30). Corps borné à
+        16 Kio : au-delà, refus 400 invalid_submission sans décodage complet.
+        Réponses jamais mises en cache (Cache-Control: no-store).
       tags: [Challenge]
       requestBody:
         required: true
@@ -104,25 +168,69 @@ paths:
               description: Cookie signé (challenge.cookie_name), HttpOnly, Secure, SameSite=Lax
               schema:
                 type: string
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Pragma:
+              $ref: "#/components/headers/Pragma"
+            Expires:
+              $ref: "#/components/headers/Expires"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/VerifySuccess"
         "400":
-          description: Soumission rejetée (corps invalide, token invalide ou expiré, PoW faux, timing ou fingerprint refusé)
+          description: >-
+            Soumission rejetée (corps invalide, token invalide ou expiré, PoW
+            faux, timing ou fingerprint refusé) en JSON ; en texte brut, Host
+            non déclaré sous server.strict_host (ADR-020). X-WAF-Action vaut
+            BLOCK ; Cache-Control, Pragma et Expires accompagnent le seul refus
+            JSON.
+          headers:
+            X-WAF-Action:
+              $ref: "#/components/headers/WafAction"
+            X-WAF-Reason:
+              $ref: "#/components/headers/WafReason"
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Pragma:
+              $ref: "#/components/headers/Pragma"
+            Expires:
+              $ref: "#/components/headers/Expires"
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/VerifyError"
+            text/plain:
+              schema:
+                type: string
         "405":
-          description: Méthode autre que POST
+          description: Méthode autre que POST (X-WAF-Action BLOCK, X-WAF-Reason verify_method_not_allowed)
+          headers:
+            X-WAF-Action:
+              $ref: "#/components/headers/WafAction"
+            X-WAF-Reason:
+              $ref: "#/components/headers/WafReason"
         "429":
-          description: Trop de soumissions pour cette IP (auto-protection FR-30)
+          description: >-
+            Trop de soumissions pour cette IP (auto-protection FR-30,
+            self_protect_flood) ou trop de requêtes concurrentes (slowloris
+            FR-23, too_many_connections_per_ip)
           headers:
             Retry-After:
               $ref: "#/components/headers/RetryAfter"
+            X-WAF-Action:
+              $ref: "#/components/headers/WafAction"
+            X-WAF-Reason:
+              $ref: "#/components/headers/WafReason"
         "500":
           description: Émission du cookie impossible
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControl"
+            Pragma:
+              $ref: "#/components/headers/Pragma"
+            Expires:
+              $ref: "#/components/headers/Expires"
           content:
             application/json:
               schema:
@@ -167,6 +275,12 @@ paths:
                 $ref: "#/components/schemas/OriginVerification"
               example:
                 valid: false
+        "400":
+          $ref: "#/components/responses/HostNotDeclared"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
 
   /waf/metrics:
     get:
@@ -184,12 +298,21 @@ paths:
             text/plain:
               schema:
                 type: string
+        "400":
+          $ref: "#/components/responses/HostNotDeclared"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
 
   /waf/health:
     get:
       operationId: getPublicHealth
       summary: Sonde de disponibilité
-      description: Utilisée par le HEALTHCHECK du conteneur (waf -healthcheck).
+      description: >-
+        Utilisée par le HEALTHCHECK du conteneur (waf -healthcheck). Hors des
+        refus d'enveloppe (strict_host, slowloris) : les sondes appellent le
+        WAF par son IP.
       tags: [Observability]
       responses:
         "200":
@@ -198,8 +321,53 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Health"
+        "405":
+          $ref: "#/components/responses/MethodNotAllowed"
+
+  /.well-known/acme-challenge/{token}:
+    servers:
+      - url: http://{domain}
+        description: Serveur annexe ACME (acme.http_challenge_listen, défaut :80)
+        variables:
+          domain:
+            default: example.com
+    get:
+      operationId: getACMEHTTPChallenge
+      summary: Réponse au challenge ACME HTTP-01
+      description: |
+        Servi par autocert (FR-31) au serveur ACME qui valide le contrôle du
+        domaine : la réponse est la key authorization du token en attente.
+        Seuls les hôtes de acme.domains sont servis.
+      tags: [ACME]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Key authorization du token
+          content:
+            text/plain:
+              schema:
+                type: string
+        "403":
+          description: Host absent de acme.domains
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: Aucun challenge en attente pour ce token
+          content:
+            text/plain:
+              schema:
+                type: string
 
 tags:
+  - name: ACME
+    description: Challenge HTTP-01 de Let's Encrypt (FR-31)
   - name: Challenge
     description: Challenge JavaScript proof-of-work (FR-04)
   - name: Origin

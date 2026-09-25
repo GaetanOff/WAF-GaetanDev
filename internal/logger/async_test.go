@@ -68,3 +68,17 @@ func TestAsyncWriterFlushesToConsumer(t *testing.T) {
 		t.Fatalf("drops = %d, want 0 en régime normal", w.Dropped())
 	}
 }
+
+// Deux arrêts simultanés (signal et défer d'erreur, par exemple) ne doivent pas
+// fermer deux fois le canal d'arrêt.
+func TestAsyncWriterCloseIsSafeUnderConcurrentCalls(t *testing.T) {
+	sink := writerFunc(func(p []byte) (int, error) { return len(p), nil })
+	for range 100 {
+		w := newAsyncWriter(sink, 1)
+		var wg sync.WaitGroup
+		for range 8 {
+			wg.Go(func() { _ = w.Close() })
+		}
+		wg.Wait()
+	}
+}

@@ -18,22 +18,27 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
 	verifyPath = "/waf/verify"
 
-	headerAction    = "X-WAF-Action"
-	headerReason    = "X-WAF-Reason"
-	actionPass      = "PASS"
-	actionChallenge = "CHALLENGE"
-	actionBlock     = "BLOCK"
+	headerAction    = wafheader.Action
+	headerReason    = wafheader.Reason
+	actionPass      = wafheader.ActionPass
+	actionChallenge = wafheader.ActionChallenge
+	actionBlock     = wafheader.ActionBlock
 	// reasonPrefix préfixe le code d'erreur d'une soumission rejetée dans la
 	// reason journalisée (ex. verify_invalid_pow).
 	reasonPrefix = "verify_"
 	// headerFingerprintHash transmet au moteur de risque le fingerprint lié au
 	// cookie de clearance (preuve « fingerprint stable », FR-37).
-	headerFingerprintHash = "X-WAF-Fingerprint-Hash"
+	headerFingerprintHash = wafheader.FingerprintHash
+	// maxSubmissionBytes borne le corps de POST /waf/verify. Une soumission
+	// réelle (challenge-submission.schema.json) tient sous 2 Ko ; au-delà, le
+	// corps est refusé en invalid_submission.
+	maxSubmissionBytes = 16 << 10
 )
 
 type Middleware struct {
@@ -189,7 +194,7 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		// HTML de premier niveau). Les appels API/XHR (fetch, axios, mobile…) ne
 		// peuvent pas exécuter le JS : on ne les challenge pas, sinon ils cassent.
 		// Ils restent couverts par le reste de la chaîne (rate-limit, risk engine…).
-		underAttack := r.Header.Get("X-WAF-Under-Attack-Enforce") == "true"
+		underAttack := r.Header.Get(wafheader.UnderAttackEnforce) == "true"
 		if !shouldChallenge(r, underAttack) {
 			next.ServeHTTP(w, r)
 			return
@@ -217,7 +222,7 @@ func (m Middleware) Enforcer(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		underAttack := r.Header.Get("X-WAF-Under-Attack-Enforce") == "true"
+		underAttack := r.Header.Get(wafheader.UnderAttackEnforce) == "true"
 		if !shouldChallenge(r, underAttack) {
 			next.ServeHTTP(w, r)
 			return
@@ -233,6 +238,9 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Le corps est lu avant toute vérification de coût (token, PoW) : sans
+	// borne, un flux de plusieurs centaines de Mo était décodé en mémoire.
+	r.Body = http.MaxBytesReader(w, r.Body, maxSubmissionBytes)
 	var submission Submission
 	if err := jsonstrict.Decode(r.Body, &submission); err != nil {
 		rejectSubmission(w, "invalid_submission")

@@ -9,22 +9,23 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
-	headerAction               = "X-WAF-Action"
-	headerReason               = "X-WAF-Reason"
-	headerScore                = "X-WAF-Score"
-	headerScoreDelta           = "X-WAF-Score-Delta"
-	headerRiskScore            = "X-WAF-Risk-Score"
-	headerRiskDecision         = "X-WAF-Risk-Decision"
-	headerRiskConfidence       = "X-WAF-Risk-Confidence"
-	headerRiskDecisionBasis    = "X-WAF-Risk-Decision-Basis"
-	headerRiskCorroborated     = "X-WAF-Risk-Corroborated"
-	headerRiskVerifiedBot      = "X-WAF-Risk-Verified-Bot"
-	headerRiskShadowMode       = "X-WAF-Risk-Shadow-Mode"
-	headerDeterministicTrigger = "X-WAF-Deterministic-Trigger"
-	headerFingerprintHash      = "X-WAF-Fingerprint-Hash"
+	headerAction               = wafheader.Action
+	headerReason               = wafheader.Reason
+	headerScore                = wafheader.Score
+	headerScoreDelta           = wafheader.ScoreDelta
+	headerRiskScore            = wafheader.RiskScore
+	headerRiskDecision         = wafheader.RiskDecision
+	headerRiskConfidence       = wafheader.RiskConfidence
+	headerRiskDecisionBasis    = wafheader.RiskDecisionBasis
+	headerRiskCorroborated     = wafheader.RiskCorroborated
+	headerRiskVerifiedBot      = wafheader.RiskVerifiedBot
+	headerRiskShadowMode       = wafheader.RiskShadowMode
+	headerDeterministicTrigger = wafheader.DeterministicTrigger
+	headerFingerprintHash      = wafheader.FingerprintHash
 )
 
 type Middleware struct {
@@ -34,6 +35,9 @@ type Middleware struct {
 	humans   *HumanTrustManager
 	bots     *BotVerifier
 	shadow   bool
+	// throttle applique la décision THROTTLE (FR-34) au rate limit, monté en
+	// amont : sans lui, THROTTLE n'était qu'un en-tête que personne ne lisait.
+	throttle func(ip string)
 }
 
 func NewMiddleware(store storage.Store, scores *trust.ScoreManager, cfg config.Config) (*Middleware, error) {
@@ -74,6 +78,13 @@ func (m *Middleware) Close() {
 	}
 }
 
+// WithThrottle branche l'effet de la décision THROTTLE : le visiteur voit son
+// débit réduit par le rate limit (FR-34, « transmis avec rate limit réduit »).
+func (m *Middleware) WithThrottle(fn func(ip string)) *Middleware {
+	m.throttle = fn
+	return m
+}
+
 // GrantChallengePass enregistre la preuve humaine d'un challenge réussi
 // (FR-37) : challenge réussi et fingerprint, que le cookie de clearance
 // retransmet ensuite via X-WAF-Fingerprint-Hash.
@@ -85,7 +96,7 @@ func (m *Middleware) GrantChallengePass(ip string, domain string, fpHash string)
 
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get(headerAction) == "PASS" {
+		if r.Header.Get(headerAction) == wafheader.ActionPass {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -109,7 +120,13 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		case DecisionChallenge:
 			r.Header.Set(headerAction, string(DecisionChallenge))
 			r.Header.Set(headerReason, reasonForAssessment(assessment))
-		case DecisionThrottle, DecisionTarpit, DecisionObserve:
+		case DecisionThrottle:
+			r.Header.Set(headerAction, string(DecisionThrottle))
+			r.Header.Set(headerReason, reasonForAssessment(assessment))
+			if m.throttle != nil {
+				m.throttle(cloudflare.RealIP(r))
+			}
+		case DecisionTarpit, DecisionObserve:
 			r.Header.Set(headerAction, string(assessment.Decision))
 			r.Header.Set(headerReason, reasonForAssessment(assessment))
 		}
@@ -173,6 +190,20 @@ func (m *Middleware) writeHeaders(r *http.Request, assessment RiskAssessment) {
 	}
 }
 
+// familyHeaders associe chaque famille publiée par un détecteur à son en-tête
+// de contribution, sous forme canonique. Le nom était reconstruit (concaténation
+// puis canonicalisation par Header.Get) pour chaque famille à chaque requête.
+var familyHeaders = func() map[SignalFamily]string {
+	headers := make(map[SignalFamily]string)
+	for _, family := range Families() {
+		if family == FamilyReputation || family == FamilyHumanCredit {
+			continue
+		}
+		headers[family] = http.CanonicalHeaderKey(wafheader.RiskPrefix + strings.ReplaceAll(string(family), "_", "-"))
+	}
+	return headers
+}()
+
 func signalProvidersFromRequest(r *http.Request, trustScore int) []SignalProvider {
 	providers := []SignalProvider{
 		staticProvider{
@@ -186,10 +217,10 @@ func signalProvidersFromRequest(r *http.Request, trustScore int) []SignalProvide
 		},
 	}
 	for _, family := range Families() {
-		if family == FamilyReputation || family == FamilyHumanCredit {
+		header, published := familyHeaders[family]
+		if !published {
 			continue
 		}
-		header := "X-WAF-Risk-" + strings.ReplaceAll(string(family), "_", "-")
 		value, ok := parseHeaderInt(r.Header.Get(header))
 		if !ok {
 			continue

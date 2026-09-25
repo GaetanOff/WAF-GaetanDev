@@ -4,6 +4,7 @@ import (
 	"net/http"
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 // HeaderUserAgentWhitelisted marque une requête dont le User-Agent correspond
@@ -12,13 +13,13 @@ import (
 // (blacklist, anti-DDoS, rate limit, moteur de risque et sa vérification
 // reverse-DNS des crawlers) s'applique. En-tête interne : le
 // middleware ingress supprime tout X-WAF-* fourni par le client.
-const HeaderUserAgentWhitelisted = "X-WAF-UA-Whitelisted"
+const HeaderUserAgentWhitelisted = wafheader.UAWhitelisted
 
 func WhitelistMiddleware(rules *RuleSet, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ok, reason := rules.IsWhitelisted(cloudflare.RealIP(r)); ok {
-			r.Header.Set("X-WAF-Action", "PASS")
-			r.Header.Set("X-WAF-Reason", reason)
+			r.Header.Set(wafheader.Action, wafheader.ActionPass)
+			r.Header.Set(wafheader.Reason, reason)
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -32,9 +33,9 @@ func BlacklistMiddleware(rules *RuleSet, next http.Handler) http.Handler {
 		if ok, reason := rules.IsBlacklisted(cloudflare.RealIP(r)); ok {
 			// Signal déterministe (FR-35) : annoncé pour l'observabilité tout en
 			// conservant le blocage immédiat.
-			w.Header().Set("X-WAF-Deterministic-Trigger", "blacklist")
-			w.Header().Set("X-WAF-Action", "BLOCK")
-			w.Header().Set("X-WAF-Reason", reason)
+			w.Header().Set(wafheader.DeterministicTrigger, "blacklist")
+			w.Header().Set(wafheader.Action, wafheader.ActionBlock)
+			w.Header().Set(wafheader.Reason, reason)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
@@ -52,8 +53,8 @@ func BlacklistMiddleware(rules *RuleSet, next http.Handler) http.Handler {
 func Middleware(rules *RuleSet, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if ok, reason := rules.IsWhitelisted(cloudflare.RealIP(r)); ok {
-			r.Header.Set("X-WAF-Action", "PASS")
-			r.Header.Set("X-WAF-Reason", reason)
+			r.Header.Set(wafheader.Action, wafheader.ActionPass)
+			r.Header.Set(wafheader.Reason, reason)
 			next.ServeHTTP(w, r)
 			return
 		}

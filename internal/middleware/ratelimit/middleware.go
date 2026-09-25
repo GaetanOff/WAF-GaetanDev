@@ -8,9 +8,10 @@ import (
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
-	"github.com/gaetandev/waf/internal/staticassets"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/ttlcache"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
@@ -22,7 +23,7 @@ const (
 	minuteKeySuffix = ":m"
 	hourKeySuffix   = ":h"
 
-	headerGlobalPressure = "X-WAF-Global-Pressure"
+	headerGlobalPressure = wafheader.GlobalPressure
 
 	pressureNormal   = "normal"
 	pressureElevated = "elevated"
@@ -37,6 +38,16 @@ const (
 	// Ces refus sont neutres — ni pénalité de score, ni violation de
 	// circuit-breaker (consommé par le middleware anti-DDoS).
 	ReasonPressureThrottle = "rate_limit_pressure"
+	// ReasonRiskThrottle identifie un 429 imputable au seul débit réduit d'un
+	// visiteur classé THROTTLE par le moteur de risque (FR-34). Neutre, comme
+	// ReasonPressureThrottle : le WAF ne pénalise pas les refus qu'il provoque.
+	ReasonRiskThrottle = "rate_limit_risk_throttle"
+
+	// riskThrottleFactor est le multiplicateur de débit de recharge d'un
+	// visiteur classé THROTTLE ; riskThrottleTTL la durée de la mesure après la
+	// dernière décision THROTTLE (réversible, FR-34).
+	riskThrottleFactor = 0.5
+	riskThrottleTTL    = time.Minute
 )
 
 // window décrit une fenêtre de limitation (FR-03). Chacune a son propre Token
@@ -60,6 +71,9 @@ type Middleware struct {
 	store  storage.Store
 	scores *trust.ScoreManager
 	now    func() time.Time
+	// throttled retient, par hash d'IP, les visiteurs classés THROTTLE par le
+	// moteur de risque dans la dernière riskThrottleTTL.
+	throttled *ttlcache.Cache[string, struct{}]
 
 	// Modifiables à chaud (PATCH /waf/admin/config) : lus une fois par requête.
 	enabled atomic.Bool
@@ -68,9 +82,10 @@ type Middleware struct {
 
 func New(store storage.Store, scores *trust.ScoreManager, cfg config.Config) (*Middleware, error) {
 	middleware := &Middleware{
-		store:  store,
-		scores: scores,
-		now:    time.Now,
+		store:     store,
+		scores:    scores,
+		now:       time.Now,
+		throttled: ttlcache.New[string, struct{}](cfg.Trust.MaxVisitors, riskThrottleTTL),
 	}
 	middleware.Configure(cfg.RateLimit)
 	return middleware, nil
@@ -115,11 +130,19 @@ func buildWindows(cfg config.RateLimit) []window {
 	return windows
 }
 
+// Throttle applique la décision THROTTLE du moteur de risque (FR-34) : le débit
+// de recharge du visiteur est réduit de riskThrottleFactor pendant
+// riskThrottleTTL. Le rate limit s'exécute en amont du moteur : la mesure porte
+// sur les requêtes suivantes du visiteur, la courante étant déjà admise.
+func (m *Middleware) Throttle(ip string) {
+	m.throttled.Set(trust.HashIP(ip), struct{}{})
+}
+
 // isExempt : seul le PASS de la whitelist IP (FR-04) exempte du rate limit.
 // Celui du bypass d'assets (FR-24) lève le challenge et le trust score, pas le
 // rate limit : les requêtes d'assets restent comptées (static-assets-bypass.feature).
 func isExempt(r *http.Request) bool {
-	return r.Header.Get("X-WAF-Action") == "PASS" && r.Header.Get("X-WAF-Reason") != staticassets.Reason
+	return r.Header.Get(wafheader.Action) == wafheader.ActionPass && r.Header.Get(wafheader.Reason) != wafheader.ReasonStaticAsset
 }
 
 func (m *Middleware) Handler(next http.Handler) http.Handler {
@@ -142,11 +165,14 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// aux trois fenêtres : resserrer la seconde en laissant filer l'heure
 		// laisserait passer le débit soutenu, précisément ce que la pression
 		// cherche à contenir.
-		factor := 1.0
-		pressured := false
+		// Un visiteur classé THROTTLE par le moteur de risque (FR-34) voit aussi
+		// son débit réduit ; le plus fort des deux resserrements s'applique.
+		factor, neutralReason := 1.0, ""
 		if f := m.pressureFactor(r, ip); f < 1 {
-			factor = f
-			pressured = true
+			factor, neutralReason = f, ReasonPressureThrottle
+		}
+		if _, throttled := m.throttled.Get(ipHash); throttled && riskThrottleFactor < factor {
+			factor, neutralReason = riskThrottleFactor, ReasonRiskThrottle
 		}
 
 		// Les fenêtres sont d'abord RECHARGÉES sans prélèvement : le jeton n'est
@@ -155,50 +181,40 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// fonction peut être rejouée sur conflit, les variables capturées
 		// reflètent donc le calcul effectivement retenu.
 		configured := *m.windows.Load()
-		keys := make([]string, len(configured))
+		state := &requestState{}
+		keys := state.keys[:len(configured)]
 		for i, w := range configured {
 			keys[i] = ipHash + w.keySuffix
 		}
-		var (
-			windows    []evaluation
-			allowed    bool
-			retryAfter time.Duration
-			reason     string
-			snapshots  []BucketSnapshot
-		)
 		m.store.UpdateBuckets(keys, func(current []*storage.RateBucket) []storage.RateBucket {
-			windows = m.evaluate(configured, keys, current, factor, now)
-			allowed, retryAfter, reason = verdict(windows)
-			snapshots = settle(windows, allowed, now)
-			buckets := make([]storage.RateBucket, len(snapshots))
-			for i, snapshot := range snapshots {
-				buckets[i] = toStorageBucket(snapshot)
-			}
-			return buckets
+			return state.update(configured, current, factor, now)
 		})
+		windows := state.evaluations[:len(configured)]
+		allowed, retryAfter, reason := state.allowed, state.retryAfter, state.reason
 
 		if !allowed {
-			if pressured && m.nominalWouldAllow(windows, now) {
-				// 429 imputable au seul throttle de pression : neutre (FR-08).
+			if neutralReason != "" && m.nominalWouldAllow(windows, now) {
+				// 429 imputable au seul resserrement (pression FR-08, THROTTLE
+				// FR-34) : neutre.
 				// Pas de pénalité de score ni de violation de circuit-breaker,
 				// sinon le WAF punit des humains pour les 429 qu'il a lui-même
 				// provoqués (boucle de rétroaction auto-infligée).
 				w.Header().Set("Retry-After", strconv.Itoa(maxInt(1, int(retryAfter.Seconds()))))
-				w.Header().Set("X-WAF-Action", "RATE_LIMIT")
-				w.Header().Set("X-WAF-Reason", ReasonPressureThrottle)
+				w.Header().Set(wafheader.Action, wafheader.ActionRateLimit)
+				w.Header().Set(wafheader.Reason, neutralReason)
 				http.Error(w, "too many requests", http.StatusTooManyRequests)
 				return
 			}
 			visitor := m.scores.PenalizeRateLimit(ip, r.Host)
 			if m.scores.State(visitor.Score) == trust.StateBlocked {
-				w.Header().Set("X-WAF-Action", "BLOCK")
-				w.Header().Set("X-WAF-Reason", "score_below_block_threshold")
+				w.Header().Set(wafheader.Action, wafheader.ActionBlock)
+				w.Header().Set(wafheader.Reason, "score_below_block_threshold")
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
 			w.Header().Set("Retry-After", strconv.Itoa(maxInt(1, int(retryAfter.Seconds()))))
-			w.Header().Set("X-WAF-Action", "RATE_LIMIT")
-			w.Header().Set("X-WAF-Reason", reason)
+			w.Header().Set(wafheader.Action, wafheader.ActionRateLimit)
+			w.Header().Set(wafheader.Reason, reason)
 			http.Error(w, "too many requests", http.StatusTooManyRequests)
 			return
 		}
@@ -206,8 +222,8 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// Requête autorisée : publie une contribution `rate` proportionnelle à la
 		// déplétion du bucket (pression de débit) pour le moteur de risque. Le 429
 		// volumétrique ci-dessus reste indépendant (cf. Articulation FR-35).
-		if contribution := rateContribution(snapshots[0].Tokens, windows[0].window.capacity); contribution > 0 {
-			r.Header.Set("X-WAF-Risk-rate", strconv.Itoa(maxInt(contribution, existingRateContribution(r))))
+		if contribution := rateContribution(state.snapshots[0].Tokens, windows[0].window.capacity); contribution > 0 {
+			r.Header.Set(wafheader.RiskRate, strconv.Itoa(maxInt(contribution, existingRateContribution(r))))
 		}
 
 		next.ServeHTTP(w, r)
@@ -220,33 +236,54 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 type evaluation struct {
 	window      window
 	key         string
-	bucket      *TokenBucket
+	bucket      TokenBucket
 	existing    *storage.RateBucket
 	hasExisting bool
 	allowed     bool
 	retryAfter  time.Duration
 }
 
+// maxWindows est le nombre de fenêtres au plus : seconde, minute, heure.
+const maxWindows = 3
+
+// requestState porte le calcul d'une requête. La mise à jour passée au store
+// (interface) s'échappe sur le tas avec tout ce qu'elle capture : chaque
+// variable capturée, chaque tranche et chaque bucket y coûtaient une
+// allocation. Regroupés ici dans des tableaux bornés, ils n'en coûtent qu'une.
+type requestState struct {
+	keys        [maxWindows]string
+	evaluations [maxWindows]evaluation
+	snapshots   [maxWindows]BucketSnapshot
+	allowed     bool
+	retryAfter  time.Duration
+	reason      string
+}
+
+// update évalue les fenêtres, décide et retourne l'état à persister. Rejouée
+// sur conflit par le store, elle réécrit tout l'état à chaque appel.
+func (s *requestState) update(windows []window, current []*storage.RateBucket, factor float64, now time.Time) []storage.RateBucket {
+	evaluations := s.evaluations[:len(windows)]
+	evaluate(evaluations, windows, s.keys[:len(windows)], current, factor, now)
+	s.allowed, s.retryAfter, s.reason = verdict(evaluations)
+	snapshots := s.snapshots[:len(windows)]
+	settle(snapshots, evaluations, s.allowed, now)
+	buckets := make([]storage.RateBucket, len(snapshots))
+	for i := range snapshots {
+		buckets[i] = toStorageBucket(snapshots[i])
+	}
+	return buckets
+}
+
 // evaluate recharge chaque fenêtre active depuis son état courant (nil :
 // fenêtre neuve), sans rien prélever ni persister.
-func (m *Middleware) evaluate(windows []window, keys []string, current []*storage.RateBucket, factor float64, now time.Time) []evaluation {
-	evaluations := make([]evaluation, 0, len(windows))
+func evaluate(evaluations []evaluation, windows []window, keys []string, current []*storage.RateBucket, factor float64, now time.Time) {
 	for i, w := range windows {
-		key := keys[i]
-		existing, hasExisting := current[i], current[i] != nil
-		bucket := m.loadBucket(existing, hasExisting, w.rate*factor, w.capacity, now)
-		allowed, retryAfter := bucket.Refill(now)
-		evaluations = append(evaluations, evaluation{
-			window:      w,
-			key:         key,
-			bucket:      bucket,
-			existing:    existing,
-			hasExisting: hasExisting,
-			allowed:     allowed,
-			retryAfter:  retryAfter,
-		})
+		e := &evaluations[i]
+		e.window, e.key = w, keys[i]
+		e.existing, e.hasExisting = current[i], current[i] != nil
+		loadBucket(&e.bucket, e.existing, e.hasExisting, w.rate*factor, w.capacity, now)
+		e.allowed, e.retryAfter = e.bucket.Refill(now)
 	}
-	return evaluations
 }
 
 // verdict agrège les fenêtres : la requête passe si toutes l'autorisent, sinon
@@ -257,7 +294,8 @@ func verdict(evaluations []evaluation) (bool, time.Duration, string) {
 	allowed := true
 	retryAfter := time.Duration(0)
 	reason := reasonRateLimitExceeded
-	for _, e := range evaluations {
+	for i := range evaluations {
+		e := &evaluations[i]
 		if e.allowed {
 			continue
 		}
@@ -276,20 +314,18 @@ func verdict(evaluations []evaluation) (bool, time.Duration, string) {
 // qui refuse, ni dans les autres (FR-03). Sans cette séparation, un client buté
 // sur sa limite horaire verrait aussi son burst à la seconde vidé, et
 // repartirait avec un bucket vide à la réouverture de la fenêtre.
-func settle(evaluations []evaluation, allowed bool, now time.Time) []BucketSnapshot {
-	snapshots := make([]BucketSnapshot, 0, len(evaluations))
-	for _, e := range evaluations {
+func settle(snapshots []BucketSnapshot, evaluations []evaluation, allowed bool, now time.Time) {
+	for i := range evaluations {
+		e := &evaluations[i]
 		if allowed {
 			e.bucket.Consume()
 		}
-		snapshot := e.bucket.Snapshot(now, e.window.ttl, e.key)
+		snapshots[i] = e.bucket.Snapshot(now, e.window.ttl, e.key)
 		// L'échéance est posée sur l'horloge réelle : c'est celle que le store
 		// interroge pour expirer l'entrée, même quand le middleware tourne sur
 		// une horloge injectée (tests).
-		snapshot.ExpiresAt = time.Now().Add(e.window.ttl)
-		snapshots = append(snapshots, snapshot)
+		snapshots[i].ExpiresAt = time.Now().Add(e.window.ttl)
 	}
-	return snapshots
 }
 
 // loadBucket reconstruit le token bucket avec le débit de refill EFFECTIF du
@@ -297,25 +333,18 @@ func settle(evaluations []evaluation, allowed bool, now time.Time) []BucketSnaps
 // jamais depuis les valeurs persistées. Seuls les jetons et l'instant de refill
 // sont repris du store : ainsi un resserrement sous pression est réversible dès
 // que la pression retombe, sans figer un débit réduit dans le stockage.
-func (m *Middleware) loadBucket(existing *storage.RateBucket, hasExisting bool, rate float64, capacity float64, now time.Time) *TokenBucket {
-	if hasExisting {
-		tokens := existing.Tokens
-		if tokens > capacity {
-			// La capacité configurée a baissé depuis la persistance : rogne les
-			// jetons accumulés au plafond courant.
-			tokens = capacity
-		}
-		return BucketFromSnapshot(BucketSnapshot{
-			IPHash:     existing.IPHash,
-			Tokens:     tokens,
-			LastRefill: existing.LastRefill,
-			Rate:       rate,
-			Capacity:   capacity,
-			ExpiresAt:  existing.ExpiresAt,
-		})
+func loadBucket(bucket *TokenBucket, existing *storage.RateBucket, hasExisting bool, rate float64, capacity float64, now time.Time) {
+	if !hasExisting {
+		bucket.reset(rate, capacity, now)
+		return
 	}
-
-	return NewTokenBucket(rate, capacity, now)
+	tokens := existing.Tokens
+	if tokens > capacity {
+		// La capacité configurée a baissé depuis la persistance : rogne les
+		// jetons accumulés au plafond courant.
+		tokens = capacity
+	}
+	bucket.restore(rate, capacity, tokens, existing.LastRefill)
 }
 
 // nominalWouldAllow rejoue la requête refusée sur le bucket persisté avec le
@@ -325,7 +354,8 @@ func (m *Middleware) loadBucket(existing *storage.RateBucket, hasExisting bool, 
 // dernier intervalle de refill est rejoué au débit nominal ; un abuseur soutenu
 // reste largement au-dessus du nominal et échoue aussi ce rejeu.
 func (m *Middleware) nominalWouldAllow(evaluations []evaluation, now time.Time) bool {
-	for _, e := range evaluations {
+	for i := range evaluations {
+		e := &evaluations[i]
 		if e.allowed {
 			continue // cette fenêtre passe déjà au débit resserré
 		}
@@ -400,7 +430,7 @@ func maxInt(a int, b int) int {
 }
 
 func existingRateContribution(r *http.Request) int {
-	value, err := strconv.Atoi(r.Header.Get("X-WAF-Risk-rate"))
+	value, err := strconv.Atoi(r.Header.Get(wafheader.RiskRate))
 	if err != nil {
 		return 0
 	}

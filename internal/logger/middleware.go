@@ -13,9 +13,10 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/upstreamtime"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
-const requestIDHeader = "X-Request-ID"
+const requestIDHeader = "X-Request-Id" // forme canonique : Get sans allocation
 
 type requestIDContextKey struct{}
 
@@ -121,11 +122,11 @@ func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores 
 		TrustScore:     trustScore,
 		ScoreDelta:     scoreDelta(r),
 		RiskScore:      riskScore(r),
-		RiskDecision:   r.Header.Get("X-WAF-Risk-Decision"),
+		RiskDecision:   r.Header.Get(wafheader.RiskDecision),
 		RiskConfidence: riskConfidence(r),
-		ShadowMode:     r.Header.Get("X-WAF-Risk-Shadow-Mode") == "true",
+		ShadowMode:     r.Header.Get(wafheader.RiskShadowMode) == "true",
 		GlobalPressure: globalPressure(r),
-		UnderAttack:    r.Header.Get("X-WAF-Under-Attack") == "true",
+		UnderAttack:    r.Header.Get(wafheader.UnderAttack) == "true",
 		LatencyMS:      elapsedMS,
 		WAFLatencyMS:   wafLatencyMS,
 		UpstreamStatus: upstreamStatus(action, recorder.statusCode),
@@ -135,14 +136,14 @@ func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores 
 }
 
 func globalPressure(r *http.Request) string {
-	if value := r.Header.Get("X-WAF-Global-Pressure"); value != "" {
+	if value := r.Header.Get(wafheader.GlobalPressure); value != "" {
 		return value
 	}
 	return "normal"
 }
 
 func scoreDelta(r *http.Request) int {
-	if value := r.Header.Get("X-WAF-Score-Delta"); value != "" {
+	if value := r.Header.Get(wafheader.ScoreDelta); value != "" {
 		scoreDelta, err := strconv.Atoi(value)
 		if err == nil {
 			return scoreDelta
@@ -152,7 +153,7 @@ func scoreDelta(r *http.Request) int {
 }
 
 func riskScore(r *http.Request) int {
-	if value := r.Header.Get("X-WAF-Risk-Score"); value != "" {
+	if value := r.Header.Get(wafheader.RiskScore); value != "" {
 		score, err := strconv.Atoi(value)
 		if err == nil {
 			return score
@@ -162,7 +163,7 @@ func riskScore(r *http.Request) int {
 }
 
 func riskConfidence(r *http.Request) float64 {
-	if value := r.Header.Get("X-WAF-Risk-Confidence"); value != "" {
+	if value := r.Header.Get(wafheader.RiskConfidence); value != "" {
 		confidence, err := strconv.ParseFloat(value, 64)
 		if err == nil {
 			return confidence
@@ -172,7 +173,7 @@ func riskConfidence(r *http.Request) float64 {
 }
 
 func currentTrustScore(r *http.Request, scores *trust.ScoreManager, ip string) int {
-	if value := r.Header.Get("X-WAF-Score"); value != "" {
+	if value := r.Header.Get(wafheader.Score); value != "" {
 		score, err := strconv.Atoi(value)
 		if err == nil {
 			return score
@@ -195,9 +196,9 @@ func currentTrustScore(r *http.Request, scores *trust.ScoreManager, ip string) i
 // qu'une classification (moteur de risque, règles) que seul le tarpit rend
 // effective. Sans couche de déception, la requête classée atteint l'upstream.
 func normalizedAction(r *http.Request, recorder *statusRecorder) string {
-	action := recorder.Header().Get("X-WAF-Action")
+	action := recorder.Header().Get(wafheader.Action)
 	if action == "" {
-		action = r.Header.Get("X-WAF-Action")
+		action = r.Header.Get(wafheader.Action)
 		if action == ActionTarpit {
 			return ActionPass
 		}
@@ -211,10 +212,10 @@ func normalizedAction(r *http.Request, recorder *statusRecorder) string {
 }
 
 func reason(r *http.Request, recorder *statusRecorder) string {
-	if value := recorder.Header().Get("X-WAF-Reason"); value != "" {
+	if value := recorder.Header().Get(wafheader.Reason); value != "" {
 		return value
 	}
-	return r.Header.Get("X-WAF-Reason")
+	return r.Header.Get(wafheader.Reason)
 }
 
 func upstreamStatus(action string, statusCode int) *int {
@@ -238,7 +239,7 @@ const maxCFRayLen = 32
 // bornée) est une défense en profondeur contre l'injection de caractères de
 // contrôle chez les consommateurs de logs non-JSON (CWE-117).
 func cfRay(r *http.Request) *string {
-	return sanitizedToken(r.Header.Get("CF-Ray"), maxCFRayLen)
+	return sanitizedToken(r.Header.Get("Cf-Ray"), maxCFRayLen)
 }
 
 // cfCountry lit et assainit l'en-tête CF-IPCountry. Seul un code de 2 lettres
@@ -246,7 +247,7 @@ func cfRay(r *http.Request) *string {
 // Cloudflare "T1" (Tor) est accepté ; toute autre valeur est ignorée (nil)
 // plutôt que journalisée telle quelle.
 func cfCountry(r *http.Request) *string {
-	country := strings.ToUpper(strings.TrimSpace(r.Header.Get("CF-IPCountry")))
+	country := strings.ToUpper(strings.TrimSpace(r.Header.Get("Cf-Ipcountry")))
 	if !isCountryCode(country) {
 		return nil
 	}

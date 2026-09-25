@@ -10,12 +10,13 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/ttlcache"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
-	headerRiskTLS              = "X-WAF-Risk-tls"
-	headerReason               = "X-WAF-Reason"
-	headerDeterministicTrigger = "X-WAF-Deterministic-Trigger"
+	headerRiskTLS              = wafheader.RiskTLS
+	headerReason               = wafheader.Reason
+	headerDeterministicTrigger = wafheader.DeterministicTrigger
 	triggerJA3Blacklist        = "ja3_blacklist"
 
 	defaultSwapContribution = 50
@@ -49,6 +50,8 @@ func NewMiddleware(cfg config.TLSFingerprint, maxVisitors int) *Middleware {
 	if header == "" {
 		header = "Cf-Bot-Management-Ja3Hash"
 	}
+	// Lu à chaque requête : canonicalisé une fois ici plutôt que par Header.Get.
+	header = http.CanonicalHeaderKey(header)
 	contribution := cfg.SwapContribution
 	if contribution <= 0 {
 		contribution = defaultSwapContribution
@@ -68,7 +71,7 @@ func NewMiddleware(cfg config.TLSFingerprint, maxVisitors int) *Middleware {
 
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !m.enabled || r.Header.Get("X-WAF-Action") == "PASS" {
+		if !m.enabled || r.Header.Get(wafheader.Action) == wafheader.ActionPass {
 			next.ServeHTTP(w, r)
 			return
 		}

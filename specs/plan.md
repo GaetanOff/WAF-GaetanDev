@@ -23,7 +23,7 @@ change: "Phases 10 à 18 ajoutées : le plan s'arrêtait à la Phase 9 alors que
 | E10 | Détecteurs avancés | requirements-advanced FR-11..FR-20 |
 | E11 | Durcissement production / Ops | requirements-ops FR-21..FR-32 |
 | E12 | Anti-DDoS L7 adaptatif | requirements FR-08 v2, requirements-detection FR-39 |
-| E13 | Terminaison TLS par domaine | requirements-ops FR-33 |
+| E13 | Terminaison TLS par domaine | requirements-ops FR-40 |
 | E14 | Conformité de la configuration et frontière de confiance | requirements FR-02, FR-03, FR-06, FR-09 ; requirements-ops FR-30 ; ADR-019, ADR-020 |
 | E15 | Remédiation des audits externes | tasks.md Sprints 16 à 18 |
 
@@ -432,10 +432,10 @@ change: "Phases 10 à 18 ajoutées : le plan s'arrêtait à la Phase 9 alors que
 
 ### Phase 11 — Terminaison TLS par domaine (E13)
 
-**Slice 11.1 — Certificat par domaine sélectionné par SNI (FR-33)**
+**Slice 11.1 — Certificat par domaine sélectionné par SNI (FR-40)**
 - `server.tls` + `domains[].tls`, correspondance exacte ou wildcard, redirection
   HTTP → HTTPS, métrique d'expiration
-- Spec references : requirements-ops FR-33, ADR-017, features/per-domain-tls.feature, schemas/config.schema.json
+- Spec references : requirements-ops FR-40, ADR-017, features/per-domain-tls.feature, schemas/config.schema.json
 - Tâches : tasks.md T11.1
 
 ---

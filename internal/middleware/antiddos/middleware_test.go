@@ -200,23 +200,26 @@ func TestUpstream429DoesNotFeedBreaker(t *testing.T) {
 }
 
 func TestPressureThrottle429DoesNotFeedBreaker(t *testing.T) {
-	store := memory.New(100)
-	defer store.Close()
-	middleware := New(NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration), nil, DefaultRetryAfterSeconds)
-	// Simule le middleware ratelimit refusant sous throttle de pression (FR-08).
-	handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		w.Header().Set("X-WAF-Action", "RATE_LIMIT")
-		w.Header().Set("X-WAF-Reason", reasonPressureThrottle)
-		http.Error(w, "too many requests", http.StatusTooManyRequests)
-	}))
+	// Simule le middleware ratelimit refusant sous throttle de pression (FR-08)
+	// ou au débit réduit d'un visiteur classé THROTTLE (FR-34).
+	for _, reason := range []string{reasonPressureThrottle, reasonRiskThrottle} {
+		store := memory.New(100)
+		middleware := New(NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration), nil, DefaultRetryAfterSeconds)
+		handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.Header().Set("X-WAF-Action", "RATE_LIMIT")
+			w.Header().Set("X-WAF-Reason", reason)
+			http.Error(w, "too many requests", http.StatusTooManyRequests)
+		}))
 
-	// Bien au-delà du seuil de violations : le circuit ne doit jamais s'ouvrir.
-	for i := range DefaultViolationThreshold * 3 {
-		response := httptest.NewRecorder()
-		handler.ServeHTTP(response, requestFrom("1.2.3.4:1234"))
-		if response.Code != http.StatusTooManyRequests {
-			t.Fatalf("request %d: status = %d, want 429 (never CIRCUIT_BREAK)", i, response.Code)
+		// Bien au-delà du seuil de violations : le circuit ne doit jamais s'ouvrir.
+		for i := range DefaultViolationThreshold * 3 {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, requestFrom("1.2.3.4:1234"))
+			if response.Code != http.StatusTooManyRequests {
+				t.Fatalf("%s: request %d: status = %d, want 429 (never CIRCUIT_BREAK)", reason, i, response.Code)
+			}
 		}
+		store.Close()
 	}
 }
 

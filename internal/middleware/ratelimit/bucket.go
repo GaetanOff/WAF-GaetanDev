@@ -14,6 +14,14 @@ type TokenBucket struct {
 }
 
 func NewTokenBucket(rate float64, capacity float64, now time.Time) *TokenBucket {
+	bucket := &TokenBucket{}
+	bucket.reset(rate, capacity, now)
+	return bucket
+}
+
+// reset (ré)initialise le bucket en place, plein : le rate limiter le fait dans
+// un tableau de sa requête plutôt que d'allouer un bucket par fenêtre.
+func (b *TokenBucket) reset(rate float64, capacity float64, now time.Time) {
 	// Garde-fous contre une configuration impossible, pas contre un débit lent :
 	// les fenêtres minute et heure (FR-03) rechargent volontairement à moins d'un
 	// jeton par seconde (600 req/min = 10/s, 3600 req/h = 1/s, 60 req/h = 1/60 s).
@@ -26,11 +34,16 @@ func NewTokenBucket(rate float64, capacity float64, now time.Time) *TokenBucket 
 	if capacity < 1 {
 		capacity = 1
 	}
+	b.rate = rate
+	b.capacity = capacity
+	b.tokens.Store(math.Float64bits(capacity))
+	b.refillNS.Store(now.UnixNano())
+}
 
-	bucket := &TokenBucket{rate: rate, capacity: capacity}
-	bucket.tokens.Store(math.Float64bits(capacity))
-	bucket.refillNS.Store(now.UnixNano())
-	return bucket
+// restore réinitialise le bucket en place depuis un état persisté.
+func (b *TokenBucket) restore(rate float64, capacity float64, tokens float64, lastRefill time.Time) {
+	b.reset(rate, capacity, lastRefill)
+	b.tokens.Store(math.Float64bits(tokens))
 }
 
 // TryConsume recharge le bucket jusqu'à now puis prélève un jeton. Retourne le
@@ -117,8 +130,8 @@ type BucketSnapshot struct {
 }
 
 func BucketFromSnapshot(snapshot BucketSnapshot) *TokenBucket {
-	bucket := NewTokenBucket(snapshot.Rate, snapshot.Capacity, snapshot.LastRefill)
-	bucket.tokens.Store(math.Float64bits(snapshot.Tokens))
+	bucket := &TokenBucket{}
+	bucket.restore(snapshot.Rate, snapshot.Capacity, snapshot.Tokens, snapshot.LastRefill)
 	return bucket
 }
 

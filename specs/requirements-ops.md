@@ -1,15 +1,15 @@
 ---
 status: implemented
-version: 3.8.1
+version: 3.9.2
 last-reviewed: 2026-09-25
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+change: "FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
 
 > Ce document comble les gaps opérationnels et de conformité identifiés à l'audit.
-> IDs FR-21 à FR-33 font suite aux FR-01 à FR-20.
+> IDs FR-21 à FR-32 et FR-40 font suite aux FR-01 à FR-20 (FR-33 à FR-39 : requirements-detection.md).
 
 ---
 
@@ -70,8 +70,9 @@ change: "FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclus
 
 - Le WAF DOIT bypasser le challenge, le trust score et les détecteurs de signal pour les **assets statiques connus** :
   - Par extension : `.css`, `.js`, `.map`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.ico`, `.woff`, `.woff2`, `.ttf`, `.eot`
-  - Par path prefix configurable : `/static/`, `/assets/`, `/public/`, `/dist/`
-  - Par path exact configurable (ex: `/favicon.ico`, `/robots.txt`, `/sitemap.xml`)
+  - Par path prefix configurable (`static_assets.path_prefixes`, défaut : `/static/`, `/assets/`, `/public/`, `/dist/`) — préfixe de répertoire, commençant et finissant par `/`, `/` seul refusé
+  - Par path exact configurable (`static_assets.exact_paths`, défaut : `/favicon.ico`, `/robots.txt`, `/sitemap.xml`)
+  - L'extension est comparée sans tenir compte de la casse ; préfixes et chemins exacts le sont à la casse près (un chemin d'URL y est sensible)
 - Le WAF DOIT tout de même vérifier la whitelist/blacklist pour les assets (les IPs blacklistées ne peuvent pas accéder aux assets)
 - Le bypass NE DOIT PAS exempter du **rate limit** : les requêtes d'assets sont
   comptées dans les buckets de l'IP et reçoivent `429` au-delà (le PASS porte
@@ -81,7 +82,7 @@ change: "FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclus
     `static-assets-bypass.feature` (« Bypass n'inclut pas le rate limit ») est
     tranchée en faveur du scénario (sécurité > perf)
 - Le WAF NE DOIT PAS servir de page de challenge pour une requête d'asset statique
-- Le WAF DOIT compter les requêtes d'assets dans les métriques (`waf_asset_requests_total`)
+- Le WAF DOIT compter les requêtes d'assets dans les métriques (`waf_asset_requests_total{domain}`, label `domain` borné comme celui de `waf_requests_total`)
 - La liste des extensions d'assets DOIT être configurable et extensible
 - En cas de doute (path ambigu), le WAF DOIT traiter comme non-asset (sécurité > perf)
 
@@ -95,6 +96,9 @@ change: "FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclus
   - Timeout du health check : configurable (`timeout`, défaut: `2s`)
   - Succès consécutifs pour remettre un upstream en service (`healthy_threshold`, défaut: 2)
   - Échecs consécutifs pour le retirer du service (`unhealthy_threshold`, défaut: 3)
+- Chaque `upstream_pool.upstreams[].address` DOIT être une URL absolue (schéma
+  et hôte), comme `upstream.address` : une adresse invalide est refusée au
+  démarrage, et non découverte par les sondes
 - Une erreur de proxy sur une requête DOIT retirer le membre du service
   immédiatement (le client reçoit `502`) ; les sondes le remettent en service
 - Quand un upstream est retiré du service :
@@ -136,6 +140,9 @@ change: "FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclus
 - Le journal DOIT être **append-only** en mémoire (pas de suppression via API)
 - La taille max du journal en mémoire DOIT être configurable (défaut: 10 000 entrées, rotation FIFO)
 - En option, le journal DOIT pouvoir être écrit sur disque (fichier JSON-lines configurable)
+  - Un échec d'écriture du fichier (disque plein, fichier révoqué) NE DOIT PAS
+    faire échouer l'action admin, mais DOIT être journalisé en erreur ;
+    l'entrée reste consultable en mémoire
 - Toute action admin NE DOIT PAS être effectuée sans être journalisée (atomicité log + action)
 
 ## FR-28 — Conformité GDPR & Privacy
@@ -292,6 +299,13 @@ change: "FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclus
     de la valeur reçue sur le fil
 - Le WAF DOIT continuer d'appairer les noms de membre **sans tenir compte de la
   casse** : ce durcissement ne doit pas casser les clients existants
+- Tout corps JSON client DOIT être lu sous une borne de taille, avant tout
+  décodage : 16 Kio pour `POST /waf/verify`, 64 Kio pour l'API admin. Au-delà,
+  la requête reçoit le `400` de l'opération (`invalid_submission` pour
+  `/waf/verify`)
+  - Motif : `/waf/verify` est servi en amont de l'analyse d'intégrité (FR-18),
+    seule à borner le corps ; un flux de plusieurs centaines de Mo était décodé
+    en mémoire
 - Les charges utiles dont l'authenticité est déjà établie par HMAC (cookie de
   session, nonce) et les réponses d'API tierces sont **hors périmètre** : les
   premières sont produites par le WAF lui-même, les secondes doivent tolérer
@@ -307,7 +321,7 @@ change: "FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclus
 ## FR-31 — TLS Termination & ACME/Let's Encrypt
 
 - Quand le WAF est configuré pour terminer TLS — bloc `acme` (Let's Encrypt) ou
-  `server.tls` (certificats statiques par SNI, FR-33), mutuellement exclusifs sur
+  `server.tls` (certificats statiques par SNI, FR-40), mutuellement exclusifs sur
   un même listener ; il n'existe pas de sous-bloc `server.tls.acme` :
   - Le WAF DOIT supporter des certificats statiques (cert + key file) configurable
   - Le WAF DOIT supporter **ACME/Let's Encrypt** avec renouvellement automatique (≥ 30 jours avant expiration)
@@ -316,7 +330,7 @@ change: "FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclus
   - Les certificats DOIVENT être stockés sur disque (path configurable) ; les
     certificats ACME renouvelés sont pris en compte sans redémarrage
     (autocert). **Différé** : rechargement des certificats statiques sans
-    redémarrage (`SIGHUP`, cf. FR-33)
+    redémarrage (`SIGHUP`, cf. FR-40)
   - Une métrique `waf_tls_cert_expiry_seconds{domain}` DOIT être exposée pour
     les certificats statiques. **Différé** : la même jauge pour les
     certificats ACME
@@ -345,7 +359,12 @@ change: "FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclus
 - Pour les erreurs **5xx** (502/503/504 : origine/passerelle en panne), le WAF DOIT remplacer le corps **même s'il est déjà en HTML** : une page d'erreur générique d'un reverse proxy en aval (nginx/OpenResty) n'est pas du contenu applicatif à préserver. Pour les **4xx**, le WAF NE DOIT remplacer que les corps en **texte brut** (`text/plain`) ou **sans `Content-Type`** — la forme des refus du WAF —, afin de préserver les pages d'erreur HTML et le JSON légitimes des applications. Le critère « non-HTML » remplaçait une erreur JSON d'API (400, 422) dès que la requête acceptait `text/html`
 - Limite : si Cloudflare est configuré pour afficher ses propres pages d'erreur (Custom Pages) ou intercepte les erreurs d'origine, la page brandée du WAF peut être masquée par celle de Cloudflare (hors périmètre du WAF)
 
-## FR-33 — Terminaison TLS par domaine (sélection par SNI)
+## FR-40 — Terminaison TLS par domaine (sélection par SNI)
+
+> Numérotée FR-33 jusqu'à la v3.9.0 : l'identifiant était déjà celui du moteur
+> de scoring de risque (`requirements-detection.md`). Les entrées antérieures de
+> `changelog.md`, `tasks.md` et `validation.md` qui citent « FR-33 » à propos du
+> TLS par domaine désignent cette exigence.
 
 > Étend FR-31. Permet au WAF de terminer le TLS en présentant un **certificat
 > distinct par domaine**, sélectionné par SNI à partir de certificats existants

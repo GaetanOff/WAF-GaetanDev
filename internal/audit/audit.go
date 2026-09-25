@@ -4,6 +4,7 @@ package audit
 
 import (
 	"encoding/json"
+	"log/slog"
 	"os"
 	"strings"
 	"sync"
@@ -43,7 +44,9 @@ func NewTrail(maxEntries int, filePath string) (*Trail, error) {
 }
 
 // Record ajoute une entrée (cible et résultat masqués des secrets). Rotation
-// FIFO au-delà de max. Best-effort sur l'export fichier.
+// FIFO au-delà de max. L'export fichier reste best-effort — l'action admin
+// n'échoue pas pour autant —, mais un échec d'écriture est journalisé : disque
+// plein ou fichier révoqué, la piste d'audit se perdait en silence.
 func (t *Trail) Record(action string, target string, result string) {
 	entry := Entry{
 		Timestamp: t.now().UTC().Format(time.RFC3339),
@@ -59,9 +62,18 @@ func (t *Trail) Record(action string, target string, result string) {
 		t.entries = t.entries[len(t.entries)-t.max:]
 	}
 	if t.file != nil {
-		if data, err := json.Marshal(entry); err == nil {
-			_, _ = t.file.Write(append(data, '\n'))
-		}
+		t.export(entry)
+	}
+}
+
+// export ajoute l'entrée au fichier d'audit (appelant sous t.mu).
+func (t *Trail) export(entry Entry) {
+	data, err := json.Marshal(entry)
+	if err == nil {
+		_, err = t.file.Write(append(data, '\n'))
+	}
+	if err != nil {
+		slog.Error("audit file export failed: entry kept in memory only", "action", entry.Action, "error", err)
 	}
 }
 

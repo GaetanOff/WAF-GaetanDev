@@ -8,7 +8,7 @@ import (
 	"strings"
 )
 
-const connectingIPHeader = "CF-Connecting-IP"
+const connectingIPHeader = "Cf-Connecting-Ip" // CF-Connecting-IP, forme canonique
 
 // infrastructureHeaderPrefix est le préfixe des en-têtes posés par Cloudflare
 // (CF-IPCountry, CF-Ray, Cf-Bot-Management-Ja3Hash…), comparé sans casse.

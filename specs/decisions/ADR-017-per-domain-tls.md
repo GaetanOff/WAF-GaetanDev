@@ -2,7 +2,7 @@
 status: accepted
 date: 2026-06-10
 deciders: GaetanDev
-relates-to: requirements-ops.md (FR-31, FR-33), features/per-domain-tls.feature
+relates-to: requirements-ops.md (FR-31, FR-40), features/per-domain-tls.feature
 ---
 
 # ADR-017 — Terminaison TLS par domaine (sélection par SNI)
@@ -90,7 +90,7 @@ acceptable au départ).
 
 ## Consequences
 
-- Nouveau requirement **FR-33** (`requirements-ops.md`) et feature
+- Nouveau requirement **FR-40** (`requirements-ops.md`) et feature
   `features/per-domain-tls.feature`.
 - Schéma de config : ajout de `server.tls` et `domains[].tls`
   (`schemas/config.schema.json`).
@@ -105,6 +105,6 @@ acceptable au départ).
 
 ## Spec References
 
-- [requirements-ops.md](../requirements-ops.md) FR-31, FR-33
+- [requirements-ops.md](../requirements-ops.md) FR-31, FR-40
 - [features/per-domain-tls.feature](../features/per-domain-tls.feature)
 - [schemas/config.schema.json](../schemas/config.schema.json)

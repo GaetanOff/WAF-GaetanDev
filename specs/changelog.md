@@ -6,6 +6,51 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — septième audit du 2026-09-25 (phase 22)
+
+- Corps de requête bornés avant décodage : 16 Kio sur `POST /waf/verify`,
+  64 Kio sur l'API admin (FR-30).
+- L'upstream ne reçoit plus les en-têtes de coordination du WAF
+  (`X-WAF-Action`, `X-WAF-Reason`, `X-WAF-Risk-*`…) ; seuls `X-WAF-Score` et
+  `X-WAF-Origin-Token` sont transmis (FR-01).
+- `/waf/health`, `/waf/metrics` et `/waf/origin/verify` répondent 405
+  (`Allow: GET, HEAD`) aux autres méthodes.
+
+### Added — septième audit du 2026-09-25
+
+- La décision `THROTTLE` du moteur de risque réduit de moitié le débit de
+  recharge du visiteur pendant une minute ; 429 neutre
+  `rate_limit_risk_throttle` (FR-34).
+- Bypass d'assets par chemin exact et par préfixe de répertoire
+  (`static_assets.exact_paths`, `static_assets.path_prefixes`) et métrique
+  `waf_asset_requests_total{domain}` (FR-24).
+- Avertissement au démarrage quand `geo.challenge_countries` est inerte faute
+  de moteur de risque (FR-16).
+- Package `internal/wafheader` : noms des en-têtes internes et valeurs de
+  `X-WAF-Action`.
+
+### Fixed — septième audit du 2026-09-25
+
+- `Close` du writer de logs asynchrone sûr en appels concurrents.
+- Arrêt : tous les serveurs sont drainés en parallèle, chacun avec le délai de
+  grâce entier, y compris sur échec d'un listener (NFR-05).
+- Adresses de `upstream_pool` validées au démarrage (FR-25).
+- Échec d'écriture du fichier d'audit journalisé (FR-27) ; suppression admin
+  restaurée si les règles ne peuvent pas suivre (500
+  `access_rules_sync_failed`) ; cause des 502 journalisée.
+
+### Changed — septième audit du 2026-09-25
+
+- Contrats : admin.openapi.yaml 1.4.0 (409, 429 de verrouillage, 500 des
+  DELETE, 503 fictif retiré) ; public.openapi.yaml 1.4.0 (405, refus
+  d'enveloppe, en-têtes de `/waf/verify`, challenge ACME HTTP-01) ;
+  `alert.schema.json` : objet `data` fermé.
+- La terminaison TLS par domaine est renumérotée FR-40 (FR-33 est le moteur de
+  risque) ; FR-03 ne promet plus de limites par domaine (ADR-022).
+- Performance : clés d'en-têtes canoniques, cache de `HashIP`, allocations du
+  rate limiter (28 → 19), un verrou par requête pour la difficulté adaptative.
+- `routes` est une méthode de `app` (`cmd/waf/routes.go`).
+
 ### Security — sixième audit du 2026-09-25 (phase 21)
 
 - Les requêtes d'assets statiques sont comptées par le rate limit (FR-24) :

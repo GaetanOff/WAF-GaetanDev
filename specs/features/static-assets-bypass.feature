@@ -72,12 +72,14 @@ Feature: Bypass des Assets Statiques
     When GET "/documents/brochure.pdf"
     Then la requête est proxifiée sans challenge
 
-  Scenario: Métriques assets vs requêtes normales
+  Scenario: Métriques assets vs requêtes totales
     When GET /waf/metrics
     Then les métriques contiennent:
-      | waf_asset_requests_total        | total requêtes assets      |
-      | waf_requests_total{type="page"} | total requêtes non-assets  |
+      | waf_asset_requests_total{domain}  | requêtes d'assets bypassées       |
+      | waf_requests_total{action,domain} | total des requêtes, assets compris |
     Et le ratio assets/total est visible pour ajuster la config
+    Note: pas de label type="page" sur waf_requests_total : ses labels sont un contrat
+    des tableaux de bord existants ; le ratio se calcule sur les deux compteurs
 
   Scenario: Source Map bypass — .map traité comme asset
     When GET "/js/app.bundle.js.map"

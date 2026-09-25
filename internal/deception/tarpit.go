@@ -14,11 +14,13 @@ import (
 	"net/http"
 	"strconv"
 	"time"
+
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
-	tarpitActionHeader = "X-WAF-Action"
-	tarpitReasonHeader = "X-WAF-Reason"
+	tarpitActionHeader = wafheader.Action
+	tarpitReasonHeader = wafheader.Reason
 	// ReasonSaturated identifie le 429 servi quand le sémaphore est plein.
 	ReasonSaturated = "tarpit_saturated"
 )
@@ -48,7 +50,7 @@ func NewTarpit(maxConnections int, chunks int, delay time.Duration) *Tarpit {
 // de risque, sinon transmet à next (le proxy).
 func (t *Tarpit) Dispatch(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get(tarpitActionHeader) != "TARPIT" {
+		if r.Header.Get(tarpitActionHeader) != wafheader.ActionTarpit {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -61,7 +63,7 @@ func (t *Tarpit) Dispatch(next http.Handler) http.Handler {
 			// Sémaphore plein : on protège les goroutines (NFR-10). Le refus
 			// reste une décision TARPIT (la requête n'atteint pas l'origine) ;
 			// sans action posée, il était journalisé et compté PASS.
-			w.Header().Set(tarpitActionHeader, "TARPIT")
+			w.Header().Set(tarpitActionHeader, wafheader.ActionTarpit)
 			w.Header().Set(tarpitReasonHeader, ReasonSaturated)
 			w.Header().Set("Retry-After", "5")
 			http.Error(w, "service unavailable", http.StatusTooManyRequests)
@@ -80,7 +82,7 @@ func (t *Tarpit) serve(w http.ResponseWriter, r *http.Request) {
 	// Posée sur la réponse, l'action est journalisée et comptée TARPIT ; la
 	// classification portée par la requête ne l'est pas, faute de preuve que le
 	// tarpit l'a servie.
-	w.Header().Set(tarpitActionHeader, "TARPIT")
+	w.Header().Set(tarpitActionHeader, wafheader.ActionTarpit)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 

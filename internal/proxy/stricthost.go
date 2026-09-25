@@ -6,6 +6,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/hostname"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 // healthPath reste servi quel que soit le Host : les sondes de conteneur et
@@ -33,8 +34,8 @@ func StrictHost(domains []config.DomainConfig, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		w.Header().Set("X-WAF-Action", "BLOCK")
-		w.Header().Set("X-WAF-Reason", "host_not_declared")
+		w.Header().Set(wafheader.Action, wafheader.ActionBlock)
+		w.Header().Set(wafheader.Reason, "host_not_declared")
 		http.Error(w, "bad request", http.StatusBadRequest)
 	})
 }

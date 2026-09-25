@@ -79,7 +79,7 @@ type ServerConfig struct {
 	TLS        ServerTLS `yaml:"tls"`
 }
 
-// ServerTLS configure la terminaison TLS sur le WAF (FR-33, ADR-017). Les
+// ServerTLS configure la terminaison TLS sur le WAF (FR-40, ADR-017). Les
 // certificats par domaine sont définis dans Domains[].TLS et sélectionnés par
 // SNI ; CertFile/KeyFile fournissent un certificat par défaut optionnel.
 type ServerTLS struct {
@@ -271,8 +271,10 @@ type Cluster struct {
 }
 
 type StaticAssets struct {
-	Enabled    bool     `yaml:"enabled"`
-	Extensions []string `yaml:"extensions"`
+	Enabled      bool     `yaml:"enabled"`
+	Extensions   []string `yaml:"extensions"`
+	PathPrefixes []string `yaml:"path_prefixes"`
+	ExactPaths   []string `yaml:"exact_paths"`
 }
 
 type UpstreamPool struct {
@@ -482,7 +484,7 @@ func Default() Config {
 			GracefulShutdownTimeout: "15s",
 			MaxHeaderValueCount:     100,
 			TLS: ServerTLS{
-				Enabled:      false, // opt-in : terminaison TLS par domaine (FR-33)
+				Enabled:      false, // opt-in : terminaison TLS par domaine (FR-40)
 				Listen:       ":443",
 				MinVersion:   "1.2",
 				RedirectHTTP: true,
@@ -656,6 +658,8 @@ func Default() Config {
 				".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
 				".woff", ".woff2", ".ttf", ".eot", ".map", ".webp",
 			},
+			PathPrefixes: []string{"/static/", "/assets/", "/public/", "/dist/"},
+			ExactPaths:   []string{"/favicon.ico", "/robots.txt", "/sitemap.xml"},
 		},
 		Slowloris: Slowloris{
 			Enabled:       true,
@@ -861,12 +865,21 @@ func (c *Config) Validate() error {
 			fields = append(fields, "slowloris.max_connections_per_ip must be >= 1")
 		}
 	}
+	validateStaticAssets(&fields, c.StaticAssets)
 	if c.UpstreamPool.Enabled {
 		if len(c.UpstreamPool.Upstreams) == 0 {
 			fields = append(fields, "upstream_pool.upstreams must not be empty when enabled")
 		}
 		if c.UpstreamPool.Strategy != "" {
 			validateEnum(&fields, "upstream_pool.strategy", c.UpstreamPool.Strategy, "round_robin", "least_conn", "ip_hash", "weighted")
+		}
+		// Comme upstream.address et domains[].upstream : une adresse sans
+		// schéma ni hôte passait la validation, puis échouait en silence dans
+		// les sondes de santé et au premier routage.
+		for i, member := range c.UpstreamPool.Upstreams {
+			name := fmt.Sprintf("upstream_pool.upstreams[%d].address", i)
+			requireString(&fields, name, member.Address)
+			validateURL(&fields, name, member.Address)
 		}
 		validateDuration(&fields, "upstream_pool.health_check.interval", c.UpstreamPool.HealthCheck.Interval)
 		validateDuration(&fields, "upstream_pool.health_check.timeout", c.UpstreamPool.HealthCheck.Timeout)
@@ -959,7 +972,7 @@ func validateCloudflare(fields *[]string, cfg Cloudflare) {
 	}
 }
 
-// validateServerTLS valide la terminaison TLS par domaine (FR-33). Les
+// validateServerTLS valide la terminaison TLS par domaine (FR-40). Les
 // vérifications de chargement réel des fichiers (parse PEM, concordance
 // cert/clé) sont faites au démarrage par internal/tlsmgr (fail-fast).
 func validateServerTLS(fields *[]string, c *Config) {
@@ -1097,6 +1110,22 @@ func (c *Config) applyEnvOverrides() {
 			c.Storage.Redis = &RedisConfig{}
 		}
 		c.Storage.Redis.Password = value
+	}
+}
+
+// validateStaticAssets refuse un préfixe qui ne délimite pas un répertoire
+// ("/static" couvrirait "/staticfoo", "/" tout le site) et un chemin exact
+// relatif : en cas de doute, un chemin n'est pas un asset (FR-24).
+func validateStaticAssets(fields *[]string, cfg StaticAssets) {
+	for i, prefix := range cfg.PathPrefixes {
+		if len(prefix) < 3 || !strings.HasPrefix(prefix, "/") || !strings.HasSuffix(prefix, "/") {
+			*fields = append(*fields, fmt.Sprintf("static_assets.path_prefixes[%d] must start and end with / and name a directory (not /)", i))
+		}
+	}
+	for i, path := range cfg.ExactPaths {
+		if len(path) < 2 || !strings.HasPrefix(path, "/") {
+			*fields = append(*fields, fmt.Sprintf("static_assets.exact_paths[%d] must be an absolute path other than /", i))
+		}
 	}
 }
 
