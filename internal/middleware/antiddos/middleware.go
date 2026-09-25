@@ -9,6 +9,7 @@ import (
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/storage"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 type Middleware struct {
@@ -101,7 +102,7 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.Header.Get("X-WAF-Action") == "PASS" {
+		if r.Header.Get(wafheader.Action) == wafheader.ActionPass {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -110,25 +111,25 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		if m.breaker.IsOpen(ip) {
 			// Signal déterministe (FR-35) : annoncé pour l'observabilité tout en
 			// conservant le blocage immédiat.
-			w.Header().Set("X-WAF-Deterministic-Trigger", "circuit_breaker")
-			w.Header().Set("X-WAF-Action", "CIRCUIT_BREAK")
-			w.Header().Set("X-WAF-Reason", "circuit_breaker_open")
+			w.Header().Set(wafheader.DeterministicTrigger, "circuit_breaker")
+			w.Header().Set(wafheader.Action, wafheader.ActionCircuitBreak)
+			w.Header().Set(wafheader.Reason, "circuit_breaker_open")
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}
 		decision := m.recordPressure(r)
-		r.Header.Set("X-WAF-Global-Pressure", string(decision.Pressure))
+		r.Header.Set(wafheader.GlobalPressure, string(decision.Pressure))
 		if contribution := pressureContribution(decision.Pressure); contribution > 0 {
-			r.Header.Set("X-WAF-Risk-rate", strconv.Itoa(contribution))
+			r.Header.Set(wafheader.RiskRate, strconv.Itoa(contribution))
 		}
 		// Mode sous attaque (FR-39) : X-WAF-Under-Attack est journalisé (vrai même en
 		// shadow) ; X-WAF-Under-Attack-Enforce déclenche le challenge forcé côté
 		// middleware challenge (faux en shadow).
 		if decision.UnderAttack {
-			r.Header.Set("X-WAF-Under-Attack", "true")
+			r.Header.Set(wafheader.UnderAttack, "true")
 		}
 		if decision.Enforce {
-			r.Header.Set("X-WAF-Under-Attack-Enforce", "true")
+			r.Header.Set(wafheader.UnderAttackEnforce, "true")
 		}
 
 		recorder := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
@@ -204,7 +205,7 @@ func isNeutralThrottle(recorder *statusRecorder) bool {
 	if recorder.statusCode != http.StatusTooManyRequests {
 		return false
 	}
-	reason := recorder.Header().Get("X-WAF-Reason")
+	reason := recorder.Header().Get(wafheader.Reason)
 	return reason == reasonPressureThrottle || reason == reasonRiskThrottle
 }
 
@@ -213,5 +214,5 @@ func isNeutralThrottle(recorder *statusRecorder) bool {
 // l'upstream : le rate limit applicatif d'une API ouvrait le circuit et le WAF
 // bannissait l'IP après cinq 429 de l'origine.
 func isViolation(recorder *statusRecorder) bool {
-	return recorder.Header().Get("X-WAF-Action") == "RATE_LIMIT"
+	return recorder.Header().Get(wafheader.Action) == wafheader.ActionRateLimit
 }

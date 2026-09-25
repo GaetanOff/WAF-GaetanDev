@@ -5,11 +5,12 @@ import (
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
-	headerDeterministicTrigger = "X-WAF-Deterministic-Trigger"
-	headerReason               = "X-WAF-Reason"
+	headerDeterministicTrigger = wafheader.DeterministicTrigger
+	headerReason               = wafheader.Reason
 
 	triggerThreatIntelCritical = "threat_intel_critical"
 
@@ -33,7 +34,7 @@ func NewMiddleware(checker *Checker, scores *trust.ScoreManager) Middleware {
 
 func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-WAF-Action") == "PASS" {
+		if r.Header.Get(wafheader.Action) == wafheader.ActionPass {
 			next.ServeHTTP(w, r)
 			return
 		}

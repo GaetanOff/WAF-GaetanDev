@@ -7,15 +7,16 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
 	// headerRiskFingerprint publie une contribution de la famille `fingerprint`
 	// consommée par le moteur de risque (requirements-detection FR-33).
-	headerRiskFingerprint = "X-WAF-Risk-fingerprint"
+	headerRiskFingerprint = wafheader.RiskFingerprint
 	// headerDeterministicTrigger signale un déclencheur déterministe au moteur de
 	// risque / au logger (requirements-detection FR-35).
-	headerDeterministicTrigger = "X-WAF-Deterministic-Trigger"
+	headerDeterministicTrigger = wafheader.DeterministicTrigger
 )
 
 type Middleware struct {
@@ -34,7 +35,7 @@ func New(rules Rules, scores *trust.ScoreManager, shadow bool) Middleware {
 
 func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get("X-WAF-Action") == "PASS" {
+		if r.Header.Get(wafheader.Action) == wafheader.ActionPass {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -58,12 +59,12 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			visitorScore = visitor.Score
 		}
 
-		r.Header.Set("X-WAF-Reason", decision.Reason)
+		r.Header.Set(wafheader.Reason, decision.Reason)
 		if decision.Block || m.scores.State(visitorScore) == trust.StateBlocked {
 			isHoneypot := decision.Reason == ReasonHoneypot
-			action := "BLOCK"
+			action := wafheader.ActionBlock
 			if isHoneypot {
-				action = "HONEYPOT"
+				action = wafheader.ActionHoneypot
 				// Le honeypot est un signal déterministe (FR-35) : on l'annonce
 				// pour l'observabilité tout en conservant le blocage immédiat.
 				w.Header().Set(headerDeterministicTrigger, "honeypot")
@@ -76,8 +77,8 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 				next.ServeHTTP(w, r)
 				return
 			}
-			w.Header().Set("X-WAF-Action", action)
-			w.Header().Set("X-WAF-Reason", decision.Reason)
+			w.Header().Set(wafheader.Action, action)
+			w.Header().Set(wafheader.Reason, decision.Reason)
 			http.Error(w, "forbidden", http.StatusForbidden)
 			return
 		}

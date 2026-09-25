@@ -143,7 +143,9 @@ internal/
     │                    le routage, le challenge, le token d'origine, la
     │                    redirection HTTPS, le scope per_domain du mode sous
     │                    attaque et la sélection SNI
-    └── jsonstrict/      Parsing JSON durci sur les entrées non fiables (FR-30)
+    ├── jsonstrict/      Parsing JSON durci sur les entrées non fiables (FR-30)
+    └── wafheader/       Noms des en-têtes internes X-WAF-* et valeurs de
+                         X-WAF-Action, source unique pour tous les middlewares
 ```
 
 ## Request Processing Pipeline

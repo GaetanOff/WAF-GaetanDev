@@ -9,6 +9,7 @@ import (
 	"sync"
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 // shardCount répartit les compteurs sur autant de verrous. Un verrou unique,
@@ -44,8 +45,8 @@ func (l *Limiter) Handler(next http.Handler) http.Handler {
 		ip := cloudflare.RealIP(r)
 		if !l.acquire(ip) {
 			w.Header().Set("Retry-After", "10")
-			w.Header().Set("X-WAF-Action", "RATE_LIMIT")
-			w.Header().Set("X-WAF-Reason", "too_many_connections_per_ip")
+			w.Header().Set(wafheader.Action, wafheader.ActionRateLimit)
+			w.Header().Set(wafheader.Reason, "too_many_connections_per_ip")
 			http.Error(w, "too many requests", http.StatusTooManyRequests)
 			return
 		}

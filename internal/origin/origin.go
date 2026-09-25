@@ -16,11 +16,12 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/hostname"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
 	// HeaderToken est le header injecté vers l'upstream et vérifié par celui-ci.
-	HeaderToken = "X-WAF-Origin-Token"
+	HeaderToken = wafheader.OriginToken
 
 	toleranceHours = 2
 

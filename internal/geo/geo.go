@@ -9,13 +9,14 @@ import (
 	"strings"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
 	headerCountry       = "CF-IPCountry"
-	headerRiskGeo       = "X-WAF-Risk-geo"
-	headerAction        = "X-WAF-Action"
-	headerReason        = "X-WAF-Reason"
+	headerRiskGeo       = wafheader.RiskGeo
+	headerAction        = wafheader.Action
+	headerReason        = wafheader.Reason
 	defaultChallengeGeo = 60
 )
 
@@ -44,7 +45,7 @@ func NewRules(cfg config.Geo) Rules {
 
 func (r Rules) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if !r.enabled || req.Header.Get(headerAction) == "PASS" {
+		if !r.enabled || req.Header.Get(headerAction) == wafheader.ActionPass {
 			next.ServeHTTP(w, req)
 			return
 		}
@@ -79,7 +80,7 @@ func (r Rules) Handler(next http.Handler) http.Handler {
 }
 
 func block(w http.ResponseWriter, reason string) {
-	w.Header().Set(headerAction, "BLOCK")
+	w.Header().Set(headerAction, wafheader.ActionBlock)
 	w.Header().Set(headerReason, reason)
 	http.Error(w, "forbidden", http.StatusForbidden)
 }

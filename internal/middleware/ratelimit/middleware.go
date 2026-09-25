@@ -12,6 +12,7 @@ import (
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/ttlcache"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
@@ -23,7 +24,7 @@ const (
 	minuteKeySuffix = ":m"
 	hourKeySuffix   = ":h"
 
-	headerGlobalPressure = "X-WAF-Global-Pressure"
+	headerGlobalPressure = wafheader.GlobalPressure
 
 	pressureNormal   = "normal"
 	pressureElevated = "elevated"
@@ -142,7 +143,7 @@ func (m *Middleware) Throttle(ip string) {
 // Celui du bypass d'assets (FR-24) lève le challenge et le trust score, pas le
 // rate limit : les requêtes d'assets restent comptées (static-assets-bypass.feature).
 func isExempt(r *http.Request) bool {
-	return r.Header.Get("X-WAF-Action") == "PASS" && r.Header.Get("X-WAF-Reason") != staticassets.Reason
+	return r.Header.Get(wafheader.Action) == wafheader.ActionPass && r.Header.Get(wafheader.Reason) != staticassets.Reason
 }
 
 func (m *Middleware) Handler(next http.Handler) http.Handler {
@@ -211,21 +212,21 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 				// sinon le WAF punit des humains pour les 429 qu'il a lui-même
 				// provoqués (boucle de rétroaction auto-infligée).
 				w.Header().Set("Retry-After", strconv.Itoa(maxInt(1, int(retryAfter.Seconds()))))
-				w.Header().Set("X-WAF-Action", "RATE_LIMIT")
-				w.Header().Set("X-WAF-Reason", neutralReason)
+				w.Header().Set(wafheader.Action, wafheader.ActionRateLimit)
+				w.Header().Set(wafheader.Reason, neutralReason)
 				http.Error(w, "too many requests", http.StatusTooManyRequests)
 				return
 			}
 			visitor := m.scores.PenalizeRateLimit(ip, r.Host)
 			if m.scores.State(visitor.Score) == trust.StateBlocked {
-				w.Header().Set("X-WAF-Action", "BLOCK")
-				w.Header().Set("X-WAF-Reason", "score_below_block_threshold")
+				w.Header().Set(wafheader.Action, wafheader.ActionBlock)
+				w.Header().Set(wafheader.Reason, "score_below_block_threshold")
 				http.Error(w, "forbidden", http.StatusForbidden)
 				return
 			}
 			w.Header().Set("Retry-After", strconv.Itoa(maxInt(1, int(retryAfter.Seconds()))))
-			w.Header().Set("X-WAF-Action", "RATE_LIMIT")
-			w.Header().Set("X-WAF-Reason", reason)
+			w.Header().Set(wafheader.Action, wafheader.ActionRateLimit)
+			w.Header().Set(wafheader.Reason, reason)
 			http.Error(w, "too many requests", http.StatusTooManyRequests)
 			return
 		}
@@ -234,7 +235,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// déplétion du bucket (pression de débit) pour le moteur de risque. Le 429
 		// volumétrique ci-dessus reste indépendant (cf. Articulation FR-35).
 		if contribution := rateContribution(snapshots[0].Tokens, windows[0].window.capacity); contribution > 0 {
-			r.Header.Set("X-WAF-Risk-rate", strconv.Itoa(maxInt(contribution, existingRateContribution(r))))
+			r.Header.Set(wafheader.RiskRate, strconv.Itoa(maxInt(contribution, existingRateContribution(r))))
 		}
 
 		next.ServeHTTP(w, r)
@@ -427,7 +428,7 @@ func maxInt(a int, b int) int {
 }
 
 func existingRateContribution(r *http.Request) int {
-	value, err := strconv.Atoi(r.Header.Get("X-WAF-Risk-rate"))
+	value, err := strconv.Atoi(r.Header.Get(wafheader.RiskRate))
 	if err != nil {
 		return 0
 	}

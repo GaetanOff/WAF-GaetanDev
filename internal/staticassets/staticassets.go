@@ -14,6 +14,7 @@ import (
 	"strings"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 // Reason est la raison posée sur les requêtes d'assets. Le rate limit la lit
@@ -52,8 +53,8 @@ func (b Bypass) WithCounter(onAsset func(host string)) Bypass {
 func (b Bypass) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if b.enabled && b.isAsset(r.URL.Path) {
-			r.Header.Set("X-WAF-Action", "PASS")
-			r.Header.Set("X-WAF-Reason", Reason)
+			r.Header.Set(wafheader.Action, wafheader.ActionPass)
+			r.Header.Set(wafheader.Reason, Reason)
 			if b.onAsset != nil {
 				b.onAsset(r.Host)
 			}

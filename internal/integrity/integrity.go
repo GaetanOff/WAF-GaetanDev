@@ -11,12 +11,13 @@ import (
 	"strings"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
-	headerRiskIntegrity = "X-WAF-Risk-integrity"
-	headerAction        = "X-WAF-Action"
-	headerReason        = "X-WAF-Reason"
+	headerRiskIntegrity = wafheader.RiskIntegrity
+	headerAction        = wafheader.Action
+	headerReason        = wafheader.Reason
 
 	// Contributions de risque par type de détection (sommées, bornées à 100).
 	contribTraversal = 60
@@ -109,7 +110,7 @@ func (a Analyzer) Evaluate(r *http.Request) Result {
 // d'obfuscation/injection (FR-18 : laisser l'app décider, le moteur arbitre).
 func (a Analyzer) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !a.enabled || r.Header.Get(headerAction) == "PASS" {
+		if !a.enabled || r.Header.Get(headerAction) == wafheader.ActionPass {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -117,7 +118,7 @@ func (a Analyzer) Handler(next http.Handler) http.Handler {
 		if a.maxBodyBytes > 0 {
 			if r.ContentLength > a.maxBodyBytes {
 				// Sans action posée, le refus était journalisé et compté PASS.
-				w.Header().Set(headerAction, "BLOCK")
+				w.Header().Set(headerAction, wafheader.ActionBlock)
 				w.Header().Set(headerReason, ReasonBodyTooLarge)
 				http.Error(w, "request entity too large", http.StatusRequestEntityTooLarge)
 				return

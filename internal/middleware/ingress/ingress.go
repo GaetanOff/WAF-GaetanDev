@@ -16,11 +16,13 @@ package ingress
 import (
 	"net/http"
 	"strings"
+
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 // headerPrefix est le préfixe des en-têtes internes, comparé sans tenir compte
 // de la casse.
-const headerPrefix = "X-WAF-"
+const headerPrefix = wafheader.Prefix
 
 // Middleware supprime tout en-tête `X-WAF-*` fourni par le client. Il doit
 // précéder tout middleware qui lit ces en-têtes. Une seule capture est autorisée

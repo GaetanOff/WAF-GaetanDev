@@ -15,6 +15,7 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/upstream"
 	"github.com/gaetandev/waf/internal/upstreamtime"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const defaultWAFScore = "50"
@@ -201,8 +202,8 @@ func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout 
 			pr.Out.Host = target.Host
 		}
 		pr.Out.Header.Set("X-Real-IP", clientIP)
-		if pr.Out.Header.Get("X-WAF-Score") == "" {
-			pr.Out.Header.Set("X-WAF-Score", defaultWAFScore)
+		if pr.Out.Header.Get(wafheader.Score) == "" {
+			pr.Out.Header.Set(wafheader.Score, defaultWAFScore)
 		}
 	}
 	proxy.Transport = &http.Transport{

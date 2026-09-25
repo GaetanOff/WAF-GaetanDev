@@ -1,15 +1,19 @@
 package logger
 
-import "log/slog"
+import (
+	"log/slog"
+
+	"github.com/gaetandev/waf/internal/wafheader"
+)
 
 const (
-	ActionPass         = "PASS"
-	ActionChallenge    = "CHALLENGE"
-	ActionBlock        = "BLOCK"
-	ActionRateLimit    = "RATE_LIMIT"
-	ActionCircuitBreak = "CIRCUIT_BREAK"
-	ActionHoneypot     = "HONEYPOT"
-	ActionTarpit       = "TARPIT"
+	ActionPass         = wafheader.ActionPass
+	ActionChallenge    = wafheader.ActionChallenge
+	ActionBlock        = wafheader.ActionBlock
+	ActionRateLimit    = wafheader.ActionRateLimit
+	ActionCircuitBreak = wafheader.ActionCircuitBreak
+	ActionHoneypot     = wafheader.ActionHoneypot
+	ActionTarpit       = wafheader.ActionTarpit
 )
 
 type SecurityEvent struct {

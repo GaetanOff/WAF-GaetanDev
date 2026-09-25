@@ -17,13 +17,14 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/ttlcache"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
-	headerRiskBehavioral = "X-WAF-Risk-behavioral"
-	headerAction         = "X-WAF-Action"
-	headerReason         = "X-WAF-Reason"
-	actionPass           = "PASS"
+	headerRiskBehavioral = wafheader.RiskBehavioral
+	headerAction         = wafheader.Action
+	headerReason         = wafheader.Reason
+	actionPass           = wafheader.ActionPass
 	// reasonStaticAsset est posé par internal/staticassets (FR-24) sur les
 	// requêtes d'assets qu'il marque PASS.
 	reasonStaticAsset = "static_asset"

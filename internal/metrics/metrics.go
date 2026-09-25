@@ -8,18 +8,19 @@ import (
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/wafheader"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
 )
 
 const (
-	actionPass         = "PASS"
-	actionChallenge    = "CHALLENGE"
-	actionBlock        = "BLOCK"
-	actionRateLimit    = "RATE_LIMIT"
-	actionCircuitBreak = "CIRCUIT_BREAK"
-	actionHoneypot     = "HONEYPOT"
-	actionTarpit       = "TARPIT"
+	actionPass         = wafheader.ActionPass
+	actionChallenge    = wafheader.ActionChallenge
+	actionBlock        = wafheader.ActionBlock
+	actionRateLimit    = wafheader.ActionRateLimit
+	actionCircuitBreak = wafheader.ActionCircuitBreak
+	actionHoneypot     = wafheader.ActionHoneypot
+	actionTarpit       = wafheader.ActionTarpit
 )
 
 type Metrics struct {
@@ -299,21 +300,21 @@ func (m *Metrics) Middleware(scores *trust.ScoreManager, next http.Handler) http
 }
 
 func (m *Metrics) observeRisk(r *http.Request, recorder *statusRecorder) {
-	decision := headerValue(r, recorder, "X-WAF-Risk-Decision")
+	decision := headerValue(r, recorder, wafheader.RiskDecision)
 	if decision != "" {
 		m.decisions.WithLabelValues(decision).Inc()
 	}
-	if headerValue(r, recorder, "X-WAF-Challenge-Pass-After-Flag") == "true" {
+	if headerValue(r, recorder, wafheader.ChallengePassAfterFlag) == "true" {
 		m.challengeFP.Inc()
 	}
 	if decision == actionBlock {
-		corroborated := headerValue(r, recorder, "X-WAF-Risk-Corroborated")
+		corroborated := headerValue(r, recorder, wafheader.RiskCorroborated)
 		if corroborated != "true" {
 			corroborated = "false"
 		}
 		m.hardBlocks.WithLabelValues(corroborated).Inc()
 	}
-	if bot := headerValue(r, recorder, "X-WAF-Risk-Verified-Bot"); bot != "" {
+	if bot := headerValue(r, recorder, wafheader.RiskVerifiedBot); bot != "" {
 		m.verifiedBots.WithLabelValues(bot).Inc()
 	}
 }
@@ -371,7 +372,7 @@ func (m *Metrics) observeGlobalPressure(r *http.Request) {
 // observeUnderAttack publie l'état du mode sous attaque par domaine (FR-39) et
 // compte les requêtes forcées au challenge par ce mode.
 func (m *Metrics) observeUnderAttack(r *http.Request, action string, domain string) {
-	active := r.Header.Get("X-WAF-Under-Attack") == "true"
+	active := r.Header.Get(wafheader.UnderAttack) == "true"
 	value := 0.0
 	if active {
 		value = 1
@@ -388,9 +389,9 @@ func (m *Metrics) observeUnderAttack(r *http.Request, action string, domain stri
 // TARPIT n'est retenu que sur la réponse, posé par le tarpit qui la sert : sur
 // la requête, c'est une classification qui atteint l'upstream sans déception.
 func normalizedAction(r *http.Request, recorder *statusRecorder) string {
-	action := recorder.Header().Get("X-WAF-Action")
+	action := recorder.Header().Get(wafheader.Action)
 	if action == "" {
-		action = r.Header.Get("X-WAF-Action")
+		action = r.Header.Get(wafheader.Action)
 		if action == actionTarpit {
 			return actionPass
 		}
@@ -404,10 +405,10 @@ func normalizedAction(r *http.Request, recorder *statusRecorder) string {
 }
 
 func wafReason(r *http.Request, recorder *statusRecorder) string {
-	if value := recorder.Header().Get("X-WAF-Reason"); value != "" {
+	if value := recorder.Header().Get(wafheader.Reason); value != "" {
 		return value
 	}
-	if value := r.Header.Get("X-WAF-Reason"); value != "" {
+	if value := r.Header.Get(wafheader.Reason); value != "" {
 		return value
 	}
 	return "none"

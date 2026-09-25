@@ -9,22 +9,23 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/wafheader"
 )
 
 const (
-	headerAction               = "X-WAF-Action"
-	headerReason               = "X-WAF-Reason"
-	headerScore                = "X-WAF-Score"
-	headerScoreDelta           = "X-WAF-Score-Delta"
-	headerRiskScore            = "X-WAF-Risk-Score"
-	headerRiskDecision         = "X-WAF-Risk-Decision"
-	headerRiskConfidence       = "X-WAF-Risk-Confidence"
-	headerRiskDecisionBasis    = "X-WAF-Risk-Decision-Basis"
-	headerRiskCorroborated     = "X-WAF-Risk-Corroborated"
-	headerRiskVerifiedBot      = "X-WAF-Risk-Verified-Bot"
-	headerRiskShadowMode       = "X-WAF-Risk-Shadow-Mode"
-	headerDeterministicTrigger = "X-WAF-Deterministic-Trigger"
-	headerFingerprintHash      = "X-WAF-Fingerprint-Hash"
+	headerAction               = wafheader.Action
+	headerReason               = wafheader.Reason
+	headerScore                = wafheader.Score
+	headerScoreDelta           = wafheader.ScoreDelta
+	headerRiskScore            = wafheader.RiskScore
+	headerRiskDecision         = wafheader.RiskDecision
+	headerRiskConfidence       = wafheader.RiskConfidence
+	headerRiskDecisionBasis    = wafheader.RiskDecisionBasis
+	headerRiskCorroborated     = wafheader.RiskCorroborated
+	headerRiskVerifiedBot      = wafheader.RiskVerifiedBot
+	headerRiskShadowMode       = wafheader.RiskShadowMode
+	headerDeterministicTrigger = wafheader.DeterministicTrigger
+	headerFingerprintHash      = wafheader.FingerprintHash
 )
 
 type Middleware struct {
@@ -95,7 +96,7 @@ func (m *Middleware) GrantChallengePass(ip string, domain string, fpHash string)
 
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get(headerAction) == "PASS" {
+		if r.Header.Get(headerAction) == wafheader.ActionPass {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -205,7 +206,7 @@ func signalProvidersFromRequest(r *http.Request, trustScore int) []SignalProvide
 		if family == FamilyReputation || family == FamilyHumanCredit {
 			continue
 		}
-		header := "X-WAF-Risk-" + strings.ReplaceAll(string(family), "_", "-")
+		header := wafheader.RiskPrefix + strings.ReplaceAll(string(family), "_", "-")
 		value, ok := parseHeaderInt(r.Header.Get(header))
 		if !ok {
 			continue
