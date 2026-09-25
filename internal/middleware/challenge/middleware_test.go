@@ -350,6 +350,30 @@ func newTestChallengeMiddleware(t *testing.T) (Middleware, *memory.Store) {
 	return middleware, store
 }
 
+// Un corps de soumission au-delà de maxSubmissionBytes est refusé sans être
+// décodé en entier, même s'il porte un token et une PoW valides.
+func TestMiddlewareVerifyRejectsOversizedBody(t *testing.T) {
+	middleware, store := newTestChallengeMiddleware(t)
+	defer store.Close()
+	token, err := middleware.tokenIssuer.GenerateForRedirect("3.3.3.3", "example.test", "/page")
+	if err != nil {
+		t.Fatalf("GenerateForRedirect() error = %v", err)
+	}
+	nonce := solvePow(t, token, middleware.staticDifficulty())
+	body := submissionJSONWithRenderer(token, nonce, 1200, strings.Repeat("A", maxSubmissionBytes))
+	request := verifyRequest(t, "3.3.3.3:1234", body)
+	response := httptest.NewRecorder()
+
+	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, request)
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", response.Code)
+	}
+	if !strings.Contains(response.Body.String(), "invalid_submission") {
+		t.Fatalf("response missing invalid_submission: %s", response.Body.String())
+	}
+}
+
 func verifyRequest(t *testing.T, remoteAddr string, body string) *http.Request {
 	t.Helper()
 	request := httptest.NewRequest(http.MethodPost, "http://example.test/waf/verify", strings.NewReader(body))

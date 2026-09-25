@@ -16,6 +16,11 @@ import (
 	"github.com/gaetandev/waf/internal/trust"
 )
 
+// maxRequestBodyBytes borne le corps des requêtes admin (IPEntry,
+// ConfigUpdate, GDPRErasureRequest : quelques centaines d'octets). Un corps
+// plus grand échoue au décodage et reçoit le 400 de l'opération.
+const maxRequestBodyBytes = 64 << 10
+
 type errorResponse struct {
 	Error   string `json:"error"`
 	Message string `json:"message"`
@@ -105,9 +110,18 @@ func (s *Server) routes() http.Handler {
 		if !r.public {
 			handler = s.auth(handler)
 		}
-		mux.Handle(r.method+" "+r.pattern, handler)
+		mux.Handle(r.method+" "+r.pattern, limitBody(handler))
 	}
 	return mux
+}
+
+// limitBody plafonne la lecture du corps : sans borne, jsonstrict.Decode
+// décodait en mémoire un flux de taille arbitraire.
+func limitBody(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		r.Body = http.MaxBytesReader(w, r.Body, maxRequestBodyBytes)
+		next.ServeHTTP(w, r)
+	})
 }
 
 // gdprErase efface toutes les données d'un visiteur par son IP (droit à

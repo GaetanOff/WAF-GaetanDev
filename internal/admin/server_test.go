@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -356,5 +357,22 @@ func TestClusterBlacklistEntrySurvivesLocalAdminChanges(t *testing.T) {
 	entries := server.state.ListBlacklist()
 	if len(entries) != 2 || entries[0].Reason != clusterBlacklistReason {
 		t.Fatalf("blacklist = %+v, want both cluster entries listed with reason %q", entries, clusterBlacklistReason)
+	}
+}
+
+// Un corps admin au-delà de maxRequestBodyBytes est refusé en 400 et
+// n'ajoute rien, même s'il est par ailleurs bien formé.
+func TestAdminRejectsOversizedBody(t *testing.T) {
+	server := newTestServer(t)
+	body := `{"ip":"5.5.5.5","reason":"` + strings.Repeat("a", maxRequestBodyBytes) + `"}`
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, requestWithAuth(http.MethodPost, "/waf/admin/blacklist", body))
+
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("status = %d, want 400", response.Code)
+	}
+	if entries := server.state.ListBlacklist(); len(entries) != 0 {
+		t.Fatalf("blacklist = %v, want empty", entries)
 	}
 }

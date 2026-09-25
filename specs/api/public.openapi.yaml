@@ -8,7 +8,7 @@ info:
     WAF : ces chemins ne sont jamais transmis à l'upstream. L'API
     d'administration, sur son port privé, a son propre contrat
     (admin.openapi.yaml).
-  version: 1.0.0
+  version: 1.0.1
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -87,8 +87,9 @@ paths:
         challenge (FR-04). En cas de succès, émet le cookie de clearance signé
         et retourne l'URL de retour. Servi dès qu'un hôte au moins peut être
         challengé (challenge.enabled ou domains[].challenge_enabled). Borné par
-        IP (self_protection.verify_max_per_minute, FR-30). Réponses jamais
-        mises en cache (Cache-Control: no-store).
+        IP (self_protection.verify_max_per_minute, FR-30). Corps borné à
+        16 Kio : au-delà, refus 400 invalid_submission sans décodage complet.
+        Réponses jamais mises en cache (Cache-Control: no-store).
       tags: [Challenge]
       requestBody:
         required: true

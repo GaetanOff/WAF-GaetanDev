@@ -34,6 +34,10 @@ const (
 	// headerFingerprintHash transmet au moteur de risque le fingerprint lié au
 	// cookie de clearance (preuve « fingerprint stable », FR-37).
 	headerFingerprintHash = "X-WAF-Fingerprint-Hash"
+	// maxSubmissionBytes borne le corps de POST /waf/verify. Une soumission
+	// réelle (challenge-submission.schema.json) tient sous 2 Ko ; au-delà, le
+	// corps est refusé en invalid_submission.
+	maxSubmissionBytes = 16 << 10
 )
 
 type Middleware struct {
@@ -233,6 +237,9 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Le corps est lu avant toute vérification de coût (token, PoW) : sans
+	// borne, un flux de plusieurs centaines de Mo était décodé en mémoire.
+	r.Body = http.MaxBytesReader(w, r.Body, maxSubmissionBytes)
 	var submission Submission
 	if err := jsonstrict.Decode(r.Body, &submission); err != nil {
 		rejectSubmission(w, "invalid_submission")

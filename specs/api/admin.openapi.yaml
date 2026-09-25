@@ -6,7 +6,9 @@ info:
     API d'administration du WAF Anti-DDoS/Anti-Bot.
     Exposée sur un port séparé (défaut: 9090), protégée par Bearer token.
     Ne jamais exposer ce port publiquement.
-  version: 1.2.1
+    Tout corps de requête est borné à 64 Kio : au-delà, le décodage échoue et
+    l'opération répond son 400.
+  version: 1.2.2
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
