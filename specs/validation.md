@@ -1,7 +1,7 @@
 ---
 status: implemented
 version: 1.0.0
-last-reviewed: 2026-09-24
+last-reviewed: 2026-09-25
 ---
 
 # Validation Report — WAF Anti-DDoS / Anti-Bot
@@ -295,6 +295,19 @@ last-reviewed: 2026-09-24
 | 2026-09-24 | `ttlcache` sous contention | Benchmark `Get` parallèle (non versionné), 1/4/8/16 cœurs | mesure | 37 / 91 / 85 / 108 ns/op : ~10 M lectures/s par cache, sharding non justifié |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `Example.com:8080` compté sous `domain="example.com"` ; `attack-1.test`, `attack-2.test` sous `_undeclared` ; `GET /waf/admin/config` masque les secrets |
 
+| 2026-09-25 | Sprint 20 (audit 5) | `go test ./...` | pass | 747 tests et sous-tests |
+| 2026-09-25 | Sprint 20 (audit 5) | `go vet ./...` + `go build ./...` | pass | |
+| 2026-09-25 | Sprint 20 (audit 5) | `golangci-lint run ./...` | pass | 0 issue |
+| 2026-09-25 | Sprint 20 (audit 5) | `spectral lint` admin + public | pass | 0 erreur |
+| 2026-09-25 | Sprint 20 (audit 5) | `govulncheck ./...` | pass | 0 vulnérabilité atteignable ; 1 dans un module requis, non appelée |
+| 2026-09-25 | Sprint 20 (audit 5) | `go test -race` | **non exécuté localement** | cgo indisponible sur le poste ; couvert par la CI |
+| 2026-09-25 | Action TARPIT | `TestMiddlewareLogsTarpitOnlyWhenServed`, `TestMiddlewareCountsTarpitOnlyWhenServed`, `TestAdminStatsCountsRequestsByAction` | pass | TARPIT journalisé PASS sur l'ancien code |
+| 2026-09-25 | Refus de `/waf/verify`, 413, tarpit saturé | `TestMiddlewareVerifyTagsRejectionsAsBlock`, `TestHandlerRejectsOversizedBody`, `TestDispatchReturns429WhenSemaphoreFull` | pass | Aucun `X-WAF-Action` sur l'ancien code |
+| 2026-09-25 | Alerting | `TestNotifierReportsDeliveryOutcomes`, `TestFailingSinkDoesNotDelayOtherSinks`, `TestFailingSinkGetsOneAttemptUntilItRecovers`, `TestFullQueueCountsDroppedAlertsAsFailed`, `TestCloseInterruptsRetryBackoff`, `TestRetryBackoffFollowsTheSpecifiedSchedule` | pass | |
+| 2026-09-25 | Contrat admin fermé | `TestAdminContractObjectsAreClosed` | pass | 7 objets ouverts sur l'ancien contrat |
+| 2026-09-25 | Démarrage des serveurs | `TestListenInBackgroundReportsFailuresWithoutBlocking` | pass | |
+| 2026-09-25 | Chemin proxifié | `BenchmarkPoolPickParallel`, `BenchmarkToken`, `TestGlobalPressureGaugeFollowsLevelChanges` | mesure | Pool 20 goroutines ~190 → ~85 ns/op ; token d'origine ~920 ns / 10 allocs → ~24 ns / 0 ; pression ~350 ns / 1 alloc → ~55 ns / 0 |
+| 2026-09-25 | Binaire | Exécution réelle sur `configs/config.example.yaml` | pass | `/waf/verify` 400 et 405 : `BLOCK verify_invalid_token` / `verify_method_not_allowed`, `upstream_status: null`, dans `GET /waf/admin/events` et `waf_requests_total{action="BLOCK"}` |
 | 2026-09-24 | Sprint 19 (audit 4) | `go test ./...` | pass | 723 tests et sous-tests, 45 paquets testés |
 | 2026-09-24 | Sprint 19 (audit 4) | `go vet ./...` + `go build ./...` | pass | |
 | 2026-09-24 | Sprint 19 (audit 4) | `golangci-lint run ./...` | pass | 0 issue |
@@ -308,6 +321,26 @@ last-reviewed: 2026-09-24
 | 2026-09-24 | Pool d'upstreams | `BenchmarkPoolPick`, `TestPoolPickDoesNotAllocate` | pass | 1 alloc (48 B/op) avant, 0 après, 4 stratégies |
 | 2026-09-24 | Verrous visiteurs / DDoS | Benchmarks parallèles (non versionnés), 1 et 8 cœurs | mesure | `observe` 93 / 131 ns/op ; `Record` 60 / 117 ; `Observe` 98 / 284 : verrous occupés < 1 % à 20 000 req/s |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` + `strict_host` | pass | Host non déclaré : 400, `BLOCK host_not_declared` journalisé, `waf_blocked_total{domain="_undeclared"}` ; `/waf/metrics` par IP 400 ; `/waf/health` 200 |
+
+### Sprint 20 — cinquième audit du 2026-09-25 : ce qui était exact, ce qui ne l'était pas
+
+- **Exact et corrigé** : 1.1 à 1.3, 2.1, 2.2, 2.4, 3.2, 4.1, 4.3, 4.4. Chaque
+  correctif de code a un test.
+- **Exact, plus large que décrit** : 2.3 — le retry existait, mais son backoff
+  (200 ms doublé) contredisait FR-29 (1 s, 5 s, 25 s) : le code est aligné sur
+  la spec avant de retirer `@deferred`. 3.1 — au canal sous-dimensionné
+  s'ajoutait `http.ErrServerClosed` remonté par l'API admin.
+- **Infirmé par la mesure** : 4.2 — FNV-1a n'alloue pas (inline, conversion
+  non échappée), même pour une clé IPv6 de 39 caractères.
+- **Écart à la spec corrigé dans la spec** : la jauge `waf_alerts_pending_total`
+  devient `waf_alerts_pending` (convention Prometheus : `_total` désigne un
+  compteur).
+- **Changements de comportement** : réponses du tarpit journalisées et comptées
+  `TARPIT` (429 saturé : `tarpit_saturated`) ; refus de `/waf/verify` et 413
+  comptés `BLOCK` — ils alimentent `waf_blocked_total` et le trigger d'alerte
+  `block` ; `add_header` sans nom d'en-tête valide refusé au chargement ; retry
+  des webhooks à 1 s / 5 s / 25 s, une seule tentative par alerte vers un sink
+  en échec ; `waf_global_pressure` exposée à 0 avant la première requête.
 
 ### Sprint 19 — quatrième audit du 2026-09-24 : ce qui était exact, ce qui ne l'était pas
 
@@ -615,7 +648,7 @@ critère d'acceptation.
 
 | Check | Status | Notes |
 |-------|--------|-------|
-| `go test ./...` | ✅ | 723 tests et sous-tests, 45 paquets testés |
+| `go test ./...` | ✅ | 747 tests et sous-tests |
 | `go test -race ./...` | ⬜ | non exécutable localement (pas de toolchain C sous Windows) — exécuté par la CI (`ci.yml`, job Test) |
 | Scénarios non implémentés isolés (`@deferred`) | ✅ | rules-engine, upstream-health, audit-trail, deception-layer, origin-protection, acme-tls, webhook-alerts, geo-rules, threat-intelligence, adaptive-protection |
 

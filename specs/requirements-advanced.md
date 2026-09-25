@@ -1,7 +1,7 @@
 ---
 status: implemented
-version: 2.5.6
-last-reviewed: 2026-09-24
+version: 2.6.0
+last-reviewed: 2026-09-25
 reviewed-by: GaetanDev
 extends: requirements.md (v2.0.0)
 change: "FR-14 : anti-rétrogradation spécifiée en `invalid_pow`, plancher de pression précisé, message de page, métrique d'intensité et baseline 24 h marqués différés. Précédent (2.5.5) — FR-13 : paliers AbuseIPDB réalignés sur le vérificateur (≥ 80 déclencheur threat_intel_critical, ≥ 50 trust score plafonné à 20), plages locales et échec de source spécifiés. Précédent (2.5.4) — FR-16 : exigences réalignées sur le bloc `geo` implémenté, rate limit et score par pays, règles par domaine et métriques par pays marqués différés. Précédent (2.5.3) — FR-11 : sans moteur de risque, le middleware de trust score applique le déclencheur `ja3_blacklist` (403) — la blacklist JA3 était sans effet. Précédent (2.5.2) — FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par le moteur de risque, FR-35), la clause « score -= 40 et challenge immédiat » antérieure au moteur est retirée. Précédent (2.5.1) — FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
