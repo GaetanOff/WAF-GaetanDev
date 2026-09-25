@@ -511,3 +511,31 @@ func TestValidateStrictHostRequiresDomains(t *testing.T) {
 		t.Fatalf("Validate() unexpected error = %v", err)
 	}
 }
+
+// FR-25 : chaque membre du pool est une URL absolue, comme upstream.address.
+func TestValidateUpstreamPoolAddresses(t *testing.T) {
+	tests := []struct {
+		name    string
+		address string
+		wantErr bool
+	}{
+		{name: "absolute url accepted", address: "http://10.0.0.1:8080", wantErr: false},
+		{name: "empty rejected", address: "", wantErr: true},
+		{name: "missing scheme rejected", address: "10.0.0.1:8080", wantErr: true},
+		{name: "bare host rejected", address: "backend", wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validBaseConfig()
+			cfg.UpstreamPool.Enabled = true
+			cfg.UpstreamPool.Upstreams = []PoolUpstream{{Address: "http://10.0.0.2:8080"}, {Address: tt.address}}
+			err := cfg.Validate()
+			if tt.wantErr && (err == nil || !strings.Contains(err.Error(), "upstream_pool.upstreams[1].address")) {
+				t.Fatalf("Validate() error = %v, want it to name upstream_pool.upstreams[1].address", err)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("Validate() unexpected error = %v", err)
+			}
+		})
+	}
+}

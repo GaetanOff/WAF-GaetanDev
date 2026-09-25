@@ -868,6 +868,14 @@ func (c *Config) Validate() error {
 		if c.UpstreamPool.Strategy != "" {
 			validateEnum(&fields, "upstream_pool.strategy", c.UpstreamPool.Strategy, "round_robin", "least_conn", "ip_hash", "weighted")
 		}
+		// Comme upstream.address et domains[].upstream : une adresse sans
+		// schéma ni hôte passait la validation, puis échouait en silence dans
+		// les sondes de santé et au premier routage.
+		for i, member := range c.UpstreamPool.Upstreams {
+			name := fmt.Sprintf("upstream_pool.upstreams[%d].address", i)
+			requireString(&fields, name, member.Address)
+			validateURL(&fields, name, member.Address)
+		}
 		validateDuration(&fields, "upstream_pool.health_check.interval", c.UpstreamPool.HealthCheck.Interval)
 		validateDuration(&fields, "upstream_pool.health_check.timeout", c.UpstreamPool.HealthCheck.Timeout)
 	}
