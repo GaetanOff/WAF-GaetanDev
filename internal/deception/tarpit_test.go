@@ -59,6 +59,9 @@ func TestDispatchReturns429WhenSemaphoreFull(t *testing.T) {
 	if response.Code != http.StatusTooManyRequests {
 		t.Fatalf("status = %d, want 429 when tarpit pool is full", response.Code)
 	}
+	if action, reason := response.Header().Get("X-WAF-Action"), response.Header().Get("X-WAF-Reason"); action != "TARPIT" || reason != ReasonSaturated {
+		t.Fatalf("X-WAF-Action/Reason = %q/%q, want TARPIT/%s", action, reason, ReasonSaturated)
+	}
 }
 
 // FR-15 : chaque chunk est poussé au client, même à travers les wrappers de

@@ -16,7 +16,12 @@ import (
 	"time"
 )
 
-const tarpitActionHeader = "X-WAF-Action"
+const (
+	tarpitActionHeader = "X-WAF-Action"
+	tarpitReasonHeader = "X-WAF-Reason"
+	// ReasonSaturated identifie le 429 servi quand le sémaphore est plein.
+	ReasonSaturated = "tarpit_saturated"
+)
 
 // Tarpit ralentit les requêtes marquées TARPIT par le moteur de risque.
 type Tarpit struct {
@@ -53,7 +58,11 @@ func (t *Tarpit) Dispatch(next http.Handler) http.Handler {
 			defer func() { <-t.sem }()
 			t.serve(w, r)
 		default:
-			// Sémaphore plein : on protège les goroutines (NFR-10).
+			// Sémaphore plein : on protège les goroutines (NFR-10). Le refus
+			// reste une décision TARPIT (la requête n'atteint pas l'origine) ;
+			// sans action posée, il était journalisé et compté PASS.
+			w.Header().Set(tarpitActionHeader, "TARPIT")
+			w.Header().Set(tarpitReasonHeader, ReasonSaturated)
 			w.Header().Set("Retry-After", "5")
 			http.Error(w, "service unavailable", http.StatusTooManyRequests)
 		}

@@ -93,6 +93,7 @@ change: "FR-14 : anti-rétrogradation spécifiée en `invalid_pow`, plancher de 
 - Le tarpit ne DOIT PAS consommer des goroutines illimitées — limite configurable de connexions tarpitées simultanées
 - Le WAF DOIT simuler une vraie réponse HTML pendant le tarpit (titre, structure) pour piéger les scrapers
 - Une réponse servie par le tarpit DOIT être journalisée et comptée avec l'action `TARPIT` (journal de sécurité, `waf_requests_total{action="TARPIT"}`, `GET /waf/admin/events`, `requests_tarpitted` de `GET /waf/stats`). Posée sur la requête, la classification `TARPIT` n'est pas une action : sans couche de déception, la requête atteint l'upstream et reste `PASS`
+- Le 429 servi quand la limite de connexions tarpitées est atteinte DOIT être journalisé et compté `TARPIT` avec la reason `tarpit_saturated` : la requête n'atteint pas l'origine
 
 ### Honeypot Content Injection
 

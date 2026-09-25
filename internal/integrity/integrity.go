@@ -15,6 +15,7 @@ import (
 
 const (
 	headerRiskIntegrity = "X-WAF-Risk-integrity"
+	headerAction        = "X-WAF-Action"
 	headerReason        = "X-WAF-Reason"
 
 	// Contributions de risque par type de détection (sommées, bornées à 100).
@@ -108,13 +109,15 @@ func (a Analyzer) Evaluate(r *http.Request) Result {
 // d'obfuscation/injection (FR-18 : laisser l'app décider, le moteur arbitre).
 func (a Analyzer) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !a.enabled || r.Header.Get("X-WAF-Action") == "PASS" {
+		if !a.enabled || r.Header.Get(headerAction) == "PASS" {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		if a.maxBodyBytes > 0 {
 			if r.ContentLength > a.maxBodyBytes {
+				// Sans action posée, le refus était journalisé et compté PASS.
+				w.Header().Set(headerAction, "BLOCK")
 				w.Header().Set(headerReason, ReasonBodyTooLarge)
 				http.Error(w, "request entity too large", http.StatusRequestEntityTooLarge)
 				return

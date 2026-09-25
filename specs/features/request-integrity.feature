@@ -66,6 +66,7 @@ Feature: Analyse d'Intégrité des Requêtes
     When le WAF vérifie la taille du body
     Then la requête reçoit HTTP 413 (Content Too Large)
     And la connexion upstream n'est pas ouverte
+    And l'événement de sécurité porte action = "BLOCK" et reason = "body_too_large"
 
   Scenario: Content-Type invalide sur POST
     Given une requête POST avec Content-Type: application/json

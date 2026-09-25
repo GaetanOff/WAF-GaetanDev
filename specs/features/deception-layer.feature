@@ -50,6 +50,7 @@ Feature: Deception Layer (Tarpit + Honeypot Content)
     Given 500 connexions tarpitées sont déjà actives (limite atteinte)
     When un 501ème bot entre en condition de tarpit
     Then le WAF retourne HTTP 429 immédiatement au lieu du tarpit
+    And l'événement de sécurité porte action = "TARPIT" et reason = "tarpit_saturated"
     And la métrique waf_tarpit_connections_total reste à 500
     And aucune goroutine supplémentaire n'est créée
 
