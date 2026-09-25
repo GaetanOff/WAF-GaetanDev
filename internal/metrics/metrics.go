@@ -2,6 +2,8 @@ package metrics
 
 import (
 	"net/http"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
@@ -34,6 +36,11 @@ type Metrics struct {
 	visitorsByState *prometheus.GaugeVec
 	powDifficulty   prometheus.Gauge
 	globalPressure  *prometheus.GaugeVec
+	pressureGauges  [len(pressureLevels)]prometheus.Gauge
+	// pressureLevel est l'index publié dans pressureGauges (unknownPressure :
+	// niveau inconnu, toutes à 0). pressureMu sérialise les republications.
+	pressureLevel   atomic.Int32
+	pressureMu      sync.Mutex
 	underAttack     *prometheus.GaugeVec
 	underAttackHits *prometheus.CounterVec
 	clusterEvents   *prometheus.CounterVec
@@ -145,6 +152,10 @@ func New() *Metrics {
 		now: time.Now,
 	}
 	m.visitors = newVisitorTracker(defaultVisitorWindow, defaultMaxVisitors, m.activeVisitors, m.visitorsByState)
+	for i, level := range pressureLevels {
+		m.pressureGauges[i] = m.globalPressure.WithLabelValues(level)
+	}
+	m.pressureLevel.Store(unpublishedPressure)
 	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors, m.alertsSent, m.alertsFailed)
 	// La liste compilée est en vigueur au démarrage : publier son cardinal tout
 	// de suite évite une jauge à 0 qui se lirait comme « aucune plage connue ».
@@ -304,18 +315,46 @@ func (m *Metrics) observeVisitor(r *http.Request, scores *trust.ScoreManager) {
 	m.visitors.observe(visitor.IPHash, scores.State(visitor.Score), m.now())
 }
 
+// pressureLevels sont les niveaux de waf_global_pressure, jauge one-hot.
+var pressureLevels = [...]string{"normal", "elevated", "high", "critical"}
+
+const (
+	unknownPressure     = -1 // niveau hors de pressureLevels : toutes à 0
+	unpublishedPressure = -2 // aucune requête observée
+
+	// headerGlobalPressure est X-WAF-Global-Pressure sous sa forme canonique :
+	// Header.Get n'a pas à la recalculer (une allocation par appel).
+	headerGlobalPressure = "X-Waf-Global-Pressure"
+)
+
+// observeGlobalPressure ne republie la jauge one-hot qu'au changement de
+// niveau : quatre WithLabelValues().Set() par requête (recherche de série
+// par label) pour une valeur qui ne change qu'avec la pression.
 func (m *Metrics) observeGlobalPressure(r *http.Request) {
-	current := r.Header.Get("X-WAF-Global-Pressure")
+	current := r.Header.Get(headerGlobalPressure)
 	if current == "" {
 		current = "normal"
 	}
-	for _, level := range []string{"normal", "elevated", "high", "critical"} {
+	level := int32(unknownPressure)
+	for i, name := range pressureLevels {
+		if name == current {
+			level = int32(i)
+			break
+		}
+	}
+	if m.pressureLevel.Load() == level {
+		return
+	}
+	m.pressureMu.Lock()
+	defer m.pressureMu.Unlock()
+	for i, gauge := range m.pressureGauges {
 		value := 0.0
-		if level == current {
+		if int32(i) == level {
 			value = 1
 		}
-		m.globalPressure.WithLabelValues(level).Set(value)
+		gauge.Set(value)
 	}
+	m.pressureLevel.Store(level)
 }
 
 // observeUnderAttack publie l'état du mode sous attaque par domaine (FR-39) et

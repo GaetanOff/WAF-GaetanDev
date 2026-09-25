@@ -212,3 +212,27 @@ func TestAlertMetrics(t *testing.T) {
 	assertMetricContains(t, body, `waf_alerts_failed_total{trigger="honeypot"} 1`)
 	assertMetricContains(t, body, `waf_alerts_pending 3`)
 }
+
+// La jauge one-hot suit les changements de niveau, et n'est pas republiée
+// tant que le niveau ne change pas.
+func TestGlobalPressureGaugeFollowsLevelChanges(t *testing.T) {
+	metrics := New()
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
+
+	request.Header.Set("X-WAF-Global-Pressure", "critical")
+	metrics.observeGlobalPressure(request)
+	request.Header.Set("X-WAF-Global-Pressure", "elevated")
+	metrics.observeGlobalPressure(request)
+
+	body := scrape(t, metrics)
+	assertMetricContains(t, body, `waf_global_pressure{level="critical"} 0`)
+	assertMetricContains(t, body, `waf_global_pressure{level="elevated"} 1`)
+
+	if allocs := testing.AllocsPerRun(100, func() { metrics.observeGlobalPressure(request) }); allocs != 0 {
+		t.Fatalf("%v allocations per unchanged observation, want 0", allocs)
+	}
+
+	request.Header.Set("X-WAF-Global-Pressure", "bogus")
+	metrics.observeGlobalPressure(request)
+	assertMetricContains(t, scrape(t, metrics), `waf_global_pressure{level="elevated"} 0`)
+}
