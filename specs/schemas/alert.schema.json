@@ -55,6 +55,7 @@
     "trust_score": { "type": "integer", "description": "Score de confiance du visiteur" },
     "data": {
       "type": ["object", "null"],
+      "additionalProperties": false,
       "description": "Données contextuelles spécifiques au trigger",
       "properties": {
         "ip": { "type": "string" },
