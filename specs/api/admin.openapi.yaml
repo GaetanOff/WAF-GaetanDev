@@ -8,7 +8,7 @@ info:
     Ne jamais exposer ce port publiquement.
     Tout corps de requête est borné à 64 Kio : au-delà, le décodage échoue et
     l'opération répond son 400.
-  version: 1.3.0
+  version: 1.4.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -296,6 +296,18 @@ components:
             error: "already_exists"
             message: "Entry already exists"
 
+    AccessRulesSyncFailed:
+      description: >-
+        Les règles appliquées n'ont pas pu suivre la suppression : l'entrée est
+        conservée, rien n'a changé.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error: "access_rules_sync_failed"
+            message: "Access rules could not be updated; the entry was kept"
+
     Unauthorized:
       description: Token Bearer manquant ou invalide
       content:
@@ -491,6 +503,8 @@ paths:
           description: Entrée supprimée
         "404":
           description: IP non trouvée
+        "500":
+          $ref: "#/components/responses/AccessRulesSyncFailed"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "429":
@@ -570,6 +584,8 @@ paths:
           description: Entrée supprimée
         "404":
           description: IP non trouvée
+        "500":
+          $ref: "#/components/responses/AccessRulesSyncFailed"
         "401":
           $ref: "#/components/responses/Unauthorized"
         "429":

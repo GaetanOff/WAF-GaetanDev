@@ -80,11 +80,13 @@ func (s *State) AddBlacklist(entry IPEntry) (IPEntry, bool, error) {
 	return s.addEntry(s.blacklist, entry, false)
 }
 
-func (s *State) RemoveWhitelist(ip string) bool {
+// RemoveWhitelist retire une entrée ; found est faux si elle n'existe pas.
+func (s *State) RemoveWhitelist(ip string) (found bool, err error) {
 	return s.removeEntry(s.whitelist, ip)
 }
 
-func (s *State) RemoveBlacklist(ip string) bool {
+// RemoveBlacklist retire une entrée ; found est faux si elle n'existe pas.
+func (s *State) RemoveBlacklist(ip string) (found bool, err error) {
 	return s.removeEntry(s.blacklist, ip)
 }
 
@@ -134,21 +136,34 @@ func (s *State) addEntry(target map[string]IPEntry, entry IPEntry, whitelist boo
 	return entry, false, nil
 }
 
-func (s *State) removeEntry(target map[string]IPEntry, ip string) bool {
+// removeEntry retire l'entrée puis resynchronise les règles appliquées. Un
+// échec de synchronisation était ignoré : l'API ne listait plus l'entrée que
+// le middleware continuait d'appliquer. Comme pour addEntry, l'état est alors
+// restauré et l'erreur remontée.
+func (s *State) removeEntry(target map[string]IPEntry, ip string) (bool, error) {
 	normalized, err := normalizeIPRule(ip)
 	if err != nil {
-		return false
+		return false, nil
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	if _, exists := target[normalized]; !exists {
-		return false
+	entry, exists := target[normalized]
+	if !exists {
+		return false, nil
 	}
 	delete(target, normalized)
+	s.syncConfigListsLocked()
+	if err := s.syncAccessRulesLocked(); err != nil {
+		target[normalized] = entry
+		s.syncConfigListsLocked()
+		return true, err
+	}
+	return true, nil
+}
+
+func (s *State) syncConfigListsLocked() {
 	s.cfg.Whitelist = keys(s.whitelist)
 	s.cfg.Blacklist = keys(s.blacklist)
-	_ = s.syncAccessRulesLocked()
-	return true
 }
 
 func (s *State) syncAccessRulesLocked() error {

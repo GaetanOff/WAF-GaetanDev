@@ -3,6 +3,7 @@ package admin
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"log/slog"
 	"net"
 	"net/http"
 	"net/url"
@@ -270,8 +271,13 @@ func (s *Server) addWhitelist(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteWhitelist(w http.ResponseWriter, r *http.Request) {
 	target := pathTail(r, "/waf/admin/whitelist/")
-	if !s.state.RemoveWhitelist(target) {
+	found, err := s.state.RemoveWhitelist(target)
+	if !found {
 		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeSyncFailure(w, err)
 		return
 	}
 	s.record("remove_whitelist", target, "removed")
@@ -288,12 +294,24 @@ func (s *Server) addBlacklist(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) deleteBlacklist(w http.ResponseWriter, r *http.Request) {
 	target := pathTail(r, "/waf/admin/blacklist/")
-	if !s.state.RemoveBlacklist(target) {
+	found, err := s.state.RemoveBlacklist(target)
+	if !found {
 		http.NotFound(w, r)
+		return
+	}
+	if err != nil {
+		writeSyncFailure(w, err)
 		return
 	}
 	s.record("remove_blacklist", target, "removed")
 	w.WriteHeader(http.StatusNoContent)
+}
+
+// writeSyncFailure signale que les règles appliquées n'ont pas pu suivre une
+// suppression : l'entrée est restaurée, rien n'a changé.
+func writeSyncFailure(w http.ResponseWriter, err error) {
+	slog.Error("access rules sync failed: entry restored", "error", err)
+	writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "access_rules_sync_failed", Message: "Access rules could not be updated; the entry was kept"})
 }
 
 func (s *Server) addIPEntry(w http.ResponseWriter, r *http.Request, whitelist bool) {
