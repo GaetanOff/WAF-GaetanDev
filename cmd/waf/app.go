@@ -10,6 +10,7 @@ import (
 	"os"
 	"os/signal"
 	"slices"
+	"sync"
 	"syscall"
 	"time"
 
@@ -555,6 +556,7 @@ func (a *app) serve(timeouts serverTimeouts) error {
 	// Un emplacement par serveur : avec un canal de capacité 1, une deuxième
 	// erreur (ex. ports 443 et 80 déjà pris) bloquait sa goroutine pour toujours.
 	errs := make(chan error, maxListeners)
+	servers := []namedServer{{name: "public", server: server}}
 	slog.Info("starting waf", "listen", server.Addr, "tls", tlsEnabled)
 	if tlsEnabled {
 		listenInBackground(errs, func() error { return server.ListenAndServeTLS("", "") }) // certs fournis par autocert ou tlsmgr (GetCertificate)
@@ -565,20 +567,32 @@ func (a *app) serve(timeouts serverTimeouts) error {
 	if acmeManager != nil {
 		challengeServer := a.newSideServer(cfg.ACME.HTTPChallengeListen, acmeManager.HTTPHandler(nil), timeouts.header)
 		listenInBackground(errs, challengeServer.ListenAndServe)
-		defer func() { _ = challengeServer.Close() }()
+		servers = append(servers, namedServer{name: "acme challenge", server: challengeServer})
 	}
 	// Redirection HTTP -> HTTPS (FR-33) quand le WAF termine lui-même le TLS par
 	// domaine et que redirect_http est actif.
 	if tlsManager != nil && cfg.Server.TLS.RedirectHTTP {
 		redirectServer := a.newSideServer(cfg.Server.Listen, redirectToHTTPS(cfg.Domains), timeouts.header)
 		listenInBackground(errs, redirectServer.ListenAndServe)
-		defer func() { _ = redirectServer.Close() }()
+		servers = append(servers, namedServer{name: "https redirect", server: redirectServer})
 	}
 	if a.adminServer != nil {
 		slog.Info("starting admin api", "listen", cfg.Server.AdminListen)
 		listenInBackground(errs, a.adminServer.ListenAndServe)
+		servers = append(servers, namedServer{name: "admin", server: a.adminServer})
 	}
-	return a.awaitShutdown(server, errs, timeouts.shutdown)
+	return awaitShutdown(servers, errs, timeouts.shutdown)
+}
+
+// gracefulServer est satisfait par *http.Server et par l'API admin.
+type gracefulServer interface {
+	Shutdown(ctx context.Context) error
+}
+
+// namedServer nomme un serveur démarré, pour situer un échec d'arrêt.
+type namedServer struct {
+	name   string
+	server gracefulServer
 }
 
 // configureTLS attache au serveur public ACME / Let's Encrypt (FR-31) ou la
@@ -623,32 +637,52 @@ func (a *app) newSideServer(addr string, handler http.Handler, headerTimeout tim
 }
 
 // awaitShutdown attend un signal d'arrêt ou l'échec d'un serveur, puis arrête
-// le serveur public et l'API admin dans le délai de grâce.
-func (a *app) awaitShutdown(server *http.Server, errs chan error, shutdownTimeout time.Duration) error {
+// tous les serveurs démarrés. L'échec d'un listener arrêtait le processus sans
+// arrêter les autres : leurs requêtes en cours touchaient ensuite des stores
+// déjà fermés par app.stop.
+func awaitShutdown(servers []namedServer, errs chan error, shutdownTimeout time.Duration) error {
 	stop := make(chan os.Signal, 1)
 	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
 	defer signal.Stop(stop)
 
+	var listenErr error
 	select {
 	case signalReceived := <-stop:
 		slog.Info("shutdown requested", "signal", signalReceived.String())
-	case err := <-errs:
-		return err
+	case listenErr = <-errs:
+		slog.Error("server failed, shutting down", "error", listenErr)
 	}
 
+	shutdownErr := shutdownAll(servers, shutdownTimeout)
+	if listenErr != nil {
+		return errors.Join(listenErr, shutdownErr)
+	}
+	if shutdownErr != nil {
+		return shutdownErr
+	}
+	return drainedError(errs)
+}
+
+// shutdownAll arrête les serveurs en parallèle, chacun disposant du délai de
+// grâce entier. Arrêtés l'un après l'autre sous un contexte commun, le serveur
+// public pouvait consommer tout le délai à drainer ses connexions : l'API admin
+// recevait un contexte déjà expiré, et les serveurs annexes n'étaient que
+// fermés (Close), sans drainage.
+func shutdownAll(servers []namedServer, shutdownTimeout time.Duration) error {
 	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
 	defer cancel()
 
-	if err := server.Shutdown(ctx); err != nil {
-		return fmt.Errorf("shutdown server: %w", err)
+	failures := make([]error, len(servers))
+	var wg sync.WaitGroup
+	for i, s := range servers {
+		wg.Go(func() {
+			if err := s.server.Shutdown(ctx); err != nil {
+				failures[i] = fmt.Errorf("shutdown %s server: %w", s.name, err)
+			}
+		})
 	}
-	if a.adminServer != nil {
-		if err := a.adminServer.Shutdown(ctx); err != nil {
-			return fmt.Errorf("shutdown admin server: %w", err)
-		}
-	}
-
-	return drainedError(errs)
+	wg.Wait()
+	return errors.Join(failures...)
 }
 
 // listenInBackground lance listen dans une goroutine et remonte son erreur sur

@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 2.4.0
+version: 2.4.1
 last-reviewed: 2026-09-25
 reviewed-by: GaetanDev
-change: "FR-09 : les refus slowloris, flood de /waf/verify et strict_host sont journalisés et comptés. FR-07 : un User-Agent de `whitelist_user_agents` n'est plus pénalisé par les heuristiques « client non navigateur » (en-têtes manquants, UA d'outil) — Googlebot était bloqué en huit requêtes. Précédent (2.3.2) — FR-09 : le label `domain` des métriques est borné aux hôtes de `domains[]`, tout autre hôte est compté sous `_undeclared`. Précédent (2.3.1) — FR-08 : seul un refus du rate limit du WAF (`X-WAF-Action: RATE_LIMIT`) est une violation de circuit-breaker, jamais un 429 de l'upstream. Précédent (2.3.0) — FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
+change: "NFR-05 : arrêt parallèle de tous les serveurs, chacun avec le délai de grâce entier, y compris sur échec d'un listener. Précédent (2.4.0) — FR-09 : les refus slowloris, flood de /waf/verify et strict_host sont journalisés et comptés. FR-07 : un User-Agent de `whitelist_user_agents` n'est plus pénalisé par les heuristiques « client non navigateur » (en-têtes manquants, UA d'outil) — Googlebot était bloqué en huit requêtes. Précédent (2.3.2) — FR-09 : le label `domain` des métriques est borné aux hôtes de `domains[]`, tout autre hôte est compté sous `_undeclared`. Précédent (2.3.1) — FR-08 : seul un refus du rate limit du WAF (`X-WAF-Action: RATE_LIMIT`) est une violation de circuit-breaker, jamais un 429 de l'upstream. Précédent (2.3.0) — FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
 ---
 
 # Requirements — WAF Anti-DDoS / Anti-Bot
@@ -166,6 +166,10 @@ change: "FR-09 : les refus slowloris, flood de /waf/verify et strict_host sont j
 - Configuration via fichier YAML + variables d'environnement
 - Compatible : Bare metal Linux, Docker, Docker Compose, Kubernetes (DaemonSet/Deployment)
 - Signal SIGTERM géré pour graceful shutdown (drain des connexions actives)
+  - Tous les serveurs démarrés (public, API admin, challenge ACME, redirection
+    HTTPS) sont drainés **en parallèle**, chacun disposant du délai
+    `server.graceful_shutdown_timeout` entier
+  - L'échec d'un listener déclenche le même arrêt de tous les autres serveurs
 
 ### NFR-06 — Compatibilité
 - Go 1.27+
