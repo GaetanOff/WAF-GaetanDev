@@ -8,7 +8,12 @@ info:
     WAF : ces chemins ne sont jamais transmis à l'upstream. L'API
     d'administration, sur son port privé, a son propre contrat
     (admin.openapi.yaml).
-  version: 1.3.0
+
+    Avec acme.enabled, un serveur annexe écoute sur acme.http_challenge_listen
+    (défaut :80), hors de la chaîne de protection : il sert le challenge
+    HTTP-01 (/.well-known/acme-challenge/{token}) et redirige toute autre
+    requête GET/HEAD vers HTTPS (302 ; 400 pour les autres méthodes).
+  version: 1.4.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -319,7 +324,50 @@ paths:
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
+  /.well-known/acme-challenge/{token}:
+    servers:
+      - url: http://{domain}
+        description: Serveur annexe ACME (acme.http_challenge_listen, défaut :80)
+        variables:
+          domain:
+            default: example.com
+    get:
+      operationId: getACMEHTTPChallenge
+      summary: Réponse au challenge ACME HTTP-01
+      description: |
+        Servi par autocert (FR-31) au serveur ACME qui valide le contrôle du
+        domaine : la réponse est la key authorization du token en attente.
+        Seuls les hôtes de acme.domains sont servis.
+      tags: [ACME]
+      parameters:
+        - name: token
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: Key authorization du token
+          content:
+            text/plain:
+              schema:
+                type: string
+        "403":
+          description: Host absent de acme.domains
+          content:
+            text/plain:
+              schema:
+                type: string
+        "404":
+          description: Aucun challenge en attente pour ce token
+          content:
+            text/plain:
+              schema:
+                type: string
+
 tags:
+  - name: ACME
+    description: Challenge HTTP-01 de Let's Encrypt (FR-31)
   - name: Challenge
     description: Challenge JavaScript proof-of-work (FR-04)
   - name: Origin

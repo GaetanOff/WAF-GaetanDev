@@ -6,10 +6,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
 
+	"github.com/gaetandev/waf/internal/acme"
 	"github.com/gaetandev/waf/internal/config"
 	"gopkg.in/yaml.v3"
 )
@@ -20,11 +22,38 @@ type publicResponse struct {
 	Content map[string]any `yaml:"content"`
 }
 
+type publicOperation struct {
+	OperationID string                    `yaml:"operationId"`
+	Responses   map[string]publicResponse `yaml:"responses"`
+}
+
+// publicPathItem retient les opérations d'un chemin, par méthode ; les autres
+// champs du Path Item (servers, parameters…) sont ignorés.
+type publicPathItem map[string]publicOperation
+
+func (p *publicPathItem) UnmarshalYAML(node *yaml.Node) error {
+	var fields map[string]yaml.Node
+	if err := node.Decode(&fields); err != nil {
+		return err
+	}
+	*p = publicPathItem{}
+	for name, field := range fields {
+		if !slices.Contains(httpMethods, name) {
+			continue
+		}
+		var operation publicOperation
+		if err := field.Decode(&operation); err != nil {
+			return err
+		}
+		(*p)[name] = operation
+	}
+	return nil
+}
+
+var httpMethods = []string{"get", "put", "post", "delete", "options", "head", "patch", "trace"}
+
 type publicContract struct {
-	Paths map[string]map[string]struct {
-		OperationID string                    `yaml:"operationId"`
-		Responses   map[string]publicResponse `yaml:"responses"`
-	} `yaml:"paths"`
+	Paths      map[string]publicPathItem `yaml:"paths"`
 	Components struct {
 		Responses map[string]publicResponse `yaml:"responses"`
 	} `yaml:"components"`
@@ -132,6 +161,19 @@ func TestPublicEndpointsConformToTheirContract(t *testing.T) {
 		contract.assertConforms(t, probe, serveProbe(handler, probe, "example.test"))
 		probed[probe.path] = true
 	}
+	// Serveur annexe HTTP-01 (acme.http_challenge_listen), hors de routes().
+	acmeHandler := acme.NewManager(config.ACME{Domains: []string{"example.test"}, CacheDir: t.TempDir()}).HTTPHandler(nil)
+	acmeProbe := contractProbe{http.MethodGet, "/.well-known/acme-challenge/unknown-token", ""}
+	for host, want := range map[string]int{"example.test": http.StatusNotFound, "other.test": http.StatusForbidden} {
+		response := serveProbe(acmeHandler, acmeProbe, host)
+		if response.Code != want {
+			t.Fatalf("ACME challenge on %s: status = %d, want %d", host, response.Code, want)
+		}
+		acmeProbe.path = "/.well-known/acme-challenge/{token}"
+		contract.assertConforms(t, acmeProbe, response)
+		acmeProbe.path = "/.well-known/acme-challenge/unknown-token"
+	}
+	probed["/.well-known/acme-challenge/{token}"] = true
 	for path := range contract.Paths {
 		if !probed[path] {
 			t.Errorf("public.openapi.yaml describes %s, which this test does not probe", path)
