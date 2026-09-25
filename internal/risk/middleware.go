@@ -190,6 +190,20 @@ func (m *Middleware) writeHeaders(r *http.Request, assessment RiskAssessment) {
 	}
 }
 
+// familyHeaders associe chaque famille publiée par un détecteur à son en-tête
+// de contribution, sous forme canonique. Le nom était reconstruit (concaténation
+// puis canonicalisation par Header.Get) pour chaque famille à chaque requête.
+var familyHeaders = func() map[SignalFamily]string {
+	headers := make(map[SignalFamily]string)
+	for _, family := range Families() {
+		if family == FamilyReputation || family == FamilyHumanCredit {
+			continue
+		}
+		headers[family] = http.CanonicalHeaderKey(wafheader.RiskPrefix + strings.ReplaceAll(string(family), "_", "-"))
+	}
+	return headers
+}()
+
 func signalProvidersFromRequest(r *http.Request, trustScore int) []SignalProvider {
 	providers := []SignalProvider{
 		staticProvider{
@@ -203,10 +217,10 @@ func signalProvidersFromRequest(r *http.Request, trustScore int) []SignalProvide
 		},
 	}
 	for _, family := range Families() {
-		if family == FamilyReputation || family == FamilyHumanCredit {
+		header, published := familyHeaders[family]
+		if !published {
 			continue
 		}
-		header := wafheader.RiskPrefix + strings.ReplaceAll(string(family), "_", "-")
 		value, ok := parseHeaderInt(r.Header.Get(header))
 		if !ok {
 			continue

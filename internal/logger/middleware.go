@@ -16,7 +16,7 @@ import (
 	"github.com/gaetandev/waf/internal/wafheader"
 )
 
-const requestIDHeader = "X-Request-ID"
+const requestIDHeader = "X-Request-Id" // forme canonique : Get sans allocation
 
 type requestIDContextKey struct{}
 
@@ -239,7 +239,7 @@ const maxCFRayLen = 32
 // bornée) est une défense en profondeur contre l'injection de caractères de
 // contrôle chez les consommateurs de logs non-JSON (CWE-117).
 func cfRay(r *http.Request) *string {
-	return sanitizedToken(r.Header.Get("CF-Ray"), maxCFRayLen)
+	return sanitizedToken(r.Header.Get("Cf-Ray"), maxCFRayLen)
 }
 
 // cfCountry lit et assainit l'en-tête CF-IPCountry. Seul un code de 2 lettres
@@ -247,7 +247,7 @@ func cfRay(r *http.Request) *string {
 // Cloudflare "T1" (Tor) est accepté ; toute autre valeur est ignorée (nil)
 // plutôt que journalisée telle quelle.
 func cfCountry(r *http.Request) *string {
-	country := strings.ToUpper(strings.TrimSpace(r.Header.Get("CF-IPCountry")))
+	country := strings.ToUpper(strings.TrimSpace(r.Header.Get("Cf-Ipcountry")))
 	if !isCountryCode(country) {
 		return nil
 	}

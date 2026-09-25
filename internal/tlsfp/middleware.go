@@ -50,6 +50,8 @@ func NewMiddleware(cfg config.TLSFingerprint, maxVisitors int) *Middleware {
 	if header == "" {
 		header = "Cf-Bot-Management-Ja3Hash"
 	}
+	// Lu à chaque requête : canonicalisé une fois ici plutôt que par Header.Get.
+	header = http.CanonicalHeaderKey(header)
 	contribution := cfg.SwapContribution
 	if contribution <= 0 {
 		contribution = defaultSwapContribution

@@ -205,7 +205,7 @@ func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout 
 		} else {
 			pr.Out.Host = target.Host
 		}
-		pr.Out.Header.Set("X-Real-IP", clientIP)
+		pr.Out.Header.Set("X-Real-Ip", clientIP)
 		if pr.Out.Header.Get(wafheader.Score) == "" {
 			pr.Out.Header.Set(wafheader.Score, defaultWAFScore)
 		}

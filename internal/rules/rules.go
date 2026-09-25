@@ -271,9 +271,9 @@ func compileCondition(c Condition) (matcher, error) {
 	case "method":
 		return compileString(c, func(v *requestView) string { return v.r.Method })
 	case "country":
-		return compileString(c, func(v *requestView) string { return v.r.Header.Get("CF-IPCountry") })
+		return compileString(c, func(v *requestView) string { return v.r.Header.Get("Cf-Ipcountry") })
 	case "header":
-		name := c.Name
+		name := http.CanonicalHeaderKey(c.Name) // une fois, pas à chaque requête
 		return compileString(c, func(v *requestView) string { return v.r.Header.Get(name) })
 	case "query_param":
 		name := c.Name

@@ -13,7 +13,7 @@ import (
 )
 
 const (
-	headerCountry       = "CF-IPCountry"
+	headerCountry       = "Cf-Ipcountry" // CF-IPCountry, forme canonique
 	headerRiskGeo       = wafheader.RiskGeo
 	headerAction        = wafheader.Action
 	headerReason        = wafheader.Reason
