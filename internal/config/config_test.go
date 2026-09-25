@@ -539,3 +539,35 @@ func TestValidateUpstreamPoolAddresses(t *testing.T) {
 		})
 	}
 }
+
+// FR-24 : un préfixe délimite un répertoire (ni "/", ni "/static" sans barre
+// finale) ; un chemin exact est absolu.
+func TestValidateStaticAssetsPaths(t *testing.T) {
+	tests := []struct {
+		name     string
+		prefixes []string
+		exact    []string
+		wantErr  bool
+	}{
+		{name: "defaults accepted", prefixes: Default().StaticAssets.PathPrefixes, exact: Default().StaticAssets.ExactPaths},
+		{name: "root prefix rejected", prefixes: []string{"/"}, wantErr: true},
+		{name: "prefix without trailing slash rejected", prefixes: []string{"/static"}, wantErr: true},
+		{name: "relative prefix rejected", prefixes: []string{"static/"}, wantErr: true},
+		{name: "relative exact path rejected", exact: []string{"robots.txt"}, wantErr: true},
+		{name: "root exact path rejected", exact: []string{"/"}, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validBaseConfig()
+			cfg.StaticAssets.PathPrefixes = tt.prefixes
+			cfg.StaticAssets.ExactPaths = tt.exact
+			err := cfg.Validate()
+			if tt.wantErr && (err == nil || !strings.Contains(err.Error(), "static_assets.")) {
+				t.Fatalf("Validate() error = %v, want a static_assets error", err)
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("Validate() unexpected error = %v", err)
+			}
+		})
+	}
+}

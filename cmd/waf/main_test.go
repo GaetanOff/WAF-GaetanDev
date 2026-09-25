@@ -211,6 +211,37 @@ func TestRoutesExposesPrometheusMetricsEndpoint(t *testing.T) {
 	}
 }
 
+// static-assets-bypass.feature : /robots.txt et /sitemap.xml (chemins exacts)
+// et /assets/… (préfixe) sont proxifiés sans challenge, même challenge actif,
+// et comptés dans waf_asset_requests_total.
+func TestRoutesBypassesExactAndPrefixedAssets(t *testing.T) {
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.Challenge.Enabled = true
+	cfg.Trust.ChallengeThreshold = 100 // tout visiteur non-asset serait challengé
+	metrics := newTestMetrics()
+	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), metrics, newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	for _, path := range []string{"/robots.txt", "/sitemap.xml", "/assets/vendor/app"} {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test"+path, nil)
+		request.RemoteAddr = "198.51.100.10:443"
+		request.Header.Set("Accept", "text/html")
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if response.Code != http.StatusNoContent {
+			t.Fatalf("GET %s: status = %d, want 204 (proxied without challenge)", path, response.Code)
+		}
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://example.test/waf/metrics", nil))
+	if !strings.Contains(response.Body.String(), `waf_asset_requests_total{domain="_undeclared"} 3`) {
+		t.Fatalf("metrics missing waf_asset_requests_total = 3:\n%s", response.Body.String())
+	}
+}
+
 // riskFamilyDetector simule les détecteurs de production (intégrité, geo, tlsfp,
 // behavioral, rate…) qui publient leurs contributions via les en-têtes
 // X-WAF-Risk-* depuis l'intérieur du pipeline. Injecter ces en-têtes depuis la

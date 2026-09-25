@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.8.3
+version: 3.9.0
 last-reviewed: 2026-09-25
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+change: "FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -70,8 +70,9 @@ change: "FR-25 : adresses du pool validées au démarrage (URL absolue). Précé
 
 - Le WAF DOIT bypasser le challenge, le trust score et les détecteurs de signal pour les **assets statiques connus** :
   - Par extension : `.css`, `.js`, `.map`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.ico`, `.woff`, `.woff2`, `.ttf`, `.eot`
-  - Par path prefix configurable : `/static/`, `/assets/`, `/public/`, `/dist/`
-  - Par path exact configurable (ex: `/favicon.ico`, `/robots.txt`, `/sitemap.xml`)
+  - Par path prefix configurable (`static_assets.path_prefixes`, défaut : `/static/`, `/assets/`, `/public/`, `/dist/`) — préfixe de répertoire, commençant et finissant par `/`, `/` seul refusé
+  - Par path exact configurable (`static_assets.exact_paths`, défaut : `/favicon.ico`, `/robots.txt`, `/sitemap.xml`)
+  - L'extension est comparée sans tenir compte de la casse ; préfixes et chemins exacts le sont à la casse près (un chemin d'URL y est sensible)
 - Le WAF DOIT tout de même vérifier la whitelist/blacklist pour les assets (les IPs blacklistées ne peuvent pas accéder aux assets)
 - Le bypass NE DOIT PAS exempter du **rate limit** : les requêtes d'assets sont
   comptées dans les buckets de l'IP et reçoivent `429` au-delà (le PASS porte
@@ -81,7 +82,7 @@ change: "FR-25 : adresses du pool validées au démarrage (URL absolue). Précé
     `static-assets-bypass.feature` (« Bypass n'inclut pas le rate limit ») est
     tranchée en faveur du scénario (sécurité > perf)
 - Le WAF NE DOIT PAS servir de page de challenge pour une requête d'asset statique
-- Le WAF DOIT compter les requêtes d'assets dans les métriques (`waf_asset_requests_total`)
+- Le WAF DOIT compter les requêtes d'assets dans les métriques (`waf_asset_requests_total{domain}`, label `domain` borné comme celui de `waf_requests_total`)
 - La liste des extensions d'assets DOIT être configurable et extensible
 - En cas de doute (path ambigu), le WAF DOIT traiter comme non-asset (sécurité > perf)
 

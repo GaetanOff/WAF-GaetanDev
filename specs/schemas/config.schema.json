@@ -511,7 +511,19 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean", "default": true },
-        "extensions": { "type": "array", "items": { "type": "string" } }
+        "extensions": { "type": "array", "items": { "type": "string" } },
+        "path_prefixes": {
+          "type": "array",
+          "description": "Préfixes de répertoire bypassés (FR-24), sensibles à la casse. Chacun commence et finit par / et n'est pas / seul.",
+          "items": { "type": "string", "pattern": "^/.+/$" },
+          "default": ["/static/", "/assets/", "/public/", "/dist/"]
+        },
+        "exact_paths": {
+          "type": "array",
+          "description": "Chemins exacts bypassés (FR-24), sensibles à la casse.",
+          "items": { "type": "string", "pattern": "^/.+" },
+          "default": ["/favicon.ico", "/robots.txt", "/sitemap.xml"]
+        }
       }
     },
     "audit": {

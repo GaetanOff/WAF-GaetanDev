@@ -183,7 +183,7 @@ func routes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflo
 	// Bypass des assets statiques (FR-24) : le plus en amont du pipeline pour
 	// marquer PASS avant challenge/trust/détecteurs (la blacklist reste appliquée).
 	if cfg.StaticAssets.Enabled {
-		proxyHandler = staticassets.New(cfg.StaticAssets).Handler(proxyHandler)
+		proxyHandler = staticassets.New(cfg.StaticAssets).WithCounter(metrics.IncAssetRequest).Handler(proxyHandler)
 	}
 	mux.Handle("/", proxyHandler)
 	var handler http.Handler = mux

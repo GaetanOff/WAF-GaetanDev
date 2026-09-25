@@ -271,8 +271,10 @@ type Cluster struct {
 }
 
 type StaticAssets struct {
-	Enabled    bool     `yaml:"enabled"`
-	Extensions []string `yaml:"extensions"`
+	Enabled      bool     `yaml:"enabled"`
+	Extensions   []string `yaml:"extensions"`
+	PathPrefixes []string `yaml:"path_prefixes"`
+	ExactPaths   []string `yaml:"exact_paths"`
 }
 
 type UpstreamPool struct {
@@ -656,6 +658,8 @@ func Default() Config {
 				".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico",
 				".woff", ".woff2", ".ttf", ".eot", ".map", ".webp",
 			},
+			PathPrefixes: []string{"/static/", "/assets/", "/public/", "/dist/"},
+			ExactPaths:   []string{"/favicon.ico", "/robots.txt", "/sitemap.xml"},
 		},
 		Slowloris: Slowloris{
 			Enabled:       true,
@@ -861,6 +865,7 @@ func (c *Config) Validate() error {
 			fields = append(fields, "slowloris.max_connections_per_ip must be >= 1")
 		}
 	}
+	validateStaticAssets(&fields, c.StaticAssets)
 	if c.UpstreamPool.Enabled {
 		if len(c.UpstreamPool.Upstreams) == 0 {
 			fields = append(fields, "upstream_pool.upstreams must not be empty when enabled")
@@ -1105,6 +1110,22 @@ func (c *Config) applyEnvOverrides() {
 			c.Storage.Redis = &RedisConfig{}
 		}
 		c.Storage.Redis.Password = value
+	}
+}
+
+// validateStaticAssets refuse un préfixe qui ne délimite pas un répertoire
+// ("/static" couvrirait "/staticfoo", "/" tout le site) et un chemin exact
+// relatif : en cas de doute, un chemin n'est pas un asset (FR-24).
+func validateStaticAssets(fields *[]string, cfg StaticAssets) {
+	for i, prefix := range cfg.PathPrefixes {
+		if len(prefix) < 3 || !strings.HasPrefix(prefix, "/") || !strings.HasSuffix(prefix, "/") {
+			*fields = append(*fields, fmt.Sprintf("static_assets.path_prefixes[%d] must start and end with / and name a directory (not /)", i))
+		}
+	}
+	for i, path := range cfg.ExactPaths {
+		if len(path) < 2 || !strings.HasPrefix(path, "/") {
+			*fields = append(*fields, fmt.Sprintf("static_assets.exact_paths[%d] must be an absolute path other than /", i))
+		}
 	}
 }
 

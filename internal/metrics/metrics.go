@@ -25,6 +25,7 @@ const (
 type Metrics struct {
 	registry        *prometheus.Registry
 	requests        *prometheus.CounterVec
+	assetRequests   *prometheus.CounterVec
 	blocked         *prometheus.CounterVec
 	challenged      *prometheus.CounterVec
 	duration        *prometheus.HistogramVec
@@ -64,6 +65,10 @@ func New() *Metrics {
 			Name: "waf_requests_total",
 			Help: "Total WAF requests by action and domain.",
 		}, []string{"action", "domain"}),
+		assetRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_asset_requests_total",
+			Help: "Static asset requests bypassing challenge and trust score, by domain (FR-24).",
+		}, []string{"domain"}),
 		blocked: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "waf_blocked_total",
 			Help: "Total WAF blocked requests by domain and reason.",
@@ -156,7 +161,7 @@ func New() *Metrics {
 		m.pressureGauges[i] = m.globalPressure.WithLabelValues(level)
 	}
 	m.pressureLevel.Store(unpublishedPressure)
-	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors, m.alertsSent, m.alertsFailed)
+	registry.MustRegister(m.requests, m.assetRequests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors, m.alertsSent, m.alertsFailed)
 	// La liste compilée est en vigueur au démarrage : publier son cardinal tout
 	// de suite évite une jauge à 0 qui se lirait comme « aucune plage connue ».
 	m.cfRanges.Set(float64(len(cloudflare.Ranges())))
@@ -182,6 +187,12 @@ func (m *Metrics) WithDomains(hosts []string) *Metrics {
 // domaine en timestamp Unix (FR-33). L'alerte calcule le delta avec time().
 func (m *Metrics) SetTLSCertExpiry(domain string, notAfter time.Time) {
 	m.tlsCertExpiry.WithLabelValues(domain).Set(float64(notAfter.Unix()))
+}
+
+// IncAssetRequest compte une requête d'asset statique bypassée (FR-24). Le
+// ratio avec waf_requests_total sert à ajuster static_assets.
+func (m *Metrics) IncAssetRequest(host string) {
+	m.assetRequests.WithLabelValues(m.domains.label(host)).Inc()
 }
 
 // SetPowDifficulty publie la difficulté courante du PoW adaptatif (FR-14).

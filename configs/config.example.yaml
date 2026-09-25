@@ -223,6 +223,8 @@ slowloris:
 static_assets:
   enabled: true
   extensions: [".css", ".js", ".png", ".jpg", ".jpeg", ".gif", ".svg", ".ico", ".woff", ".woff2", ".ttf", ".eot", ".map", ".webp"]
+  path_prefixes: ["/static/", "/assets/", "/public/", "/dist/"]  # tout chemin sous ces repertoires
+  exact_paths: ["/favicon.ico", "/robots.txt", "/sitemap.xml"]
 
 # Pool d'upstreams + health checks + load balancing (FR-25, FR-26)
 upstream_pool:
