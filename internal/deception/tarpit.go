@@ -68,6 +68,10 @@ func (t *Tarpit) serve(w http.ResponseWriter, r *http.Request) {
 	// toujours. La réponse était alors bufférisée et envoyée d'un bloc à la fin
 	// du délai, au lieu de retenir le client chunk par chunk.
 	controller := http.NewResponseController(w)
+	// Posée sur la réponse, l'action est journalisée et comptée TARPIT ; la
+	// classification portée par la requête ne l'est pas, faute de preuve que le
+	// tarpit l'a servie.
+	w.Header().Set(tarpitActionHeader, "TARPIT")
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
 	w.WriteHeader(http.StatusOK)
 

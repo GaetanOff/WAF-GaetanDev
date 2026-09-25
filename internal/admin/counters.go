@@ -15,6 +15,7 @@ type trafficCounters struct {
 	challenged  atomic.Int64
 	blocked     atomic.Int64
 	rateLimited atomic.Int64
+	tarpitted   atomic.Int64
 }
 
 // RecordSecurityEvent satisfait logger.EventRecorder.
@@ -29,6 +30,8 @@ func (c *trafficCounters) RecordSecurityEvent(event logger.SecurityEvent) {
 		c.blocked.Add(1)
 	case logger.ActionRateLimit:
 		c.rateLimited.Add(1)
+	case logger.ActionTarpit:
+		c.tarpitted.Add(1)
 	}
 }
 
@@ -38,6 +41,7 @@ func (c *trafficCounters) fill(stats *WAFStats) {
 	stats.RequestsChallenged = c.challenged.Load()
 	stats.RequestsBlocked = c.blocked.Load()
 	stats.RequestsRateLimited = c.rateLimited.Load()
+	stats.RequestsTarpitted = c.tarpitted.Load()
 }
 
 // eventRecorders diffuse un événement à plusieurs puits.

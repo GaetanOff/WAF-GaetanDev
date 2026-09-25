@@ -39,6 +39,10 @@ func TestDispatchServesSlowFakeHTML(t *testing.T) {
 	if !strings.Contains(body, "<html>") || !strings.Contains(body, "</html>") {
 		t.Fatalf("tarpit body is not a full fake HTML page: %q", body)
 	}
+	// Journalisée et comptée TARPIT par le logger et les métriques.
+	if got := response.Header().Get("X-WAF-Action"); got != "TARPIT" {
+		t.Fatalf("X-WAF-Action = %q, want TARPIT", got)
+	}
 }
 
 func TestDispatchReturns429WhenSemaphoreFull(t *testing.T) {

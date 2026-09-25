@@ -17,6 +17,7 @@ const (
 	actionRateLimit    = "RATE_LIMIT"
 	actionCircuitBreak = "CIRCUIT_BREAK"
 	actionHoneypot     = "HONEYPOT"
+	actionTarpit       = "TARPIT"
 )
 
 type Metrics struct {
@@ -303,13 +304,18 @@ func (m *Metrics) observeUnderAttack(r *http.Request, action string, domain stri
 // normalizedAction dérive l'action depuis X-WAF-Action. Sans cet en-tête, le
 // statut vient de l'upstream (et non d'une décision WAF) : action PASS, pour ne
 // pas gonfler waf_blocked_total avec les 5xx d'origine (cf. logger.normalizedAction).
+// TARPIT n'est retenu que sur la réponse, posé par le tarpit qui la sert : sur
+// la requête, c'est une classification qui atteint l'upstream sans déception.
 func normalizedAction(r *http.Request, recorder *statusRecorder) string {
 	action := recorder.Header().Get("X-WAF-Action")
 	if action == "" {
 		action = r.Header.Get("X-WAF-Action")
+		if action == actionTarpit {
+			return actionPass
+		}
 	}
 	switch action {
-	case actionPass, actionChallenge, actionBlock, actionRateLimit, actionCircuitBreak, actionHoneypot:
+	case actionPass, actionChallenge, actionBlock, actionRateLimit, actionCircuitBreak, actionHoneypot, actionTarpit:
 		return action
 	default:
 		return actionPass

@@ -26,6 +26,20 @@ Feature: Deception Layer (Tarpit + Honeypot Content)
     And chaque chunk est espacé de 2000ms
     And la connexion reste ouverte pendant 60 secondes
 
+  Scenario: Tarpit — requête tarpitée journalisée et comptée TARPIT
+    Given une requête classée TARPIT par le moteur de risque ou une règle
+    When le tarpit lui sert sa réponse
+    Then l'événement de sécurité porte action = "TARPIT"
+    And la requête est comptée dans waf_requests_total{action="TARPIT"}
+    And l'événement figure dans GET /waf/admin/events
+    And requests_tarpitted de GET /waf/stats est incrémenté
+
+  Scenario: Classification TARPIT sans couche de déception
+    Given deception.enabled = false
+    And une requête classée TARPIT par le moteur de risque
+    When la requête est transmise à l'upstream
+    Then l'événement de sécurité porte action = "PASS" et l'upstream_status réel
+
   Scenario: Tarpit — contenu HTML crédible simulé
     Given un bot est en mode tarpit
     Then la réponse HTML commence par un <!DOCTYPE html> valide

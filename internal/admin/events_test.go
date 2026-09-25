@@ -45,16 +45,17 @@ func TestAdminEventsServesRecordedMitigations(t *testing.T) {
 	recorder.RecordSecurityEvent(securityEventAt(now.Add(-2*time.Second), logger.ActionBlock, "a.test"))
 	recorder.RecordSecurityEvent(securityEventAt(now.Add(-time.Second), logger.ActionPass, "a.test"))
 	recorder.RecordSecurityEvent(securityEventAt(now, logger.ActionRateLimit, "b.test"))
+	recorder.RecordSecurityEvent(securityEventAt(now.Add(time.Millisecond), logger.ActionTarpit, "b.test"))
 
 	body := listEvents(t, server, "")
-	if body.Total != 2 || body.Items[0].Action != logger.ActionRateLimit || body.Items[1].Action != logger.ActionBlock {
-		t.Fatalf("events = %+v, want RATE_LIMIT then BLOCK (newest first, PASS not retained)", body)
+	if body.Total != 3 || body.Items[0].Action != logger.ActionTarpit || body.Items[1].Action != logger.ActionRateLimit || body.Items[2].Action != logger.ActionBlock {
+		t.Fatalf("events = %+v, want TARPIT, RATE_LIMIT then BLOCK (newest first, PASS not retained)", body)
 	}
 	if filtered := listEvents(t, server, "?domain=a.test&action=BLOCK"); filtered.Total != 1 {
 		t.Fatalf("filtered events = %+v, want the BLOCK on a.test", filtered)
 	}
 	since := now.Add(-1500 * time.Millisecond).UTC().Format(time.RFC3339Nano)
-	if recent := listEvents(t, server, "?since="+since); recent.Total != 1 {
+	if recent := listEvents(t, server, "?since="+since); recent.Total != 2 {
 		t.Fatalf("events since %s = %+v, want 1", since, recent)
 	}
 }
@@ -93,7 +94,7 @@ func TestAdminStatsCountsRequestsByAction(t *testing.T) {
 	server := newTestServer(t)
 	recorder := server.EventRecorder()
 	now := time.Now()
-	for _, action := range []string{logger.ActionPass, logger.ActionPass, logger.ActionChallenge, logger.ActionBlock, logger.ActionCircuitBreak, logger.ActionRateLimit} {
+	for _, action := range []string{logger.ActionPass, logger.ActionPass, logger.ActionChallenge, logger.ActionBlock, logger.ActionCircuitBreak, logger.ActionRateLimit, logger.ActionTarpit} {
 		recorder.RecordSecurityEvent(securityEventAt(now, action, "a.test"))
 	}
 
@@ -103,8 +104,8 @@ func TestAdminStatsCountsRequestsByAction(t *testing.T) {
 	if err := json.NewDecoder(response.Body).Decode(&stats); err != nil {
 		t.Fatalf("decode: %v", err)
 	}
-	want := WAFStats{TotalRequests: 6, RequestsPassed: 2, RequestsChallenged: 1, RequestsBlocked: 2, RequestsRateLimited: 1}
-	if stats.TotalRequests != want.TotalRequests || stats.RequestsPassed != want.RequestsPassed || stats.RequestsChallenged != want.RequestsChallenged || stats.RequestsBlocked != want.RequestsBlocked || stats.RequestsRateLimited != want.RequestsRateLimited {
+	want := WAFStats{TotalRequests: 7, RequestsPassed: 2, RequestsChallenged: 1, RequestsBlocked: 2, RequestsRateLimited: 1, RequestsTarpitted: 1}
+	if stats.TotalRequests != want.TotalRequests || stats.RequestsPassed != want.RequestsPassed || stats.RequestsChallenged != want.RequestsChallenged || stats.RequestsBlocked != want.RequestsBlocked || stats.RequestsRateLimited != want.RequestsRateLimited || stats.RequestsTarpitted != want.RequestsTarpitted {
 		t.Fatalf("stats = %+v, want counters %+v", stats, want)
 	}
 }

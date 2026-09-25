@@ -157,3 +157,44 @@ func TestMiddlewareBoundsTheDomainLabelToDeclaredDomains(t *testing.T) {
 		t.Fatalf("an undeclared Host became a label value:\n%s", body)
 	}
 }
+
+// FR-15 : une réponse servie par le tarpit est comptée TARPIT ; la seule
+// classification posée sur la requête (sans déception, elle atteint l'upstream)
+// reste PASS.
+func TestMiddlewareCountsTarpitOnlyWhenServed(t *testing.T) {
+	cases := []struct {
+		name       string
+		handler    http.HandlerFunc
+		wantAction string
+	}{
+		{
+			name: "served by the tarpit",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("X-WAF-Action", actionTarpit)
+				w.WriteHeader(http.StatusOK)
+			},
+			wantAction: actionTarpit,
+		},
+		{
+			name: "classified but proxied",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				r.Header.Set("X-WAF-Action", actionTarpit)
+				w.WriteHeader(http.StatusOK)
+			},
+			wantAction: actionPass,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			metrics := New().WithDomains([]string{"example.test"})
+			scores, store := newTestScoreManager(t)
+			defer store.Close()
+			request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
+			request.RemoteAddr = "1.2.3.4:1234"
+
+			metrics.Middleware(scores, tc.handler).ServeHTTP(httptest.NewRecorder(), request)
+
+			assertMetricContains(t, scrape(t, metrics), `waf_requests_total{action="`+tc.wantAction+`",domain="example.test"} 1`)
+		})
+	}
+}

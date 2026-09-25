@@ -407,3 +407,46 @@ func TestMiddlewareForwardsEventToRecorder(t *testing.T) {
 		t.Fatalf("recorded events = %+v, want the BLOCK on /admin", recorder.events)
 	}
 }
+
+// FR-15 : l'action TARPIT n'est journalisée que si le tarpit a servi la
+// réponse ; posée sur la seule requête, elle n'a pas été appliquée.
+func TestMiddlewareLogsTarpitOnlyWhenServed(t *testing.T) {
+	cases := []struct {
+		name       string
+		handler    http.HandlerFunc
+		wantAction string
+	}{
+		{
+			name: "served by the tarpit",
+			handler: func(w http.ResponseWriter, _ *http.Request) {
+				w.Header().Set("X-WAF-Action", ActionTarpit)
+				w.WriteHeader(http.StatusOK)
+			},
+			wantAction: ActionTarpit,
+		},
+		{
+			name: "classified but proxied",
+			handler: func(w http.ResponseWriter, r *http.Request) {
+				r.Header.Set("X-WAF-Action", ActionTarpit)
+				w.WriteHeader(http.StatusOK)
+			},
+			wantAction: ActionPass,
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			var output bytes.Buffer
+			log := NewWithWriter(config.Default().Logging, &output)
+			scores, store := newTestScoreManager(t)
+			defer store.Close()
+			request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+			request.RemoteAddr = "1.2.3.4:1234"
+
+			log.Middleware(scores, tc.handler).ServeHTTP(httptest.NewRecorder(), request)
+
+			if event := decodeEvent(t, output.String()); event["action"] != tc.wantAction {
+				t.Fatalf("action = %q, want %s", event["action"], tc.wantAction)
+			}
+		})
+	}
+}

@@ -6,7 +6,7 @@ info:
     API d'administration du WAF Anti-DDoS/Anti-Bot.
     Exposée sur un port séparé (défaut: 9090), protégée par Bearer token.
     Ne jamais exposer ce port publiquement.
-  version: 1.1.2
+  version: 1.2.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -109,7 +109,7 @@ components:
           type: string
         action:
           type: string
-          enum: [PASS, CHALLENGE, BLOCK, RATE_LIMIT, CIRCUIT_BREAK, HONEYPOT]
+          enum: [PASS, CHALLENGE, BLOCK, RATE_LIMIT, CIRCUIT_BREAK, HONEYPOT, TARPIT]
         reason:
           type: string
         trust_score:
@@ -140,6 +140,9 @@ components:
         requests_rate_limited:
           type: integer
           description: Action RATE_LIMIT
+        requests_tarpitted:
+          type: integer
+          description: Action TARPIT (réponse servie par le tarpit, FR-15)
         active_visitors:
           type: integer
         trusted_visitors:
@@ -617,7 +620,7 @@ paths:
           in: query
           schema:
             type: string
-            enum: [PASS, CHALLENGE, BLOCK, RATE_LIMIT, CIRCUIT_BREAK, HONEYPOT]
+            enum: [PASS, CHALLENGE, BLOCK, RATE_LIMIT, CIRCUIT_BREAK, HONEYPOT, TARPIT]
         - name: since
           in: query
           schema:
