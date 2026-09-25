@@ -325,8 +325,9 @@ func run() error {
 		for _, wh := range cfg.Alerting.Webhooks {
 			sinks = append(sinks, alert.Sink{Type: wh.Type, URL: wh.URL})
 		}
-		notifier = alert.NewNotifier(sinks, cooldown, cfg.Alerting.MaxRetries, nil)
+		notifier = alert.NewNotifier(sinks, cooldown, cfg.Alerting.MaxRetries, nil, alert.WithObserver(metrics))
 		defer notifier.Close()
+		metrics.WithAlertsPending(notifier.Pending)
 		securityLogger.Alerter = notifier
 	}
 	// Mode sous attaque (FR-39) : à chaque entrée/sortie, on publie la métrique

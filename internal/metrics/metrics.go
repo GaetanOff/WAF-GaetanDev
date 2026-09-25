@@ -42,6 +42,8 @@ type Metrics struct {
 	cfRangeUpdates  *prometheus.CounterVec
 	storageDegraded prometheus.Gauge
 	storageErrors   *prometheus.CounterVec
+	alertsSent      *prometheus.CounterVec
+	alertsFailed    *prometheus.CounterVec
 	visitors        *visitorTracker
 	domains         domainLabels
 	now             func() time.Time
@@ -132,10 +134,18 @@ func New() *Metrics {
 			Name: "waf_storage_errors_total",
 			Help: "Storage backend errors by operation (ADR-021).",
 		}, []string{"operation"}),
+		alertsSent: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_alerts_sent_total",
+			Help: "Webhook alert deliveries accepted by a sink, by trigger (FR-29).",
+		}, []string{"trigger"}),
+		alertsFailed: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_alerts_failed_total",
+			Help: "Webhook alert deliveries abandoned, by trigger (FR-29).",
+		}, []string{"trigger"}),
 		now: time.Now,
 	}
 	m.visitors = newVisitorTracker(defaultVisitorWindow, defaultMaxVisitors, m.activeVisitors, m.visitorsByState)
-	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors)
+	registry.MustRegister(m.requests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors, m.alertsSent, m.alertsFailed)
 	// La liste compilée est en vigueur au démarrage : publier son cardinal tout
 	// de suite évite une jauge à 0 qui se lirait comme « aucune plage connue ».
 	m.cfRanges.Set(float64(len(cloudflare.Ranges())))
@@ -209,6 +219,27 @@ func (m *Metrics) SetStorageDegraded(degraded bool) {
 // IncStorageError compte une erreur du backend de stockage par opération (ADR-021).
 func (m *Metrics) IncStorageError(operation string) {
 	m.storageErrors.WithLabelValues(operation).Inc()
+}
+
+// AlertSent compte une alerte acceptée par un sink (FR-29). Le trigger est
+// une valeur de l'enum d'alert.schema.json : cardinalité bornée.
+func (m *Metrics) AlertSent(trigger string) {
+	m.alertsSent.WithLabelValues(trigger).Inc()
+}
+
+// AlertFailed compte une alerte abandonnée pour un sink (FR-29).
+func (m *Metrics) AlertFailed(trigger string) {
+	m.alertsFailed.WithLabelValues(trigger).Inc()
+}
+
+// WithAlertsPending publie waf_alerts_pending, le nombre d'alertes en attente
+// d'envoi, lu à chaque scrape. À appeler une fois, quand l'alerting est actif.
+func (m *Metrics) WithAlertsPending(pending func() int) *Metrics {
+	m.registry.MustRegister(prometheus.NewGaugeFunc(prometheus.GaugeOpts{
+		Name: "waf_alerts_pending",
+		Help: "Webhook alerts waiting to be delivered (FR-29).",
+	}, func() float64 { return float64(pending()) }))
+	return m
 }
 
 // IncClusterSync compte un événement de synchronisation cluster appliqué (FR-20).

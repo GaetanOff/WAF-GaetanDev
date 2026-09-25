@@ -198,3 +198,17 @@ func TestMiddlewareCountsTarpitOnlyWhenServed(t *testing.T) {
 		})
 	}
 }
+
+// FR-29 : métriques d'alertes webhook.
+func TestAlertMetrics(t *testing.T) {
+	metrics := New().WithAlertsPending(func() int { return 3 })
+
+	metrics.AlertSent("block")
+	metrics.AlertSent("block")
+	metrics.AlertFailed("honeypot")
+
+	body := scrape(t, metrics)
+	assertMetricContains(t, body, `waf_alerts_sent_total{trigger="block"} 2`)
+	assertMetricContains(t, body, `waf_alerts_failed_total{trigger="honeypot"} 1`)
+	assertMetricContains(t, body, `waf_alerts_pending 3`)
+}

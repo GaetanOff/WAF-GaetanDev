@@ -115,10 +115,11 @@ Feature: Alerting & Webhooks
     And la réponse API indique si le webhook a répondu (HTTP 200 ou erreur)
     Note: Utile pour valider la configuration sans attendre une vraie attaque
 
-  @deferred
   Scenario: Métriques alertes
-    When GET /waf/metrics
+    Given un sink qui répond HTTP 200 et un sink qui répond HTTP 500
+    When un événement honeypot déclenche une alerte
+    And GET /waf/metrics
     Then les métriques contiennent:
-      | waf_alerts_sent_total{trigger}   | par type de trigger |
-      | waf_alerts_failed_total{trigger} | échecs d'envoi      |
-      | waf_alerts_pending_total         | en attente d'envoi  |
+      | waf_alerts_sent_total{trigger="honeypot"}   | 1 (livraison acceptée) |
+      | waf_alerts_failed_total{trigger="honeypot"} | 1 (livraison abandonnée) |
+      | waf_alerts_pending                          | alertes en attente d'envoi |

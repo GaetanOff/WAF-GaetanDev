@@ -170,3 +170,69 @@ func TestCooldownDeduplicatesAndStaysBounded(t *testing.T) {
 		t.Fatalf("cooldown entries = %d, want at most %d", got, maxCooldownKeys)
 	}
 }
+
+// recordingObserver consigne l'issue des livraisons ; outcomes est fermé à la
+// première issue attendue pour éviter les attentes à durée fixe.
+type recordingObserver struct {
+	mu      sync.Mutex
+	sent    []string
+	failed  []string
+	outcome chan struct{}
+}
+
+func newRecordingObserver() *recordingObserver {
+	return &recordingObserver{outcome: make(chan struct{}, 16)}
+}
+
+func (o *recordingObserver) AlertSent(trigger string) {
+	o.mu.Lock()
+	o.sent = append(o.sent, trigger)
+	o.mu.Unlock()
+	o.outcome <- struct{}{}
+}
+
+func (o *recordingObserver) AlertFailed(trigger string) {
+	o.mu.Lock()
+	o.failed = append(o.failed, trigger)
+	o.mu.Unlock()
+	o.outcome <- struct{}{}
+}
+
+func (o *recordingObserver) wait(t *testing.T, outcomes int) {
+	t.Helper()
+	for range outcomes {
+		select {
+		case <-o.outcome:
+		case <-time.After(5 * time.Second):
+			t.Fatal("timed out waiting for a delivery outcome")
+		}
+	}
+}
+
+// FR-29 : chaque livraison à un sink alimente waf_alerts_sent_total ou
+// waf_alerts_failed_total.
+func TestNotifierReportsDeliveryOutcomes(t *testing.T) {
+	healthy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer healthy.Close()
+	failing := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer failing.Close()
+	observer := newRecordingObserver()
+
+	n := NewNotifier([]Sink{{Type: SinkGeneric, URL: healthy.URL}, {Type: SinkGeneric, URL: failing.URL}}, time.Minute, 0, healthy.Client(), WithObserver(observer))
+	defer n.Close()
+	n.Notify(Event{Trigger: TriggerHoneypot, Domain: "example.com"})
+	observer.wait(t, 2)
+
+	observer.mu.Lock()
+	defer observer.mu.Unlock()
+	if len(observer.sent) != 1 || observer.sent[0] != TriggerHoneypot {
+		t.Fatalf("sent = %v, want [honeypot]", observer.sent)
+	}
+	if len(observer.failed) != 1 || observer.failed[0] != TriggerHoneypot {
+		t.Fatalf("failed = %v, want [honeypot]", observer.failed)
+	}
+}

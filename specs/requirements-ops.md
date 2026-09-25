@@ -169,7 +169,10 @@ change: "FR-26 : avertissement au démarrage pour tout domains[].upstream rendu 
   - Slack (format Slack Incoming Webhook)
   - Discord (format Discord Webhook)
   - Generic HTTP (JSON libre, configurable)
-- Le WAF DOIT exposer les métriques d'alertes : `waf_alerts_sent_total{trigger}`, `waf_alerts_failed_total`
+- Le WAF DOIT exposer les métriques d'alertes, comptées par livraison (une alerte × un sink) :
+  - `waf_alerts_sent_total{trigger}` : livraisons acceptées par le sink (réponse 2xx)
+  - `waf_alerts_failed_total{trigger}` : livraisons abandonnées (tentatives épuisées)
+  - `waf_alerts_pending` : jauge des alertes en attente d'envoi. Une jauge ne porte pas le suffixe `_total`, réservé aux compteurs Prometheus (la v1 de cette spec la nommait `waf_alerts_pending_total`)
 - Les webhooks NE DOIVENT PAS bloquer le pipeline de traitement des requêtes (exécution asynchrone via channel)
 
 ## FR-30 — Auto-protection du WAF

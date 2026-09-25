@@ -80,12 +80,34 @@ type Sink struct {
 	URL  string
 }
 
+// Observer reçoit l'issue de chaque livraison d'une alerte à un sink :
+// waf_alerts_sent_total et waf_alerts_failed_total (FR-29).
+type Observer interface {
+	AlertSent(trigger string)
+	AlertFailed(trigger string)
+}
+
+// Option configure un Notifier à sa construction, avant le démarrage du worker
+// qui lit ses champs.
+type Option func(*Notifier)
+
+// WithObserver branche l'observation des livraisons (métriques d'alertes).
+func WithObserver(observer Observer) Option {
+	return func(n *Notifier) { n.observer = observer }
+}
+
+type noopObserver struct{}
+
+func (noopObserver) AlertSent(string)   {}
+func (noopObserver) AlertFailed(string) {}
+
 // Notifier dispatche les alertes de façon asynchrone vers les sinks.
 type Notifier struct {
 	sinks      []Sink
 	cooldown   time.Duration
 	maxRetries int
 	client     *http.Client
+	observer   Observer
 
 	queue chan Alert
 	stop  chan struct{}
@@ -99,7 +121,7 @@ type Notifier struct {
 	now      func() time.Time
 }
 
-func NewNotifier(sinks []Sink, cooldown time.Duration, maxRetries int, client *http.Client) *Notifier {
+func NewNotifier(sinks []Sink, cooldown time.Duration, maxRetries int, client *http.Client, options ...Option) *Notifier {
 	if client == nil {
 		client = &http.Client{Timeout: 5 * time.Second}
 	}
@@ -111,10 +133,14 @@ func NewNotifier(sinks []Sink, cooldown time.Duration, maxRetries int, client *h
 		cooldown:   cooldown,
 		maxRetries: maxRetries,
 		client:     client,
+		observer:   noopObserver{},
 		queue:      make(chan Alert, 256),
 		stop:       make(chan struct{}),
 		done:       make(chan struct{}),
 		now:        time.Now,
+	}
+	for _, option := range options {
+		option(n)
 	}
 	n.lastSent = ttlcache.New[string, time.Time](maxCooldownKeys, cooldown).WithClock(func() time.Time { return n.now() })
 	go n.worker()
@@ -208,24 +234,37 @@ func (n *Notifier) allow(alert Alert) bool {
 	return allowed
 }
 
+// Pending retourne le nombre d'alertes en attente d'envoi
+// (waf_alerts_pending).
+func (n *Notifier) Pending() int {
+	return len(n.queue)
+}
+
+// deliver livre l'alerte à chaque sink ; chaque livraison compte comme envoyée
+// ou échouée (retries épuisés).
 func (n *Notifier) deliver(alert Alert) {
 	for _, sink := range n.sinks {
 		payload := encode(sink.Type, alert)
-		n.sendWithRetry(sink.URL, payload)
+		if n.sendWithRetry(sink.URL, payload) {
+			n.observer.AlertSent(alert.Trigger)
+		} else {
+			n.observer.AlertFailed(alert.Trigger)
+		}
 	}
 }
 
-func (n *Notifier) sendWithRetry(url string, payload []byte) {
+func (n *Notifier) sendWithRetry(url string, payload []byte) bool {
 	backoff := 200 * time.Millisecond
 	for attempt := 0; attempt <= n.maxRetries; attempt++ {
 		if n.post(url, payload) {
-			return
+			return true
 		}
 		if attempt < n.maxRetries {
 			time.Sleep(backoff)
 			backoff *= 2
 		}
 	}
+	return false
 }
 
 func (n *Notifier) post(url string, payload []byte) bool {
