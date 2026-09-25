@@ -1,8 +1,8 @@
 ---
 status: approved
-version: 1.4.3
-last-reviewed: 2026-09-24
-change: "Phase 19 : slowloris, strict_host et selfprotect descendent sous metrics et logger (refus comptés et journalisés) ; le middleware de trust score applique les déclencheurs déterministes sans moteur de risque. Précédent (1.4.2) — Phase 18 : architecture-advanced.md et architecture-ops.md dépréciés, ce document est la seule architecture de référence ; paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
+version: 1.4.4
+last-reviewed: 2026-09-25
+change: "Phase 21 : [6] staticassets n'exempte plus du rate limit (FR-24). Précédent (1.4.3) — Phase 19 : slowloris, strict_host et selfprotect descendent sous metrics et logger (refus comptés et journalisés) ; le middleware de trust score applique les déclencheurs déterministes sans moteur de risque. Précédent (1.4.2) — Phase 18 : architecture-advanced.md et architecture-ops.md dépréciés, ce document est la seule architecture de référence ; paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
 ---
 
 # Architecture — WAF Anti-DDoS / Anti-Bot
@@ -215,8 +215,9 @@ REQUÊTE ENTRANTE
 ── Chaîne de protection (chemin "/" uniquement) ─────────────────────────────────
       │
 [6] staticassets                          si static_assets.enabled
-      │ Bypass des assets statiques : pose X-WAF-Action=PASS (FR-24).
-      │ La blacklist reste appliquée en [11].
+      │ Bypass des assets statiques : pose X-WAF-Action=PASS, raison
+      │ static_asset (FR-24). La blacklist reste appliquée en [11], le
+      │ rate limit aussi (il compte les PASS de raison static_asset).
       ▼
 [7] (vacant : selfprotect est descendu en [10c])
       ▼
