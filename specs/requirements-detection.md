@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 1.3.1
-last-reviewed: 2026-09-24
+version: 1.4.0
+last-reviewed: 2026-09-25
 reviewed-by: GaetanDev
 extends: requirements-advanced.md (v2.1.0), requirements-ops.md
-change: "FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
+change: "FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
 ---
 
 # Requirements Detection — Moteur de Risque & Décision (v4)
@@ -116,6 +116,18 @@ explicites (issus de la revue de spec) :
   1. `ALLOW` — transmis sans friction
   2. `OBSERVE` — transmis mais marqué pour analyse renforcée (monitor)
   3. `THROTTLE` — transmis avec rate limit réduit pour ce visiteur
+     - Le débit de recharge des fenêtres de rate limit (FR-03) du visiteur est
+       multiplié par 0,5 pendant 1 minute après la dernière décision `THROTTLE`,
+       la capacité de burst restant nominale ; sous pression globale (FR-08), le
+       plus fort des deux resserrements s'applique
+     - Le rate limit s'exécute en amont du moteur : la mesure porte sur les
+       requêtes **suivantes** du visiteur, la requête classée étant déjà admise
+     - Un `429` imputable au seul débit réduit (la requête aurait été admise au
+       débit nominal) porte `reason=rate_limit_risk_throttle` et reste neutre,
+       comme `rate_limit_pressure` : ni pénalité de trust score, ni violation de
+       circuit-breaker
+     - Sans effet en mode shadow (FR-38) ; état propre au nœud, non partagé par
+       le store
   4. `CHALLENGE` — challenge JS (mitigation **réversible** : l'humain récupère)
   5. `TARPIT` — réponse ralentie (FR-15), pour bots à coût d'attaque élevé
   6. `BLOCK` — HTTP 403 (mitigation **terminale**)

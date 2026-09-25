@@ -133,10 +133,10 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 
 		recorder := &statusRecorder{ResponseWriter: w, statusCode: http.StatusOK}
 		next.ServeHTTP(recorder, r)
-		if isPressureThrottle(recorder) {
-			// 429 imputable au seul throttle de pression (FR-08) : neutre pour le
-			// breaker — le WAF ouvrirait sinon le circuit à cause des 429 qu'il a
-			// lui-même provoqués.
+		if isNeutralThrottle(recorder) {
+			// 429 imputable au seul resserrement du WAF (pression FR-08, THROTTLE
+			// FR-34) : neutre pour le breaker — le WAF ouvrirait sinon le circuit
+			// à cause des 429 qu'il a lui-même provoqués.
 			return
 		}
 		// Une requête admise ne remet pas la série à zéro : seule l'ancienneté de
@@ -192,13 +192,20 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }
 
-// reasonPressureThrottle est posé par le middleware ratelimit sur les 429
-// imputables au seul resserrement de pression globale (FR-08).
-const reasonPressureThrottle = "rate_limit_pressure"
+// reasonPressureThrottle et reasonRiskThrottle sont posés par le middleware
+// ratelimit sur les 429 imputables au seul resserrement de pression globale
+// (FR-08) ou au débit réduit d'un visiteur classé THROTTLE (FR-34).
+const (
+	reasonPressureThrottle = "rate_limit_pressure"
+	reasonRiskThrottle     = "rate_limit_risk_throttle"
+)
 
-func isPressureThrottle(recorder *statusRecorder) bool {
-	return recorder.statusCode == http.StatusTooManyRequests &&
-		recorder.Header().Get("X-WAF-Reason") == reasonPressureThrottle
+func isNeutralThrottle(recorder *statusRecorder) bool {
+	if recorder.statusCode != http.StatusTooManyRequests {
+		return false
+	}
+	reason := recorder.Header().Get("X-WAF-Reason")
+	return reason == reasonPressureThrottle || reason == reasonRiskThrottle
 }
 
 // isViolation ne retient que le rate limit du WAF (X-WAF-Action: RATE_LIMIT),

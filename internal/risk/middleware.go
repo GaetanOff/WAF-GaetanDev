@@ -34,6 +34,9 @@ type Middleware struct {
 	humans   *HumanTrustManager
 	bots     *BotVerifier
 	shadow   bool
+	// throttle applique la décision THROTTLE (FR-34) au rate limit, monté en
+	// amont : sans lui, THROTTLE n'était qu'un en-tête que personne ne lisait.
+	throttle func(ip string)
 }
 
 func NewMiddleware(store storage.Store, scores *trust.ScoreManager, cfg config.Config) (*Middleware, error) {
@@ -74,6 +77,13 @@ func (m *Middleware) Close() {
 	}
 }
 
+// WithThrottle branche l'effet de la décision THROTTLE : le visiteur voit son
+// débit réduit par le rate limit (FR-34, « transmis avec rate limit réduit »).
+func (m *Middleware) WithThrottle(fn func(ip string)) *Middleware {
+	m.throttle = fn
+	return m
+}
+
 // GrantChallengePass enregistre la preuve humaine d'un challenge réussi
 // (FR-37) : challenge réussi et fingerprint, que le cookie de clearance
 // retransmet ensuite via X-WAF-Fingerprint-Hash.
@@ -109,7 +119,13 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		case DecisionChallenge:
 			r.Header.Set(headerAction, string(DecisionChallenge))
 			r.Header.Set(headerReason, reasonForAssessment(assessment))
-		case DecisionThrottle, DecisionTarpit, DecisionObserve:
+		case DecisionThrottle:
+			r.Header.Set(headerAction, string(DecisionThrottle))
+			r.Header.Set(headerReason, reasonForAssessment(assessment))
+			if m.throttle != nil {
+				m.throttle(cloudflare.RealIP(r))
+			}
+		case DecisionTarpit, DecisionObserve:
 			r.Header.Set(headerAction, string(assessment.Decision))
 			r.Header.Set(headerReason, reasonForAssessment(assessment))
 		}

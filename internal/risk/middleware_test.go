@@ -132,6 +132,35 @@ func TestMiddlewareShadowModeLogsDecisionWithoutApplyingBlock(t *testing.T) {
 	}
 }
 
+// FR-34 : THROTTLE réduit le débit du visiteur. Le moteur le signale au rate
+// limit (monté en amont) ; en shadow, aucune mitigation n'est appliquée.
+func TestMiddlewareThrottleDecisionReachesTheRateLimiter(t *testing.T) {
+	for _, shadow := range []bool{false, true} {
+		middleware, _, store := newTestRiskMiddleware(t)
+		defer store.Close()
+		middleware.shadow = shadow
+		middleware.decision.Tiers = DecisionTiers{Observe: 1, Throttle: 2, Challenge: 99, Tarpit: 99, Block: 100}
+		var throttled []string
+		middleware.WithThrottle(func(ip string) { throttled = append(throttled, ip) })
+		request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+		request.RemoteAddr = "1.2.3.4:1234"
+
+		middleware.Handler(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+			if r.Header.Get(headerRiskDecision) != string(DecisionThrottle) {
+				t.Fatalf("X-WAF-Risk-Decision = %q, want THROTTLE", r.Header.Get(headerRiskDecision))
+			}
+		})).ServeHTTP(httptest.NewRecorder(), request)
+
+		want := 1
+		if shadow {
+			want = 0
+		}
+		if len(throttled) != want || (want == 1 && throttled[0] != "1.2.3.4") {
+			t.Fatalf("shadow=%v: throttled = %v, want %d call(s) for 1.2.3.4", shadow, throttled, want)
+		}
+	}
+}
+
 func newTestRiskMiddleware(t *testing.T) (*Middleware, *HumanTrustManager, *memory.Store) {
 	t.Helper()
 

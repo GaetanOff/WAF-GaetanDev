@@ -11,6 +11,7 @@ import (
 	"github.com/gaetandev/waf/internal/staticassets"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
+	"github.com/gaetandev/waf/internal/ttlcache"
 )
 
 const (
@@ -37,6 +38,16 @@ const (
 	// Ces refus sont neutres — ni pénalité de score, ni violation de
 	// circuit-breaker (consommé par le middleware anti-DDoS).
 	ReasonPressureThrottle = "rate_limit_pressure"
+	// ReasonRiskThrottle identifie un 429 imputable au seul débit réduit d'un
+	// visiteur classé THROTTLE par le moteur de risque (FR-34). Neutre, comme
+	// ReasonPressureThrottle : le WAF ne pénalise pas les refus qu'il provoque.
+	ReasonRiskThrottle = "rate_limit_risk_throttle"
+
+	// riskThrottleFactor est le multiplicateur de débit de recharge d'un
+	// visiteur classé THROTTLE ; riskThrottleTTL la durée de la mesure après la
+	// dernière décision THROTTLE (réversible, FR-34).
+	riskThrottleFactor = 0.5
+	riskThrottleTTL    = time.Minute
 )
 
 // window décrit une fenêtre de limitation (FR-03). Chacune a son propre Token
@@ -60,6 +71,9 @@ type Middleware struct {
 	store  storage.Store
 	scores *trust.ScoreManager
 	now    func() time.Time
+	// throttled retient, par hash d'IP, les visiteurs classés THROTTLE par le
+	// moteur de risque dans la dernière riskThrottleTTL.
+	throttled *ttlcache.Cache[string, struct{}]
 
 	// Modifiables à chaud (PATCH /waf/admin/config) : lus une fois par requête.
 	enabled atomic.Bool
@@ -68,9 +82,10 @@ type Middleware struct {
 
 func New(store storage.Store, scores *trust.ScoreManager, cfg config.Config) (*Middleware, error) {
 	middleware := &Middleware{
-		store:  store,
-		scores: scores,
-		now:    time.Now,
+		store:     store,
+		scores:    scores,
+		now:       time.Now,
+		throttled: ttlcache.New[string, struct{}](cfg.Trust.MaxVisitors, riskThrottleTTL),
 	}
 	middleware.Configure(cfg.RateLimit)
 	return middleware, nil
@@ -115,6 +130,14 @@ func buildWindows(cfg config.RateLimit) []window {
 	return windows
 }
 
+// Throttle applique la décision THROTTLE du moteur de risque (FR-34) : le débit
+// de recharge du visiteur est réduit de riskThrottleFactor pendant
+// riskThrottleTTL. Le rate limit s'exécute en amont du moteur : la mesure porte
+// sur les requêtes suivantes du visiteur, la courante étant déjà admise.
+func (m *Middleware) Throttle(ip string) {
+	m.throttled.Set(trust.HashIP(ip), struct{}{})
+}
+
 // isExempt : seul le PASS de la whitelist IP (FR-04) exempte du rate limit.
 // Celui du bypass d'assets (FR-24) lève le challenge et le trust score, pas le
 // rate limit : les requêtes d'assets restent comptées (static-assets-bypass.feature).
@@ -142,11 +165,14 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// aux trois fenêtres : resserrer la seconde en laissant filer l'heure
 		// laisserait passer le débit soutenu, précisément ce que la pression
 		// cherche à contenir.
-		factor := 1.0
-		pressured := false
+		// Un visiteur classé THROTTLE par le moteur de risque (FR-34) voit aussi
+		// son débit réduit ; le plus fort des deux resserrements s'applique.
+		factor, neutralReason := 1.0, ""
 		if f := m.pressureFactor(r, ip); f < 1 {
-			factor = f
-			pressured = true
+			factor, neutralReason = f, ReasonPressureThrottle
+		}
+		if _, throttled := m.throttled.Get(ipHash); throttled && riskThrottleFactor < factor {
+			factor, neutralReason = riskThrottleFactor, ReasonRiskThrottle
 		}
 
 		// Les fenêtres sont d'abord RECHARGÉES sans prélèvement : le jeton n'est
@@ -178,14 +204,15 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		})
 
 		if !allowed {
-			if pressured && m.nominalWouldAllow(windows, now) {
-				// 429 imputable au seul throttle de pression : neutre (FR-08).
+			if neutralReason != "" && m.nominalWouldAllow(windows, now) {
+				// 429 imputable au seul resserrement (pression FR-08, THROTTLE
+				// FR-34) : neutre.
 				// Pas de pénalité de score ni de violation de circuit-breaker,
 				// sinon le WAF punit des humains pour les 429 qu'il a lui-même
 				// provoqués (boucle de rétroaction auto-infligée).
 				w.Header().Set("Retry-After", strconv.Itoa(maxInt(1, int(retryAfter.Seconds()))))
 				w.Header().Set("X-WAF-Action", "RATE_LIMIT")
-				w.Header().Set("X-WAF-Reason", ReasonPressureThrottle)
+				w.Header().Set("X-WAF-Reason", neutralReason)
 				http.Error(w, "too many requests", http.StatusTooManyRequests)
 				return
 			}

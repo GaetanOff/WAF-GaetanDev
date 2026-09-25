@@ -404,6 +404,79 @@ func TestPressureThrottleIsReversible(t *testing.T) {
 	}
 }
 
+// FR-34 : un visiteur classé THROTTLE par le moteur de risque voit son débit
+// de recharge réduit de moitié ; un autre visiteur garde le débit nominal.
+func TestRiskThrottleHalvesSustainedRate(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	middleware := newTestMiddleware(t, store, 20, 20)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+	middleware.Throttle("9.9.9.9")
+
+	sustained := func(remoteAddr string) int {
+		for range 20 {
+			handler.ServeHTTP(httptest.NewRecorder(), requestFrom(remoteAddr))
+		}
+		now = now.Add(time.Second)
+		admitted := 0
+		for range 25 {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, requestFrom(remoteAddr))
+			if response.Code == http.StatusNoContent {
+				admitted++
+			}
+		}
+		return admitted
+	}
+	if got := sustained("9.9.9.9:1234"); got != 10 {
+		t.Fatalf("throttled visitor admitted = %d, want 10 (20/s × 0.5)", got)
+	}
+	if got := sustained("8.8.4.4:1234"); got != 20 {
+		t.Fatalf("other visitor admitted = %d, want 20 (nominal)", got)
+	}
+}
+
+// Un 429 imputable au seul débit réduit est neutre (pas de pénalité) et porte
+// sa raison ; la mesure expire riskThrottleTTL après la dernière décision.
+func TestRiskThrottle429IsNeutralAndExpires(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	middleware := newTestMiddleware(t, store, 10, 1)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	middleware.throttled.WithClock(func() time.Time { return now })
+	handler := middleware.Handler(countingHandler())
+	middleware.Throttle("9.9.9.9")
+
+	// 150 ms après avoir vidé le bucket : 1,5 jeton au débit nominal (admis),
+	// 0,75 au débit réduit (refusé).
+	handler.ServeHTTP(httptest.NewRecorder(), requestFrom("9.9.9.9:1234"))
+	now = now.Add(150 * time.Millisecond)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestFrom("9.9.9.9:1234"))
+
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", response.Code)
+	}
+	if got := response.Header().Get("X-WAF-Reason"); got != ReasonRiskThrottle {
+		t.Fatalf("X-WAF-Reason = %q, want %s", got, ReasonRiskThrottle)
+	}
+	if visitor, ok := store.GetVisitor(trust.HashIP("9.9.9.9")); ok && visitor.Score != 50 {
+		t.Fatalf("score = %d, want 50 (no penalty for a throttle-only 429)", visitor.Score)
+	}
+
+	now = now.Add(riskThrottleTTL)
+	handler.ServeHTTP(httptest.NewRecorder(), requestFrom("9.9.9.9:1234"))
+	now = now.Add(150 * time.Millisecond)
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, requestFrom("9.9.9.9:1234"))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status after riskThrottleTTL = %d, want 204 (throttle lifted)", response.Code)
+	}
+}
+
 func newTestMiddleware(t *testing.T, store *memory.Store, rate float64, burst int) *Middleware {
 	t.Helper()
 

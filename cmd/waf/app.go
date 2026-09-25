@@ -303,6 +303,7 @@ func (a *app) buildProtection() error {
 	if a.riskMiddleware, err = risk.NewMiddleware(a.store, scoreManager, cfg); err != nil {
 		return err
 	}
+	a.riskMiddleware.WithThrottle(a.rateLimiter.Throttle)
 	a.stop.add(a.riskMiddleware.Close)
 	return nil
 }
