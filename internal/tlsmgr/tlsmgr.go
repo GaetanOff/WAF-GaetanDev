@@ -1,5 +1,5 @@
 // Package tlsmgr termine le TLS sur le WAF en présentant un certificat distinct
-// par domaine, sélectionné par SNI (FR-33, ADR-017). Les certificats sont des
+// par domaine, sélectionné par SNI (FR-40, ADR-017). Les certificats sont des
 // paires PEM existantes sur disque, chargées au démarrage : un fichier manquant,
 // illisible, ou dont la clé ne correspond pas au certificat fait échouer le
 // démarrage (fail-fast). Un certificat par défaut optionnel est servi pour les

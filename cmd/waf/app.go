@@ -570,7 +570,7 @@ func (a *app) serve(timeouts serverTimeouts) error {
 		listenInBackground(errs, challengeServer.ListenAndServe)
 		servers = append(servers, namedServer{name: "acme challenge", server: challengeServer})
 	}
-	// Redirection HTTP -> HTTPS (FR-33) quand le WAF termine lui-même le TLS par
+	// Redirection HTTP -> HTTPS (FR-40) quand le WAF termine lui-même le TLS par
 	// domaine et que redirect_http est actif.
 	if tlsManager != nil && cfg.Server.TLS.RedirectHTTP {
 		redirectServer := a.newSideServer(cfg.Server.Listen, redirectToHTTPS(cfg.Domains), timeouts.header)
@@ -597,7 +597,7 @@ type namedServer struct {
 }
 
 // configureTLS attache au serveur public ACME / Let's Encrypt (FR-31) ou la
-// terminaison TLS par domaine via SNI (FR-33), mutuellement exclusifs sur le
+// terminaison TLS par domaine via SNI (FR-40), mutuellement exclusifs sur le
 // même listener (garanti par config.Validate).
 func (a *app) configureTLS(server *http.Server) (*acme.Manager, *tlsmgr.Manager, error) {
 	// ACME : TLS direct avec renouvellement automatique (~30j avant

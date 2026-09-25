@@ -22,7 +22,7 @@ server:
   # (/waf/health excepté). Opt-in : laisse à false pour un upstream unique sans
   # domains[] ou un accès par IP. Voir CONFIG.md avant de durcir un domaine.
   strict_host: false
-  # Terminaison TLS par domaine (FR-33) : opt-in, si le WAF n'est PAS derrière
+  # Terminaison TLS par domaine (FR-40) : opt-in, si le WAF n'est PAS derrière
   # un terminateur TLS amont. Le certificat est choisi par SNI via domains[].tls.
   tls:
     enabled: false
@@ -364,7 +364,7 @@ domains:
   - host: "example.com"
     upstream: "http://10.0.0.1:80"
     challenge_enabled: true
-    # Certificat TLS de ce domaine, présenté par SNI si server.tls.enabled (FR-33)
+    # Certificat TLS de ce domaine, présenté par SNI si server.tls.enabled (FR-40)
     # tls:
     #   cert_file: "/etc/waf/certs/example.com/fullchain.pem"
     #   key_file: "/etc/waf/certs/example.com/privkey.pem"

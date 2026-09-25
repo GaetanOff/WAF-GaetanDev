@@ -3,7 +3,7 @@ status: accepted
 date: 2026-09-01
 decided: 2026-09-24
 deciders: GaetanDev
-relates-to: requirements.md (FR-01, FR-06 v2.2.0), requirements-ops.md (FR-33 — TLS par domaine), features/js-challenge.feature, features/per-domain-tls.feature, ADR-017
+relates-to: requirements.md (FR-01, FR-06 v2.2.0), requirements-ops.md (FR-40 — TLS par domaine), features/js-challenge.feature, features/per-domain-tls.feature, ADR-017
 ---
 
 # ADR-020 — Confiance accordée à l'en-tête `Host` pour le routage et la politique par domaine
@@ -55,7 +55,7 @@ qu'il s'applique aussi à la **politique**, pas seulement au routage.
 
 ### Zone 2 — Aucune liaison entre le SNI et le `Host`
 
-Avec la terminaison TLS par domaine (FR-33, ADR-017), le certificat est
+Avec la terminaison TLS par domaine (FR-40, ADR-017), le certificat est
 sélectionné sur le **SNI** du `ClientHello` (`internal/tlsmgr`), tandis que le
 routage et la politique suivent le **`Host` HTTP**. Rien ne vérifie que les deux
 concordent : un client peut négocier `a.example.com` et envoyer
@@ -170,7 +170,7 @@ du moteur de règles (FR-17 v2.3.0, T14.3).
 ## Spec References
 
 - `specs/requirements.md` FR-01 (reverse proxy), FR-06 v2.2.0 (challenge par domaine)
-- `specs/requirements-ops.md` FR-33 — terminaison TLS par domaine
+- `specs/requirements-ops.md` FR-40 — terminaison TLS par domaine
 - `specs/features/js-challenge.feature`, `specs/features/per-domain-tls.feature`
 - `specs/decisions/ADR-017-per-domain-tls.md`
 - `specs/validation.md` — audit des surfaces de confiance implicite

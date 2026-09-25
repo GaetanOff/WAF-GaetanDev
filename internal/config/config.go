@@ -79,7 +79,7 @@ type ServerConfig struct {
 	TLS        ServerTLS `yaml:"tls"`
 }
 
-// ServerTLS configure la terminaison TLS sur le WAF (FR-33, ADR-017). Les
+// ServerTLS configure la terminaison TLS sur le WAF (FR-40, ADR-017). Les
 // certificats par domaine sont définis dans Domains[].TLS et sélectionnés par
 // SNI ; CertFile/KeyFile fournissent un certificat par défaut optionnel.
 type ServerTLS struct {
@@ -484,7 +484,7 @@ func Default() Config {
 			GracefulShutdownTimeout: "15s",
 			MaxHeaderValueCount:     100,
 			TLS: ServerTLS{
-				Enabled:      false, // opt-in : terminaison TLS par domaine (FR-33)
+				Enabled:      false, // opt-in : terminaison TLS par domaine (FR-40)
 				Listen:       ":443",
 				MinVersion:   "1.2",
 				RedirectHTTP: true,
@@ -972,7 +972,7 @@ func validateCloudflare(fields *[]string, cfg Cloudflare) {
 	}
 }
 
-// validateServerTLS valide la terminaison TLS par domaine (FR-33). Les
+// validateServerTLS valide la terminaison TLS par domaine (FR-40). Les
 // vérifications de chargement réel des fichiers (parse PEM, concordance
 // cert/clé) sont faites au démarrage par internal/tlsmgr (fail-fast).
 func validateServerTLS(fields *[]string, c *Config) {

@@ -111,7 +111,7 @@ internal/
 │   ├── origin/          Token HMAC vers l'upstream + oracle de vérification (FR-19)
 │   ├── upstream/        Health checks, failover, load balancing (FR-25, FR-26)
 │   ├── upstreamtime/    Mesure du temps passé côté upstream (FR-09)
-│   ├── tlsmgr/          Certificats par domaine, sélection par SNI (FR-33)
+│   ├── tlsmgr/          Certificats par domaine, sélection par SNI (FR-40)
 │   └── acme/            Let's Encrypt via autocert (FR-31)
 │
 ├── Réponse au client

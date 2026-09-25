@@ -62,7 +62,7 @@
         "tls": {
           "type": "object",
           "additionalProperties": false,
-          "description": "Terminaison TLS sur le WAF (FR-33). Si enabled, le WAF écoute en HTTPS et sélectionne le certificat par SNI parmi les certificats statiques définis par domaine (domains[].tls), avec repli optionnel sur cert_file/key_file pour les SNI sans correspondance.",
+          "description": "Terminaison TLS sur le WAF (FR-40). Si enabled, le WAF écoute en HTTPS et sélectionne le certificat par SNI parmi les certificats statiques définis par domaine (domains[].tls), avec repli optionnel sur cert_file/key_file pour les SNI sans correspondance.",
           "properties": {
             "enabled": {
               "type": "boolean",
@@ -824,7 +824,7 @@
           "type": "object",
           "additionalProperties": false,
           "required": ["cert_file", "key_file"],
-          "description": "Certificat TLS propre à ce domaine, sélectionné par SNI quand server.tls.enabled = true (FR-33). Le host (exact ou wildcard *.example.com) sert de clé de correspondance SNI.",
+          "description": "Certificat TLS propre à ce domaine, sélectionné par SNI quand server.tls.enabled = true (FR-40). Le host (exact ou wildcard *.example.com) sert de clé de correspondance SNI.",
           "properties": {
             "cert_file": {
               "type": "string",

@@ -294,7 +294,7 @@ func writeConfig(t *testing.T, content string) string {
 }
 
 // validBaseConfig retourne une config minimale qui passe Validate(), pour
-// isoler la validation d'un sous-ensemble (ici server.tls / FR-33).
+// isoler la validation d'un sous-ensemble (ici server.tls / FR-40).
 func validBaseConfig() Config {
 	cfg := Default()
 	cfg.Version = "1.0"

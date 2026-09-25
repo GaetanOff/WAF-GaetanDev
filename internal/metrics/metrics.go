@@ -184,7 +184,7 @@ func (m *Metrics) WithDomains(hosts []string) *Metrics {
 }
 
 // SetTLSCertExpiry publie l'instant d'expiration (NotAfter) du certificat d'un
-// domaine en timestamp Unix (FR-33). L'alerte calcule le delta avec time().
+// domaine en timestamp Unix (FR-40). L'alerte calcule le delta avec time().
 func (m *Metrics) SetTLSCertExpiry(domain string, notAfter time.Time) {
 	m.tlsCertExpiry.WithLabelValues(domain).Set(float64(notAfter.Unix()))
 }
