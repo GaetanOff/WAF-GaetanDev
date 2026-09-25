@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.7.0
+version: 3.8.0
 last-reviewed: 2026-09-25
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+change: "FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -256,18 +256,30 @@ change: "FR-24 : le bypass des assets statiques n'exempte plus du rate limit (al
   - Aucune liaison SNI ↔ `Host` n'est exigée
 
 ### Protection de l'endpoint /waf/verify
-- Le WAF DOIT appliquer un rate limit strict sur `POST /waf/verify` : configurable (défaut: 10 req/s par IP)
-- Toute IP qui dépasse ce rate limit sur `/waf/verify` est automatiquement blacklistée pour 1h
-- Le WAF DOIT détecter les soumissions de challenge avec des tokens identiques (replay attack) et bloquer l'IP
+- Le WAF DOIT borner `POST /waf/verify` par IP réelle :
+  `self_protection.verify_max_per_minute` (défaut: 60, fenêtre fixe d'une minute).
+  Au-delà : `429` avec `Retry-After`, `X-WAF-Action: RATE_LIMIT`,
+  `X-WAF-Reason: self_protect_flood`
+- Le corps DOIT être validé contre `challenge-submission.schema.json` avant tout
+  traitement : un corps invalide (JSON malformé, champ manquant, `nonce` non
+  numérique) reçoit `400 {"error": "invalid_submission"}`
+- **Différé** (`waf-self-protection.feature`, scénarios `@deferred`) :
+  blacklist automatique d'1 h d'une IP qui dépasse la borne ; détection de
+  rejeu (`token_already_used`) — le token est un HMAC sans état, rejouable
+  jusqu'à son expiration pour la même IP et le même domaine ; blacklist sur
+  échecs de tokens répétés
 
 ### Protection de l'API Admin
-- L'API admin DOIT implémenter un rate limit sur les tentatives d'authentification : défaut 5 req/min par IP
-- Après 10 échecs d'authentification depuis la même IP en 5 minutes → IP blacklistée sur le port admin pour 24h
-- Les échecs d'authentification DOIVENT être journalisés dans l'audit trail
+- L'API admin DOIT verrouiller une IP après `self_protection.admin_max_failures`
+  échecs d'authentification (défaut: 5) : `429 {"error": "locked"}` pendant la
+  fenêtre `self_protection.admin_lockout` (défaut: `5m`), token valide compris.
+  Seuls les échecs sont comptés
+- **Différé** : blacklist 24 h sur le port admin, event d'audit
+  `ADMIN_AUTH_FLOOD` et webhook associé, `admin.allowed_ips`
 
 ### Protection de l'endpoint /waf/metrics
-- `/waf/metrics` DOIT être protégeable par token (optionnel, désactivé par défaut pour faciliter Prometheus scraping)
-- Sinon, accessible seulement depuis les IPs whitelistées ou le réseau interne
+- `/waf/metrics` est public (Prometheus). Restreindre l'accès par firewall réseau
+- **Différé** : protection par token (`metrics.auth_token`)
 
 ### Parsing JSON des entrées non fiables
 - Tout corps JSON provenant d'un client (`POST /waf/verify`, API admin) DOIT être
@@ -286,8 +298,11 @@ change: "FR-24 : le bypass des assets statiques n'exempte plus du rate limit (al
   l'ajout de champs par le fournisseur
 
 ### Protection globale du WAF
-- Le WAF DOIT détecter les **amplification attacks** sur le challenge : un visiteur qui génère plus de N tokens de challenge sans jamais les soumettre (stocke des nonces en mémoire) → ses nonces sont supprimés et il est challengé plus sévèrement
-- Limite du store de nonces : `challenge.max_pending_nonces` par IP (défaut: 5)
+- **Différé** : détection des **amplification attacks** sur le challenge (un
+  visiteur qui génère plus de N tokens sans jamais les soumettre voit ses nonces
+  supprimés et est challengé plus sévèrement) et limite
+  `challenge.max_pending_nonces` par IP. Les deux supposent un store de nonces,
+  qui n'existe pas : le token de challenge est sans état
 
 ## FR-31 — TLS Termination & ACME/Let's Encrypt
 

@@ -650,7 +650,7 @@ critère d'acceptation.
 |-------|--------|-------|
 | `go test ./...` | ✅ | 747 tests et sous-tests |
 | `go test -race ./...` | ⬜ | non exécutable localement (pas de toolchain C sous Windows) — exécuté par la CI (`ci.yml`, job Test) |
-| Scénarios non implémentés isolés (`@deferred`) | ✅ | rules-engine, upstream-health, audit-trail, deception-layer, origin-protection, acme-tls, webhook-alerts, geo-rules, threat-intelligence, adaptive-protection |
+| Scénarios non implémentés isolés (`@deferred`) | ✅ | rules-engine, upstream-health, audit-trail, deception-layer, origin-protection, acme-tls, webhook-alerts, geo-rules, threat-intelligence, adaptive-protection, waf-self-protection |
 
 ### G5 — Security
 ```bash
