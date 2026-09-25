@@ -2,6 +2,7 @@ package logger
 
 import (
 	"io"
+	"sync"
 	"sync/atomic"
 )
 
@@ -20,11 +21,12 @@ const asyncBufferSize = 8192
 // n'est pas libérée pour la requête suivante, ce qui provoque des timeouts en
 // cascade côté Cloudflare (pool de connexions partagé vers l'origine).
 type asyncWriter struct {
-	out     io.Writer
-	queue   chan []byte
-	dropped atomic.Int64
-	done    chan struct{}
-	flushed chan struct{}
+	out       io.Writer
+	queue     chan []byte
+	dropped   atomic.Int64
+	done      chan struct{}
+	closeOnce sync.Once
+	flushed   chan struct{}
 }
 
 func newAsyncWriter(out io.Writer, buffer int) *asyncWriter {
@@ -75,12 +77,11 @@ func (w *asyncWriter) run() {
 }
 
 // Close arrête le goroutine de fond après avoir vidé la file (arrêt gracieux).
+// Idempotent, y compris en appels concurrents : le select/default précédent
+// laissait deux appelants simultanés passer tous deux par default, et le second
+// close paniquait (même correction que memory.Store.Close).
 func (w *asyncWriter) Close() error {
-	select {
-	case <-w.done:
-	default:
-		close(w.done)
-	}
+	w.closeOnce.Do(func() { close(w.done) })
 	<-w.flushed
 	return nil
 }
