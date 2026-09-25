@@ -126,3 +126,43 @@ func TestControllerDecaysBackToBaseline(t *testing.T) {
 		t.Fatalf("difficulty after 5 tau = %d, want 16", d)
 	}
 }
+
+// Le débit ne compte que les windowSeconds dernières secondes : une seconde
+// échue, même revenue sur la même case de l'anneau, n'est plus comptée.
+func TestControllerRateCountsOnlyTheWindow(t *testing.T) {
+	now := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
+	controller := NewController(16, 24, 5*time.Minute)
+	controller.now = func() time.Time { return now }
+
+	for range 50 {
+		controller.Observe()
+	}
+	if got := controller.rate(now.Unix()); got != 5 {
+		t.Fatalf("rate = %v, want 5 (50 requests over %d s)", got, windowSeconds)
+	}
+	now = now.Add(windowSeconds * time.Second) // même case, seconde échue
+	if got := controller.rate(now.Unix()); got != 0 {
+		t.Fatalf("rate after the window = %v, want 0", got)
+	}
+	controller.Observe()
+	if got := controller.rate(now.Unix()); got != 0.1 {
+		t.Fatalf("rate = %v, want 0.1 (the reused slot restarts at 1)", got)
+	}
+}
+
+// Observe retourne la difficulté de Snapshot, sous le même verrou.
+func TestObserveReturnsTheSnapshotDifficulty(t *testing.T) {
+	controller := NewController(16, 24, 5*time.Minute)
+	controller.ObservePressure("high")
+	if got, want := controller.Observe(), controller.Snapshot(); got != want || got != 22 {
+		t.Fatalf("Observe() = %d, Snapshot() = %d, want both 22", got, want)
+	}
+}
+
+func BenchmarkObserve(b *testing.B) {
+	controller := NewController(16, 24, 5*time.Minute)
+	b.ReportAllocs()
+	for b.Loop() {
+		controller.Observe()
+	}
+}

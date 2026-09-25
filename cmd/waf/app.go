@@ -367,8 +367,7 @@ func (a *app) addAdaptiveDetector() error {
 	metrics := a.metrics
 	a.detectors = append(a.detectors, func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			controller.Observe()
-			metrics.SetPowDifficulty(controller.Snapshot())
+			metrics.SetPowDifficulty(controller.Observe())
 			next.ServeHTTP(w, r)
 		})
 	})
