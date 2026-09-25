@@ -8,7 +8,7 @@ info:
     WAF : ces chemins ne sont jamais transmis à l'upstream. L'API
     d'administration, sur son port privé, a son propre contrat
     (admin.openapi.yaml).
-  version: 1.1.0
+  version: 1.2.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -72,6 +72,27 @@ components:
           enum: [ok]
 
   responses:
+    HostNotDeclared:
+      description: >-
+        Host absent de domains[] alors que server.strict_host est actif
+        (ADR-020) ; X-WAF-Reason vaut host_not_declared.
+      content:
+        text/plain:
+          schema:
+            type: string
+
+    TooManyRequests:
+      description: >-
+        Trop de requêtes concurrentes pour cette IP (slowloris, FR-23 ;
+        X-WAF-Reason too_many_connections_per_ip).
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfter"
+      content:
+        text/plain:
+          schema:
+            type: string
+
     MethodNotAllowed:
       description: Méthode autre que GET ou HEAD
       headers:
@@ -120,15 +141,24 @@ paths:
               schema:
                 $ref: "#/components/schemas/VerifySuccess"
         "400":
-          description: Soumission rejetée (corps invalide, token invalide ou expiré, PoW faux, timing ou fingerprint refusé)
+          description: >-
+            Soumission rejetée (corps invalide, token invalide ou expiré, PoW
+            faux, timing ou fingerprint refusé) en JSON ; en texte brut, Host
+            non déclaré sous server.strict_host (ADR-020).
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/VerifyError"
+            text/plain:
+              schema:
+                type: string
         "405":
           description: Méthode autre que POST
         "429":
-          description: Trop de soumissions pour cette IP (auto-protection FR-30)
+          description: >-
+            Trop de soumissions pour cette IP (auto-protection FR-30,
+            self_protect_flood) ou trop de requêtes concurrentes (slowloris
+            FR-23, too_many_connections_per_ip)
           headers:
             Retry-After:
               $ref: "#/components/headers/RetryAfter"
@@ -178,6 +208,10 @@ paths:
                 $ref: "#/components/schemas/OriginVerification"
               example:
                 valid: false
+        "400":
+          $ref: "#/components/responses/HostNotDeclared"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -197,6 +231,10 @@ paths:
             text/plain:
               schema:
                 type: string
+        "400":
+          $ref: "#/components/responses/HostNotDeclared"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
         "405":
           $ref: "#/components/responses/MethodNotAllowed"
 
@@ -204,7 +242,10 @@ paths:
     get:
       operationId: getPublicHealth
       summary: Sonde de disponibilité
-      description: Utilisée par le HEALTHCHECK du conteneur (waf -healthcheck).
+      description: >-
+        Utilisée par le HEALTHCHECK du conteneur (waf -healthcheck). Hors des
+        refus d'enveloppe (strict_host, slowloris) : les sondes appellent le
+        WAF par son IP.
       tags: [Observability]
       responses:
         "200":
