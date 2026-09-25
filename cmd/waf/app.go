@@ -36,6 +36,8 @@ import (
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/rules"
 	"github.com/gaetandev/waf/internal/storage"
+	"github.com/gaetandev/waf/internal/storage/memory"
+	redisstore "github.com/gaetandev/waf/internal/storage/redis"
 	"github.com/gaetandev/waf/internal/threatintel"
 	"github.com/gaetandev/waf/internal/tlsfp"
 	"github.com/gaetandev/waf/internal/tlsmgr"
@@ -542,7 +544,7 @@ func (a *app) serve(timeouts serverTimeouts) error {
 	cfg := a.cfg
 	server := &http.Server{
 		Addr:              cfg.Server.Listen,
-		Handler:           routes(*cfg, a.accessRules, a.securityLogger, a.metrics, a.antiDDoS, a.rateLimiter, a.antiBot, a.riskMiddleware, a.challengeMiddleware, a.scoreManager, a.detectors, a.origin),
+		Handler:           a.routes(),
 		ReadHeaderTimeout: timeouts.header,
 		ReadTimeout:       timeouts.read,
 		WriteTimeout:      timeouts.write,
@@ -708,4 +710,23 @@ func drainedError(errs <-chan error) error {
 	default:
 		return nil
 	}
+}
+
+// newStore construit le backend de stockage désigné par `storage.backend`.
+//
+// Cette sélection n'existait pas avant la phase 15 : `redis` était accepté par
+// la validation de configuration puis ignoré — le WAF servait un état par nœud
+// alors que la configuration promettait un état partagé entre instances
+// (ADR-002, sémantique d'exécution dans ADR-021).
+func newStore(cfg config.Config, observer redisstore.Observer) (storage.Store, error) {
+	if cfg.Storage.Backend != storageBackendRedis {
+		return memory.New(cfg.Trust.MaxVisitors), nil
+	}
+	if cfg.Storage.Redis == nil {
+		// Déjà refusé par config.Validate ; la garde évite qu'un appel direct
+		// déréférence un pointeur nul.
+		return nil, errors.New("storage.backend is redis but storage.redis is missing")
+	}
+	slog.Info("using redis storage backend", "address", cfg.Storage.Redis.Address)
+	return redisstore.New(*cfg.Storage.Redis, cfg.Trust.MaxVisitors, redisstore.WithObserver(observer))
 }

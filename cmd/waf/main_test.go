@@ -25,6 +25,26 @@ import (
 	"github.com/gaetandev/waf/internal/trust"
 )
 
+// newTestRoutes assemble le pipeline public à partir de composants de test,
+// comme app.routes le fait à partir de ceux que build construit.
+func newTestRoutes(cfg config.Config, accessRules *access.RuleSet, securityLogger waflogger.Logger, metrics *wafmetrics.Metrics, antiDDoS antiddos.Middleware, rateLimiter *ratelimit.Middleware, antiBot antibot.Middleware, riskMiddleware *risk.Middleware, challengeMiddleware challenge.Middleware, scoreManager *trust.ScoreManager, detectors []func(http.Handler) http.Handler, proxyHandler http.Handler) http.Handler {
+	a := &app{
+		cfg:                 &cfg,
+		origin:              proxyHandler,
+		accessRules:         accessRules,
+		metrics:             metrics,
+		scoreManager:        scoreManager,
+		antiDDoS:            antiDDoS,
+		rateLimiter:         rateLimiter,
+		antiBot:             antiBot,
+		riskMiddleware:      riskMiddleware,
+		detectors:           detectors,
+		challengeMiddleware: challengeMiddleware,
+		securityLogger:      securityLogger,
+	}
+	return a.routes()
+}
+
 func TestRoutesRejectsForgedCloudflareHeaderWhenTrusted(t *testing.T) {
 	cfg := config.Default()
 	cfg.Cloudflare.Trusted = true
@@ -34,7 +54,7 @@ func TestRoutesRejectsForgedCloudflareHeaderWhenTrusted(t *testing.T) {
 	request.Header.Set("CF-Connecting-IP", "198.51.100.25")
 	response := httptest.NewRecorder()
 
-	routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("proxy should not be called")
 	})).ServeHTTP(response, request)
 
@@ -53,7 +73,7 @@ func TestRoutesSkipsCloudflareValidationWhenNotTrusted(t *testing.T) {
 	response := httptest.NewRecorder()
 
 	cfg.Challenge.Enabled = false
-	routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})).ServeHTTP(response, request)
 
@@ -70,7 +90,7 @@ func TestRoutesAppliesWhitelistBeforeBlacklist(t *testing.T) {
 	request.RemoteAddr = "172.16.0.1:443"
 	response := httptest.NewRecorder()
 
-	routes(cfg, newTestRules(t, []string{"172.16.0.1"}, []string{"172.16.0.1"}, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	newTestRoutes(cfg, newTestRules(t, []string{"172.16.0.1"}, []string{"172.16.0.1"}, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	})).ServeHTTP(response, request)
 
@@ -86,7 +106,7 @@ func TestRoutesAppliesRateLimitAfterAccessRules(t *testing.T) {
 	cfg.RateLimit.Burst = 1
 
 	cfg.Challenge.Enabled = false
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -107,7 +127,7 @@ func TestRoutesAppliesAntiBotHoneypot(t *testing.T) {
 	cfg.RiskEngine.Tiers.Tarpit = 70
 	cfg.RiskEngine.Tiers.Block = 75
 
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("proxy should not be called")
 	}))
 	response := httptest.NewRecorder()
@@ -124,7 +144,7 @@ func TestRoutesAppliesGlobalPressureBeforeChallengeWithout503(t *testing.T) {
 	cfg.AntiDDoS.GlobalRequestsPerSecond = 1
 	cfg.AntiDDoS.GlobalWindow = "1s"
 
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoSFromConfig(t, cfg), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoSFromConfig(t, cfg), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("proxy should not be called")
 	}))
 
@@ -170,7 +190,7 @@ func TestRoutesAppliesPerDomainChallengeOverride(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.host, func(t *testing.T) {
 			proxied := false
-			handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				proxied = true
 				w.WriteHeader(http.StatusNoContent)
 			}))
@@ -195,7 +215,7 @@ func TestRoutesExposesPrometheusMetricsEndpoint(t *testing.T) {
 	cfg := config.Default()
 	cfg.Cloudflare.Trusted = false
 	cfg.Challenge.Enabled = false
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 	response := httptest.NewRecorder()
@@ -220,7 +240,7 @@ func TestRoutesBypassesExactAndPrefixedAssets(t *testing.T) {
 	cfg.Challenge.Enabled = true
 	cfg.Trust.ChallengeThreshold = 100 // tout visiteur non-asset serait challengé
 	metrics := newTestMetrics()
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), metrics, newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), metrics, newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 	}))
 
@@ -276,7 +296,7 @@ func TestRoutesAppliesRiskDecisionBeforeProxy(t *testing.T) {
 	if err != nil {
 		t.Fatalf("risk.NewMiddleware() error = %v", err)
 	}
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
 		"X-WAF-Risk-Behavioral":  "100",
 		"X-WAF-Risk-TLS":         "100",
 		"X-WAF-Risk-Fingerprint": "100",
@@ -325,7 +345,7 @@ func TestRoutesRiskEngineShadowByDefault(t *testing.T) {
 	// l'assertion sur X-WAF-Risk-Decision vérifie, sinon « le proxy est appelé »
 	// serait vrai trivialement.
 	proxyCalled := false
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
 		"X-WAF-Risk-Behavioral": "100",
 		"X-WAF-Risk-TLS":        "100",
 		"X-WAF-Risk-Integrity":  "100",
@@ -374,7 +394,7 @@ func TestRoutesCorroboratedBlockFromRealSignals(t *testing.T) {
 	if err != nil {
 		t.Fatalf("risk.NewMiddleware() error = %v", err)
 	}
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("corroborated block must not reach the proxy")
 	}))
 	request := requestFrom("198.51.100.10:443")
@@ -449,7 +469,7 @@ func TestRoutesIgnoresClientSuppliedWAFHeaders(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			proxied := false
-			handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				proxied = true
 				w.WriteHeader(http.StatusNoContent)
 			}))
@@ -496,7 +516,7 @@ func TestRoutesOriginVerifyReadsTheRetransmittedToken(t *testing.T) {
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 				t.Fatal("proxy should not be called for /waf/origin/verify")
 			}))
 
@@ -667,7 +687,7 @@ func TestRoutesEnforcesRiskChallengeDecision(t *testing.T) {
 		t.Fatalf("risk.NewMiddleware() error = %v", err)
 	}
 	challengeMiddleware := newTestChallenge(t, cfg)
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, challengeMiddleware, scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, challengeMiddleware, scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
 		"X-WAF-Risk-Integrity": "100",
 	})}, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Fatalf("proxy reached with X-WAF-Action=%q: CHALLENGE decision not enforced", r.Header.Get("X-WAF-Action"))
@@ -718,7 +738,7 @@ func TestRoutesHumanCreditStopsRechallengeLoop(t *testing.T) {
 	riskMiddleware.GrantChallengePass("198.51.100.10", "example.test", fpHash)
 
 	proxied := false
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), riskMiddleware, newTestChallenge(t, cfg), scoreManager, []func(http.Handler) http.Handler{riskFamilyDetector(map[string]string{
 		"X-WAF-Risk-Integrity": "100",
 	})}, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		proxied = true
@@ -749,7 +769,7 @@ func TestRoutesWhitelistedUserAgentIsNotABypass(t *testing.T) {
 	cfg.RateLimit.RequestsPerSecond = 1
 	cfg.RateLimit.Burst = 1
 	proxied := 0
-	handler := routes(cfg, newTestRules(t, nil, nil, []string{"Googlebot"}), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, []string{"Googlebot"}), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		proxied++
 		w.WriteHeader(http.StatusNoContent)
 	}))
@@ -781,7 +801,7 @@ func TestRoutesDeterministicTriggerBlocksWithoutRiskEngine(t *testing.T) {
 	cfg.Challenge.Enabled = false
 	const blacklisted = "3b5074b1b5d032e5620f69f9159a1b97"
 	ja3 := tlsfp.NewMiddleware(config.TLSFingerprint{Enabled: true, JA3Header: "X-Client-JA3", JA3Blacklist: []string{blacklisted}}, 100)
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), []func(http.Handler) http.Handler{ja3.Handler}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), []func(http.Handler) http.Handler{ja3.Handler}, http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
 		t.Fatal("a blacklisted JA3 must not reach the upstream")
 	}))
 	request := requestFrom("198.51.100.10:443")
@@ -812,7 +832,7 @@ func TestRoutesSlowlorisCountsTheCloudflareVisitorNotThePoP(t *testing.T) {
 	cfg.Slowloris.MaxConnsPerIP = 1
 	release := make(chan struct{})
 	inFlight := make(chan struct{})
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("CF-Connecting-IP") == "198.51.100.1" {
 			close(inFlight)
 			<-release
@@ -896,7 +916,7 @@ func TestRoutesEnvelopeRejectionsAreObserved(t *testing.T) {
 			logger := newTestLogger()
 			logger.Recorder = events
 			metrics := newTestMetrics()
-			handler := routes(cfg, newTestRules(t, nil, nil, nil), logger, metrics, newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), logger, metrics, newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 				w.WriteHeader(http.StatusNoContent)
 			}))
 
@@ -925,7 +945,7 @@ func TestRoutesSlowlorisRejectionIsObserved(t *testing.T) {
 	logger.Recorder = events
 	release := make(chan struct{})
 	inFlight := make(chan struct{})
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), logger, newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), logger, newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/slow" {
 			close(inFlight)
 			<-release
@@ -996,7 +1016,7 @@ func TestRoutesStrictHostRejectsUndeclaredHosts(t *testing.T) {
 	cfg.Challenge.Enabled = false
 	cfg.Server.StrictHost = true
 	cfg.Domains = []config.DomainConfig{{Host: "boxaria.fr", Upstream: "http://10.0.0.1"}}
-	handler := routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Host != "boxaria.fr" {
 			t.Fatalf("undeclared host %q reached the upstream", r.Host)
 		}

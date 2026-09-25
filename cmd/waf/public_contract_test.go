@@ -126,7 +126,7 @@ func publicTestHandler(t *testing.T, cfg config.Config) http.Handler {
 	cfg.Cloudflare.Trusted = false
 	cfg.OriginProtection.Enabled = true
 	cfg.OriginProtection.Secret = strings.Repeat("s", 32)
-	return routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+	return newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
 		t.Fatalf("%s %s reached the upstream: /waf/ endpoints are served by the WAF", r.Method, r.URL.Path)
 	}))
 }
@@ -161,7 +161,7 @@ func TestPublicEndpointsConformToTheirContract(t *testing.T) {
 		contract.assertConforms(t, probe, serveProbe(handler, probe, "example.test"))
 		probed[probe.path] = true
 	}
-	// Serveur annexe HTTP-01 (acme.http_challenge_listen), hors de routes().
+	// Serveur annexe HTTP-01 (acme.http_challenge_listen), hors de newTestRoutes().
 	acmeHandler := acme.NewManager(config.ACME{Domains: []string{"example.test"}, CacheDir: t.TempDir()}).HTTPHandler(nil)
 	acmeProbe := contractProbe{http.MethodGet, "/.well-known/acme-challenge/unknown-token", ""}
 	for host, want := range map[string]int{"example.test": http.StatusNotFound, "other.test": http.StatusForbidden} {

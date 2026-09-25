@@ -42,7 +42,7 @@ func TestRoutesRelayWebSocketUpgradeThroughThePipeline(t *testing.T) {
 	if err != nil {
 		t.Fatalf("proxy.NewHandler() error = %v", err)
 	}
-	server := httptest.NewServer(routes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, proxyHandler))
+	server := httptest.NewServer(newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, proxyHandler))
 	t.Cleanup(server.Close)
 
 	conn, err := net.DialTimeout("tcp", strings.TrimPrefix(server.URL, "http://"), 2*time.Second)
