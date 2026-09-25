@@ -1,31 +1,18 @@
 package main
 
 import (
-	"context"
 	"errors"
-	"flag"
 	"fmt"
 	"log/slog"
 	"net/http"
 	"net/url"
 	"os"
-	"os/signal"
 	"slices"
 	"strings"
-	"syscall"
 	"time"
 
-	"github.com/gaetandev/waf/internal/acme"
-	"github.com/gaetandev/waf/internal/adaptive"
-	"github.com/gaetandev/waf/internal/admin"
-	"github.com/gaetandev/waf/internal/alert"
-	"github.com/gaetandev/waf/internal/behavioral"
-	"github.com/gaetandev/waf/internal/cluster"
 	"github.com/gaetandev/waf/internal/config"
-	"github.com/gaetandev/waf/internal/deception"
-	"github.com/gaetandev/waf/internal/geo"
 	"github.com/gaetandev/waf/internal/hostname"
-	"github.com/gaetandev/waf/internal/integrity"
 	waflogger "github.com/gaetandev/waf/internal/logger"
 	"github.com/gaetandev/waf/internal/maintenance"
 	wafmetrics "github.com/gaetandev/waf/internal/metrics"
@@ -39,7 +26,6 @@ import (
 	"github.com/gaetandev/waf/internal/origin"
 	"github.com/gaetandev/waf/internal/proxy"
 	"github.com/gaetandev/waf/internal/risk"
-	"github.com/gaetandev/waf/internal/rules"
 	"github.com/gaetandev/waf/internal/secheaders"
 	"github.com/gaetandev/waf/internal/selfprotect"
 	"github.com/gaetandev/waf/internal/slowloris"
@@ -47,12 +33,7 @@ import (
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	redisstore "github.com/gaetandev/waf/internal/storage/redis"
-	"github.com/gaetandev/waf/internal/threatintel"
-	"github.com/gaetandev/waf/internal/tlsfp"
-	"github.com/gaetandev/waf/internal/tlsmgr"
 	"github.com/gaetandev/waf/internal/trust"
-	"github.com/gaetandev/waf/internal/upstream"
-	"github.com/gaetandev/waf/web"
 )
 
 const (
@@ -71,434 +52,25 @@ func main() {
 
 func run() error {
 	startedAt := time.Now()
-	configPath := flag.String("config", defaultConfigPath, "config YAML path")
-	listenAddress := flag.String("listen", "", "override public HTTP listen address")
-	healthCheck := flag.Bool("healthcheck", false, "probe the health endpoint and exit (for container HEALTHCHECK)")
-	healthCheckURL := flag.String("health-url", defaultHealthCheckURL, "health endpoint URL probed by -healthcheck")
-	flag.Parse()
-
-	if *healthCheck {
-		return runHealthCheck(*healthCheckURL)
+	flags := parseFlags()
+	if flags.healthCheck {
+		return runHealthCheck(flags.healthCheckURL)
 	}
-
-	cfg, err := config.Load(*configPath)
+	cfg, err := loadConfig(flags)
 	if err != nil {
 		return err
 	}
-	if *listenAddress != "" {
-		cfg.Server.Listen = *listenAddress
-	}
-	warnUntrustedInfrastructureHeaders(*cfg)
-	for _, host := range poolShadowedDomains(*cfg) {
-		slog.Warn("domains[].upstream is ignored while upstream_pool is enabled: the pool serves every host", "host", host, "requirement", "FR-26")
-	}
-
-	readTimeout, err := parseDuration("server.read_timeout", cfg.Server.ReadTimeout)
+	timeouts, err := parseServerTimeouts(*cfg)
 	if err != nil {
 		return err
 	}
-	writeTimeout, err := parseDuration("server.write_timeout", cfg.Server.WriteTimeout)
-	if err != nil {
-		return err
-	}
-	idleTimeout, err := parseDuration("server.idle_timeout", cfg.Server.IdleTimeout)
-	if err != nil {
-		return err
-	}
-	shutdownTimeout, err := parseDuration("server.graceful_shutdown_timeout", cfg.Server.GracefulShutdownTimeout)
-	if err != nil {
-		return err
-	}
-	headerTimeout := 10 * time.Second
-	if cfg.Slowloris.Enabled {
-		headerTimeout, err = parseDuration("slowloris.header_timeout", cfg.Slowloris.HeaderTimeout)
-		if err != nil {
-			return err
-		}
-	}
 
-	proxyHandler, err := proxy.NewHandler(*cfg)
-	if err != nil {
+	a := &app{cfg: cfg, startedAt: startedAt}
+	defer a.stop.run()
+	if err := a.build(); err != nil {
 		return err
 	}
-	// Pool d'upstreams + health checks + load balancing (FR-25/26).
-	if cfg.UpstreamPool.Enabled {
-		members := make([]*upstream.Upstream, 0, len(cfg.UpstreamPool.Upstreams))
-		for _, u := range cfg.UpstreamPool.Upstreams {
-			members = append(members, &upstream.Upstream{Address: u.Address, Weight: u.Weight, Backup: u.Backup})
-		}
-		pool := upstream.NewPool(cfg.UpstreamPool.Strategy, members)
-		upstreamTimeout, err := parseDuration("upstream.timeout", cfg.Upstream.Timeout)
-		if err != nil {
-			return err
-		}
-		if err := proxyHandler.WithPool(pool, cfg.Upstream.TLSVerify, cfg.Upstream.MaxIdleConns, upstreamTimeout, cfg.Upstream.PreserveHost); err != nil {
-			return err
-		}
-		hcInterval, err := parseDuration("upstream_pool.health_check.interval", cfg.UpstreamPool.HealthCheck.Interval)
-		if err != nil {
-			return err
-		}
-		hcTimeout, err := parseDuration("upstream_pool.health_check.timeout", cfg.UpstreamPool.HealthCheck.Timeout)
-		if err != nil {
-			return err
-		}
-		checker := upstream.NewHealthChecker(pool, cfg.UpstreamPool.HealthCheck.Path, hcInterval, hcTimeout, cfg.UpstreamPool.HealthCheck.HealthyThreshold, cfg.UpstreamPool.HealthCheck.UnhealthyThreshold)
-		hcCtx, hcCancel := context.WithCancel(context.Background())
-		defer hcCancel()
-		checker.Start(hcCtx)
-	}
-	// originHandler est la cible finale du pipeline (proxy), éventuellement
-	// précédée du tarpit (déception, FR-15) qui intercepte les requêtes classées
-	// TARPIT par le moteur de risque avant qu'elles n'atteignent le proxy.
-	var originHandler http.Handler = proxyHandler
-	if cfg.Deception.Enabled {
-		chunkDelay, err := parseDuration("deception.tarpit_chunk_delay", cfg.Deception.TarpitChunkDelay)
-		if err != nil {
-			return err
-		}
-		tarpit := deception.NewTarpit(cfg.Deception.TarpitMaxConns, cfg.Deception.TarpitChunks, chunkDelay)
-		originHandler = tarpit.Dispatch(originHandler)
-	}
-	accessRules, err := access.NewRuleSet(cfg.Whitelist, cfg.Blacklist, cfg.WhitelistUserAgents)
-	if err != nil {
-		return err
-	}
-	metrics := wafmetrics.New().WithDomains(domainHosts(cfg.Domains))
-	store, err := newStore(*cfg, metrics)
-	if err != nil {
-		return err
-	}
-	defer store.Close()
-	// Rafraîchissement des plages IP Cloudflare (FR-02). Tâche de fond : le WAF
-	// sert immédiatement avec la liste compilée, et un échec de récupération
-	// laisse la liste en vigueur intacte plutôt que d'empêcher le démarrage.
-	if cfg.Cloudflare.Trusted && cfg.Cloudflare.AutoUpdateRanges {
-		rangeInterval, err := parseDuration("cloudflare.update_interval", cfg.Cloudflare.UpdateInterval)
-		if err != nil {
-			return err
-		}
-		updater := cloudflare.NewUpdater(rangeInterval, cloudflare.WithObservers(
-			func(count int) {
-				metrics.SetCloudflareRanges(count)
-				metrics.IncCloudflareRangeUpdate("success")
-				slog.Info("cloudflare ip ranges refreshed", "prefixes", count)
-			},
-			func(err error) {
-				metrics.IncCloudflareRangeUpdate("error")
-				// Warn et non Error : la liste précédente reste en vigueur, le WAF
-				// continue de valider CF-Connecting-IP correctement.
-				slog.Warn("cloudflare ip ranges refresh failed", "error", err)
-			},
-		))
-		rangeCtx, rangeCancel := context.WithCancel(context.Background())
-		defer rangeCancel()
-		updater.Start(rangeCtx)
-	}
-	scoreManager, err := trust.NewScoreManager(store, *cfg)
-	if err != nil {
-		return err
-	}
-	metrics.WithVisitorBounds(scoreManager.TTL(), cfg.Trust.MaxVisitors)
-	antiDDoS, err := antiddos.NewFromConfig(store, *cfg)
-	if err != nil {
-		return err
-	}
-	rateLimiter, err := ratelimit.New(store, scoreManager, *cfg)
-	if err != nil {
-		return err
-	}
-	antiBot := antibot.New(antibot.NewRules(*cfg), scoreManager, cfg.RiskEngine.ShadowMode)
-	riskMiddleware, err := risk.NewMiddleware(store, scoreManager, *cfg)
-	if err != nil {
-		return err
-	}
-	defer riskMiddleware.Close()
-	// Détecteurs avancés : publient des contributions de signal consommées par le
-	// moteur de risque ; exécutés juste avant lui (Phase 8).
-	detectors := []func(http.Handler) http.Handler{
-		integrity.NewAnalyzer(*cfg).Handler,
-	}
-	var adaptiveController *adaptive.Controller
-	if cfg.Adaptive.Enabled {
-		decayTau, err := parseDuration("adaptive.decay_tau", cfg.Adaptive.DecayTau)
-		if err != nil {
-			return err
-		}
-		adaptiveController = adaptive.NewController(cfg.Challenge.PowDifficulty, cfg.Adaptive.MaxDifficulty, decayTau)
-		antiDDoS = antiDDoS.WithPressureObserver(func(level antiddos.PressureLevel) {
-			adaptiveController.ObservePressure(string(level))
-		})
-		controller := adaptiveController
-		detectors = append(detectors, func(next http.Handler) http.Handler {
-			return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				controller.Observe()
-				metrics.SetPowDifficulty(controller.Snapshot())
-				next.ServeHTTP(w, r)
-			})
-		})
-	}
-	if cfg.Behavioral.Enabled {
-		behavioralTracker := behavioral.New(cfg.Behavioral.MaxRecords, cfg.Trust.MaxVisitors)
-		defer behavioralTracker.Close()
-		detectors = append(detectors, behavioralTracker.Handler)
-	}
-	if cfg.ThreatIntel.Enabled {
-		cacheTTL, err := parseDuration("threat_intel.cache_ttl", cfg.ThreatIntel.CacheTTL)
-		if err != nil {
-			return err
-		}
-		staticSource := threatintel.NewStaticSource()
-		for _, cidr := range cfg.ThreatIntel.BlocklistCIDRs {
-			staticSource.Add(cidr, threatintel.LevelMalicious, "blocklist")
-		}
-		for _, cidr := range cfg.ThreatIntel.SuspectCIDRs {
-			staticSource.Add(cidr, threatintel.LevelSuspect, "suspect_range")
-		}
-		sources := []threatintel.Source{staticSource}
-		if cfg.ThreatIntel.AbuseIPDB.Enabled {
-			sources = append(sources, threatintel.NewHTTPSource(cfg.ThreatIntel.AbuseIPDB.URL, cfg.ThreatIntel.AbuseIPDB.APIKey, nil))
-		}
-		threatChecker := threatintel.NewChecker(cacheTTL, sources...)
-		defer threatChecker.Close()
-		detectors = append(detectors, threatintel.NewMiddleware(threatChecker, scoreManager).Handler)
-	}
-	if cfg.Geo.Enabled {
-		detectors = append(detectors, geo.NewRules(cfg.Geo).Handler)
-	}
-	if cfg.TLSFingerprint.Enabled {
-		detectors = append(detectors, tlsfp.NewMiddleware(cfg.TLSFingerprint, cfg.Trust.MaxVisitors).Handler)
-	}
-	if cfg.Rules.Enabled {
-		ruleSet := rules.NewRuleSet()
-		if err := ruleSet.LoadFile(cfg.Rules.File); err != nil {
-			return err
-		}
-		detectors = append(detectors, rules.NewMiddleware(ruleSet, scoreManager).Handler)
-	}
-	// Page embarquée : le binaire démarre hors de la racine du dépôt (G7).
-	challengeMiddleware, err := challenge.NewMiddlewareFromSource(*cfg, scoreManager, web.ChallengePage)
-	if err != nil {
-		return err
-	}
-	if adaptiveController != nil {
-		challengeMiddleware = challengeMiddleware.WithDifficultyProvider(adaptiveController.Difficulty)
-	}
-	if cfg.RiskEngine.Enabled {
-		challengeMiddleware = challengeMiddleware.WithHumanCredit(riskMiddleware.GrantChallengePass)
-	}
-	// Synchronisation multi-nœuds (FR-20) : publie les décisions locales
-	// (blacklist admin, ouverture de circuit, score critique) et applique celles
-	// des autres nœuds. Fallback autonome si Redis est indisponible.
-	var syncer *cluster.Syncer
-	if cfg.Cluster.Enabled && cfg.Storage.Redis != nil {
-		channel := cfg.Cluster.Channel
-		if channel == "" {
-			channel = "waf:events"
-		}
-		bus := cluster.NewRedisBus(*cfg.Storage.Redis, channel)
-		defer func() { _ = bus.Close() }()
-		syncer = cluster.NewSyncer(bus, store, accessRules)
-		clusterCtx, clusterCancel := context.WithCancel(context.Background())
-		defer clusterCancel()
-		if err := bus.Subscribe(clusterCtx, func(event cluster.Event) {
-			if syncer.Apply(event) {
-				metrics.IncClusterSync(event.Type)
-			}
-		}); err != nil {
-			return err
-		}
-		go syncer.RunPublisher(clusterCtx)
-		antiDDoS = antiDDoS.WithCircuitOpenObserver(syncer.PublishCircuitOpen)
-		scoreManager.WithCriticalObserver(syncer.PublishScoreCritical)
-	}
-	securityLogger := waflogger.New(cfg.Logging)
-	defer func() { _ = securityLogger.Close() }()     // vide le writer async à l'arrêt
-	securityLogger.AnonymizeIP = cfg.GDPR.AnonymizeIP // RGPD (FR-28)
-	// Alerting webhooks (FR-29) : le logger émet une alerte sur les événements
-	// à forte sévérité (block / circuit / honeypot), avec cooldown.
-	var notifier *alert.Notifier
-	if cfg.Alerting.Enabled {
-		cooldown, err := parseDuration("alerting.cooldown", cfg.Alerting.Cooldown)
-		if err != nil {
-			return err
-		}
-		sinks := make([]alert.Sink, 0, len(cfg.Alerting.Webhooks))
-		for _, wh := range cfg.Alerting.Webhooks {
-			sinks = append(sinks, alert.Sink{Type: wh.Type, URL: wh.URL})
-		}
-		notifier = alert.NewNotifier(sinks, cooldown, cfg.Alerting.MaxRetries, nil, alert.WithObserver(metrics))
-		defer notifier.Close()
-		metrics.WithAlertsPending(notifier.Pending)
-		securityLogger.Alerter = notifier
-	}
-	// Mode sous attaque (FR-39) : à chaque entrée/sortie, on publie la métrique
-	// waf_under_attack{domain} et (si l'alerting est actif) on émet une alerte.
-	if detector := antiDDoS.UnderAttackDetector(); detector != nil {
-		detector.WithTransitionObserver(func(scope string, active bool) {
-			metrics.SetUnderAttack(scope, active)
-			if notifier == nil {
-				return
-			}
-			trigger := alert.TriggerUnderAttackEnd
-			if active {
-				trigger = alert.TriggerUnderAttackStart
-			}
-			// Immediate: une transition est un événement discret (déjà débouncé par
-			// l'hystérésis du contrôleur) ; elle ne doit pas être avalée par le
-			// cooldown de dédup (sinon une réactivation rapprochée n'alerte pas).
-			notifier.Notify(alert.Event{Trigger: trigger, Domain: scope, Immediate: true})
-		})
-	}
-
-	// L'API admin est construite avant la chaîne publique : son flux
-	// d'événements (GET /waf/admin/events) est alimenté par le logger.
-	var adminServer *admin.Server
-	if cfg.Admin.Enabled {
-		adminServer, err = admin.NewServer(*cfg, store, scoreManager, accessRules, startedAt)
-		if err != nil {
-			return err
-		}
-		securityLogger.Recorder = adminServer.EventRecorder()
-		if syncer != nil {
-			adminServer.WithBlacklistObserver(syncer.PublishBlacklistAdd)
-			syncer.WithBlacklistApplier(adminServer.ApplyClusterBlacklist)
-		}
-		// PATCH /waf/admin/config (hot-reload) : la configuration validée est
-		// poussée aux composants qui la lisent par requête.
-		adminServer.WithConfigApplier(func(next config.Config) {
-			rateLimiter.Configure(next.RateLimit)
-			scoreManager.SetThresholds(next.Trust.ChallengeThreshold, next.Trust.BlockThreshold)
-			challengeMiddleware.Configure(next.Challenge)
-			if adaptiveController != nil {
-				adaptiveController.SetBaseDifficulty(next.Challenge.PowDifficulty)
-			}
-			slog.Info("runtime configuration updated")
-		})
-	}
-
-	server := &http.Server{
-		Addr:              cfg.Server.Listen,
-		Handler:           routes(*cfg, accessRules, securityLogger, metrics, antiDDoS, rateLimiter, antiBot, riskMiddleware, challengeMiddleware, scoreManager, detectors, originHandler),
-		ReadHeaderTimeout: headerTimeout,
-		ReadTimeout:       readTimeout,
-		WriteTimeout:      writeTimeout,
-		IdleTimeout:       idleTimeout,
-		// FR-23 : borne le coût de parsing d'une requête portant des milliers de
-		// lignes d'en-tête, en amont de tout middleware.
-		MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
-	}
-	// ACME / Let's Encrypt (FR-31) : TLS direct avec renouvellement automatique
-	// (~30j avant expiration) et rotation à chaud via autocert.
-	var acmeManager *acme.Manager
-	if cfg.ACME.Enabled {
-		acmeManager = acme.NewManager(cfg.ACME)
-		server.Addr = cfg.ACME.TLSListen
-		server.TLSConfig = acmeManager.TLSConfig()
-	}
-	// Terminaison TLS par domaine via SNI (FR-33). Mutuellement exclusif avec
-	// ACME sur le même listener (garanti par config.Validate). Le chargement des
-	// certificats échoue vite (fichier manquant / clé non concordante).
-	var tlsManager *tlsmgr.Manager
-	if cfg.Server.TLS.Enabled {
-		tlsManager, err = tlsmgr.New(*cfg)
-		if err != nil {
-			return err
-		}
-		server.Addr = cfg.Server.TLS.Listen
-		server.TLSConfig = tlsManager.TLSConfig()
-		for domain, notAfter := range tlsManager.Expiries() {
-			metrics.SetTLSCertExpiry(domain, notAfter)
-		}
-	}
-	tlsEnabled := acmeManager != nil || tlsManager != nil
-
-	// Un emplacement par serveur : avec un canal de capacité 1, une deuxième
-	// erreur (ex. ports 443 et 80 déjà pris) bloquait sa goroutine pour toujours.
-	errs := make(chan error, maxListeners)
-	slog.Info("starting waf", "listen", server.Addr, "tls", tlsEnabled)
-	if tlsEnabled {
-		listenInBackground(errs, func() error { return server.ListenAndServeTLS("", "") }) // certs fournis par autocert ou tlsmgr (GetCertificate)
-	} else {
-		listenInBackground(errs, server.ListenAndServe)
-	}
-	// Serveur HTTP-01 (challenge ACME + redirection HTTPS) sur le port 80.
-	if acmeManager != nil {
-		challengeServer := &http.Server{
-			Addr:                cfg.ACME.HTTPChallengeListen,
-			Handler:             acmeManager.HTTPHandler(nil),
-			ReadHeaderTimeout:   headerTimeout,
-			MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
-		}
-		listenInBackground(errs, challengeServer.ListenAndServe)
-		defer func() { _ = challengeServer.Close() }()
-	}
-	// Redirection HTTP -> HTTPS (FR-33) quand le WAF termine lui-même le TLS par
-	// domaine et que redirect_http est actif.
-	if tlsManager != nil && cfg.Server.TLS.RedirectHTTP {
-		redirectServer := &http.Server{
-			Addr:                cfg.Server.Listen,
-			Handler:             redirectToHTTPS(cfg.Domains),
-			ReadHeaderTimeout:   headerTimeout,
-			MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
-		}
-		listenInBackground(errs, redirectServer.ListenAndServe)
-		defer func() { _ = redirectServer.Close() }()
-	}
-	if adminServer != nil {
-		slog.Info("starting admin api", "listen", cfg.Server.AdminListen)
-		listenInBackground(errs, adminServer.ListenAndServe)
-	}
-
-	stop := make(chan os.Signal, 1)
-	signal.Notify(stop, syscall.SIGINT, syscall.SIGTERM)
-	defer signal.Stop(stop)
-
-	select {
-	case signalReceived := <-stop:
-		slog.Info("shutdown requested", "signal", signalReceived.String())
-	case err := <-errs:
-		return err
-	}
-
-	ctx, cancel := context.WithTimeout(context.Background(), shutdownTimeout)
-	defer cancel()
-
-	if err := server.Shutdown(ctx); err != nil {
-		return fmt.Errorf("shutdown server: %w", err)
-	}
-	if adminServer != nil {
-		if err := adminServer.Shutdown(ctx); err != nil {
-			return fmt.Errorf("shutdown admin server: %w", err)
-		}
-	}
-
-	return drainedError(errs)
-}
-
-// maxListeners est le nombre maximal de serveurs HTTP démarrés par run :
-// public, challenge ACME HTTP-01, redirection HTTP→HTTPS et API admin.
-const maxListeners = 4
-
-// listenInBackground lance listen dans une goroutine et remonte son erreur sur
-// errs. http.ErrServerClosed, qui signale un arrêt demandé, n'en est pas une :
-// l'API admin la remontait, et un arrêt normal pouvait sortir en erreur.
-func listenInBackground(errs chan<- error, listen func() error) {
-	go func() {
-		if err := listen(); err != nil && !errors.Is(err, http.ErrServerClosed) {
-			errs <- err
-		}
-	}()
-}
-
-// drainedError retourne une erreur de serveur déjà remontée, sans attendre.
-func drainedError(errs <-chan error) error {
-	select {
-	case err := <-errs:
-		return err
-	default:
-		return nil
-	}
+	return a.serve(timeouts)
 }
 
 // warnUntrustedInfrastructureHeaders signale les contrôles privés d'entrée par
