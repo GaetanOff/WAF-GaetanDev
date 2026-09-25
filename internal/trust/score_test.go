@@ -1,8 +1,12 @@
 package trust
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
+	"sync"
 	"testing"
 	"time"
 
@@ -355,9 +359,48 @@ func TestHashIPIsStable(t *testing.T) {
 	}
 }
 
+// Appels répétés pour la même IP, comme au fil d'une requête.
 func BenchmarkHashIP(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		HashIP("2001:db8::1234:5678")
 	}
+}
+
+// Une IP différente à chaque appel : le cache ne sert jamais.
+func BenchmarkHashIPMiss(b *testing.B) {
+	ips := make([]string, hashCacheSlots*4)
+	for i := range ips {
+		ips[i] = "10." + strconv.Itoa(i>>16&255) + "." + strconv.Itoa(i>>8&255) + "." + strconv.Itoa(i&255)
+	}
+	b.ReportAllocs()
+	i := 0
+	for b.Loop() {
+		HashIP(ips[i%len(ips)])
+		i++
+	}
+}
+
+// Le cache ne rend jamais le hash d'une autre IP, y compris quand plusieurs
+// IP se disputent les emplacements en parallèle.
+func TestHashIPCacheNeverReturnsAnotherIPHash(t *testing.T) {
+	ips := make([]string, hashCacheSlots*2)
+	for i := range ips {
+		ips[i] = "192.0." + strconv.Itoa(i>>8&255) + "." + strconv.Itoa(i&255) + ":" + strconv.Itoa(i)
+	}
+	var wg sync.WaitGroup
+	for worker := range 8 {
+		wg.Go(func() {
+			for round := range 4 {
+				for i := worker + round; i < len(ips); i += 8 {
+					sum := sha256.Sum256([]byte(ips[i]))
+					if got, want := HashIP(ips[i]), hex.EncodeToString(sum[:ipHashBytes]); got != want {
+						t.Errorf("HashIP(%q) = %q, want %q", ips[i], got, want)
+						return
+					}
+				}
+			}
+		})
+	}
+	wg.Wait()
 }
