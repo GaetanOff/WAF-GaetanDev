@@ -315,7 +315,8 @@ REQUÊTE ENTRANTE
       │ première entrée gagnante), repli sur
       │ upstream.address (⚠ cf. ADR-020). Pool avec health checks et
       │ load balancing si configuré (FR-25/FR-26).
-      │ Pose X-Forwarded-*, X-Real-IP et X-WAF-Score vers l'upstream.
+      │ Pose X-Forwarded-*, X-Real-IP et X-WAF-Score vers l'upstream ;
+      │ retire tout autre X-WAF-* sauf X-WAF-Origin-Token.
       ▼
 RÉPONSE UPSTREAM → [10] journalise → [9] mesure → [2] en-têtes → CLIENT
 ```

@@ -205,6 +205,7 @@ func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout 
 		} else {
 			pr.Out.Host = target.Host
 		}
+		stripInternalHeaders(pr.Out.Header)
 		pr.Out.Header.Set("X-Real-Ip", clientIP)
 		if pr.Out.Header.Get(wafheader.Score) == "" {
 			pr.Out.Header.Set(wafheader.Score, defaultWAFScore)
@@ -234,6 +235,26 @@ func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout 
 	}
 
 	return proxy
+}
+
+// forwardedInternalHeaders sont les seuls en-têtes internes transmis à
+// l'upstream : le score de confiance (FR-01) et le token de protection de
+// l'origine (FR-19).
+var forwardedInternalHeaders = map[string]bool{
+	wafheader.Score:       true,
+	wafheader.OriginToken: true,
+}
+
+// stripInternalHeaders retire de la requête sortante les en-têtes de
+// coordination du pipeline (X-WAF-Action, X-WAF-Reason, X-WAF-Risk-*…) :
+// l'application protégée recevait toute la mécanique de décision du WAF,
+// qu'aucun contrat ne lui promet. Les clés sont canoniques (clone de r.Header).
+func stripInternalHeaders(header http.Header) {
+	for name := range header {
+		if strings.HasPrefix(name, wafheader.Prefix) && !forwardedInternalHeaders[name] {
+			delete(header, name)
+		}
+	}
 }
 
 // logUpstreamError journalise la cause d'un 502 : l'erreur de l'upstream était
