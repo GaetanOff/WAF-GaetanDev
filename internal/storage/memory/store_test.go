@@ -1,6 +1,7 @@
 package memory
 
 import (
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -153,5 +154,21 @@ func TestStoreCloseIsSafeUnderConcurrentCalls(t *testing.T) {
 			wg.Go(store.Close)
 		}
 		wg.Wait()
+	}
+}
+
+// Passe de nettoyage sous la borne (cas courant) : 100 000 IP suivies sur
+// leurs trois fenêtres.
+func BenchmarkCleanupBucketsUnderBound(b *testing.B) {
+	const visitors = 100_000
+	store := New(visitors)
+	b.Cleanup(store.Close)
+	now := time.Now()
+	for i := range visitors * bucketsPerVisitor {
+		store.SetBucket(strconv.Itoa(i), storage.RateBucket{LastRefill: now, ExpiresAt: now.Add(time.Hour)})
+	}
+	b.ReportAllocs()
+	for b.Loop() {
+		store.cleanupBuckets(now)
 	}
 }
