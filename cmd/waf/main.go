@@ -107,6 +107,14 @@ func poolShadowedDomains(cfg config.Config) []string {
 	return hosts
 }
 
+// geoChallengeInert signale geo.challenge_countries sans moteur de risque :
+// la contribution geo n'est lue que par le moteur (FR-16), les pays listés ne
+// sont alors jamais challengés. Un avertissement et non une erreur — la
+// configuration reste valide, et le moteur peut être activé plus tard.
+func geoChallengeInert(cfg config.Config) bool {
+	return cfg.Geo.Enabled && len(cfg.Geo.ChallengeCountries) > 0 && !cfg.RiskEngine.Enabled
+}
+
 // domainHosts retourne les hôtes déclarés dans domains[].
 func domainHosts(domains []config.DomainConfig) []string {
 	hosts := make([]string, 0, len(domains))

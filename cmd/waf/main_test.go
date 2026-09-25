@@ -1027,6 +1027,26 @@ func TestRoutesStrictHostRejectsUndeclaredHosts(t *testing.T) {
 
 // Le Host est normalisé comme pour le routage avant d'être comparé aux
 // domaines : la casse et le port ne font plus refuser un domaine déclaré.
+// FR-16 : challenge_countries n'agit qu'à travers le moteur de risque ; sans
+// lui, le démarrage le signale.
+func TestGeoChallengeInertWithoutRiskEngine(t *testing.T) {
+	cfg := config.Default()
+	cfg.Geo.Enabled = true
+	cfg.Geo.ChallengeCountries = []string{"RU"}
+	cfg.RiskEngine.Enabled = false
+	if !geoChallengeInert(cfg) {
+		t.Fatal("challenge_countries without risk engine must be reported inert")
+	}
+	cfg.RiskEngine.Enabled = true
+	if geoChallengeInert(cfg) {
+		t.Fatal("challenge_countries with the risk engine is effective")
+	}
+	cfg.RiskEngine.Enabled, cfg.Geo.ChallengeCountries = false, nil
+	if geoChallengeInert(cfg) {
+		t.Fatal("no challenge_countries: nothing to report")
+	}
+}
+
 func TestRedirectToHTTPSNormalizesTheHost(t *testing.T) {
 	handler := redirectToHTTPS([]config.DomainConfig{{Host: "Example.com"}, {Host: "*.boxaria.fr"}})
 	cases := []struct {

@@ -80,6 +80,9 @@ func loadConfig(flags cliFlags) (*config.Config, error) {
 		cfg.Server.Listen = flags.listenAddress
 	}
 	warnUntrustedInfrastructureHeaders(*cfg)
+	if geoChallengeInert(*cfg) {
+		slog.Warn("geo.challenge_countries has no effect while risk_engine.enabled is false: only the risk engine reads the geo contribution", "requirement", "FR-16")
+	}
 	for _, host := range poolShadowedDomains(*cfg) {
 		slog.Warn("domains[].upstream is ignored while upstream_pool is enabled: the pool serves every host", "host", host, "requirement", "FR-26")
 	}

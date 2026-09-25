@@ -28,7 +28,8 @@ Feature: Règles Géographiques
     And le moteur de risque fusionne cette contribution de la famille geo
     And seule, cette famille ne peut pas produire de BLOCK, au plus un CHALLENGE (FR-35)
     # Sans moteur de risque (risk_engine.enabled: false), la contribution n'est
-    # lue par personne : challenge_countries n'a alors pas d'effet.
+    # lue par personne : challenge_countries n'a alors pas d'effet, ce que le
+    # démarrage signale par un avertissement.
 
   Scenario: Whitelist de pays — seuls ces pays autorisés
     Given geo.allowed_countries = ["FR", "BE", "CH", "CA"]
