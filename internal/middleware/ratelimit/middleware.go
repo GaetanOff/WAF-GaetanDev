@@ -181,27 +181,16 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// fonction peut être rejouée sur conflit, les variables capturées
 		// reflètent donc le calcul effectivement retenu.
 		configured := *m.windows.Load()
-		keys := make([]string, len(configured))
+		state := &requestState{}
+		keys := state.keys[:len(configured)]
 		for i, w := range configured {
 			keys[i] = ipHash + w.keySuffix
 		}
-		var (
-			windows    []evaluation
-			allowed    bool
-			retryAfter time.Duration
-			reason     string
-			snapshots  []BucketSnapshot
-		)
 		m.store.UpdateBuckets(keys, func(current []*storage.RateBucket) []storage.RateBucket {
-			windows = m.evaluate(configured, keys, current, factor, now)
-			allowed, retryAfter, reason = verdict(windows)
-			snapshots = settle(windows, allowed, now)
-			buckets := make([]storage.RateBucket, len(snapshots))
-			for i, snapshot := range snapshots {
-				buckets[i] = toStorageBucket(snapshot)
-			}
-			return buckets
+			return state.update(configured, current, factor, now)
 		})
+		windows := state.evaluations[:len(configured)]
+		allowed, retryAfter, reason := state.allowed, state.retryAfter, state.reason
 
 		if !allowed {
 			if neutralReason != "" && m.nominalWouldAllow(windows, now) {
@@ -233,7 +222,7 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// Requête autorisée : publie une contribution `rate` proportionnelle à la
 		// déplétion du bucket (pression de débit) pour le moteur de risque. Le 429
 		// volumétrique ci-dessus reste indépendant (cf. Articulation FR-35).
-		if contribution := rateContribution(snapshots[0].Tokens, windows[0].window.capacity); contribution > 0 {
+		if contribution := rateContribution(state.snapshots[0].Tokens, windows[0].window.capacity); contribution > 0 {
 			r.Header.Set(wafheader.RiskRate, strconv.Itoa(maxInt(contribution, existingRateContribution(r))))
 		}
 
@@ -247,33 +236,54 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 type evaluation struct {
 	window      window
 	key         string
-	bucket      *TokenBucket
+	bucket      TokenBucket
 	existing    *storage.RateBucket
 	hasExisting bool
 	allowed     bool
 	retryAfter  time.Duration
 }
 
+// maxWindows est le nombre de fenêtres au plus : seconde, minute, heure.
+const maxWindows = 3
+
+// requestState porte le calcul d'une requête. La mise à jour passée au store
+// (interface) s'échappe sur le tas avec tout ce qu'elle capture : chaque
+// variable capturée, chaque tranche et chaque bucket y coûtaient une
+// allocation. Regroupés ici dans des tableaux bornés, ils n'en coûtent qu'une.
+type requestState struct {
+	keys        [maxWindows]string
+	evaluations [maxWindows]evaluation
+	snapshots   [maxWindows]BucketSnapshot
+	allowed     bool
+	retryAfter  time.Duration
+	reason      string
+}
+
+// update évalue les fenêtres, décide et retourne l'état à persister. Rejouée
+// sur conflit par le store, elle réécrit tout l'état à chaque appel.
+func (s *requestState) update(windows []window, current []*storage.RateBucket, factor float64, now time.Time) []storage.RateBucket {
+	evaluations := s.evaluations[:len(windows)]
+	evaluate(evaluations, windows, s.keys[:len(windows)], current, factor, now)
+	s.allowed, s.retryAfter, s.reason = verdict(evaluations)
+	snapshots := s.snapshots[:len(windows)]
+	settle(snapshots, evaluations, s.allowed, now)
+	buckets := make([]storage.RateBucket, len(snapshots))
+	for i := range snapshots {
+		buckets[i] = toStorageBucket(snapshots[i])
+	}
+	return buckets
+}
+
 // evaluate recharge chaque fenêtre active depuis son état courant (nil :
 // fenêtre neuve), sans rien prélever ni persister.
-func (m *Middleware) evaluate(windows []window, keys []string, current []*storage.RateBucket, factor float64, now time.Time) []evaluation {
-	evaluations := make([]evaluation, 0, len(windows))
+func evaluate(evaluations []evaluation, windows []window, keys []string, current []*storage.RateBucket, factor float64, now time.Time) {
 	for i, w := range windows {
-		key := keys[i]
-		existing, hasExisting := current[i], current[i] != nil
-		bucket := m.loadBucket(existing, hasExisting, w.rate*factor, w.capacity, now)
-		allowed, retryAfter := bucket.Refill(now)
-		evaluations = append(evaluations, evaluation{
-			window:      w,
-			key:         key,
-			bucket:      bucket,
-			existing:    existing,
-			hasExisting: hasExisting,
-			allowed:     allowed,
-			retryAfter:  retryAfter,
-		})
+		e := &evaluations[i]
+		e.window, e.key = w, keys[i]
+		e.existing, e.hasExisting = current[i], current[i] != nil
+		loadBucket(&e.bucket, e.existing, e.hasExisting, w.rate*factor, w.capacity, now)
+		e.allowed, e.retryAfter = e.bucket.Refill(now)
 	}
-	return evaluations
 }
 
 // verdict agrège les fenêtres : la requête passe si toutes l'autorisent, sinon
@@ -284,7 +294,8 @@ func verdict(evaluations []evaluation) (bool, time.Duration, string) {
 	allowed := true
 	retryAfter := time.Duration(0)
 	reason := reasonRateLimitExceeded
-	for _, e := range evaluations {
+	for i := range evaluations {
+		e := &evaluations[i]
 		if e.allowed {
 			continue
 		}
@@ -303,20 +314,18 @@ func verdict(evaluations []evaluation) (bool, time.Duration, string) {
 // qui refuse, ni dans les autres (FR-03). Sans cette séparation, un client buté
 // sur sa limite horaire verrait aussi son burst à la seconde vidé, et
 // repartirait avec un bucket vide à la réouverture de la fenêtre.
-func settle(evaluations []evaluation, allowed bool, now time.Time) []BucketSnapshot {
-	snapshots := make([]BucketSnapshot, 0, len(evaluations))
-	for _, e := range evaluations {
+func settle(snapshots []BucketSnapshot, evaluations []evaluation, allowed bool, now time.Time) {
+	for i := range evaluations {
+		e := &evaluations[i]
 		if allowed {
 			e.bucket.Consume()
 		}
-		snapshot := e.bucket.Snapshot(now, e.window.ttl, e.key)
+		snapshots[i] = e.bucket.Snapshot(now, e.window.ttl, e.key)
 		// L'échéance est posée sur l'horloge réelle : c'est celle que le store
 		// interroge pour expirer l'entrée, même quand le middleware tourne sur
 		// une horloge injectée (tests).
-		snapshot.ExpiresAt = time.Now().Add(e.window.ttl)
-		snapshots = append(snapshots, snapshot)
+		snapshots[i].ExpiresAt = time.Now().Add(e.window.ttl)
 	}
-	return snapshots
 }
 
 // loadBucket reconstruit le token bucket avec le débit de refill EFFECTIF du
@@ -324,25 +333,18 @@ func settle(evaluations []evaluation, allowed bool, now time.Time) []BucketSnaps
 // jamais depuis les valeurs persistées. Seuls les jetons et l'instant de refill
 // sont repris du store : ainsi un resserrement sous pression est réversible dès
 // que la pression retombe, sans figer un débit réduit dans le stockage.
-func (m *Middleware) loadBucket(existing *storage.RateBucket, hasExisting bool, rate float64, capacity float64, now time.Time) *TokenBucket {
-	if hasExisting {
-		tokens := existing.Tokens
-		if tokens > capacity {
-			// La capacité configurée a baissé depuis la persistance : rogne les
-			// jetons accumulés au plafond courant.
-			tokens = capacity
-		}
-		return BucketFromSnapshot(BucketSnapshot{
-			IPHash:     existing.IPHash,
-			Tokens:     tokens,
-			LastRefill: existing.LastRefill,
-			Rate:       rate,
-			Capacity:   capacity,
-			ExpiresAt:  existing.ExpiresAt,
-		})
+func loadBucket(bucket *TokenBucket, existing *storage.RateBucket, hasExisting bool, rate float64, capacity float64, now time.Time) {
+	if !hasExisting {
+		bucket.reset(rate, capacity, now)
+		return
 	}
-
-	return NewTokenBucket(rate, capacity, now)
+	tokens := existing.Tokens
+	if tokens > capacity {
+		// La capacité configurée a baissé depuis la persistance : rogne les
+		// jetons accumulés au plafond courant.
+		tokens = capacity
+	}
+	bucket.restore(rate, capacity, tokens, existing.LastRefill)
 }
 
 // nominalWouldAllow rejoue la requête refusée sur le bucket persisté avec le
@@ -352,7 +354,8 @@ func (m *Middleware) loadBucket(existing *storage.RateBucket, hasExisting bool, 
 // dernier intervalle de refill est rejoué au débit nominal ; un abuseur soutenu
 // reste largement au-dessus du nominal et échoue aussi ce rejeu.
 func (m *Middleware) nominalWouldAllow(evaluations []evaluation, now time.Time) bool {
-	for _, e := range evaluations {
+	for i := range evaluations {
+		e := &evaluations[i]
 		if e.allowed {
 			continue // cette fenêtre passe déjà au débit resserré
 		}

@@ -589,3 +589,27 @@ func TestConcurrentRequestsNeverExceedBurst(t *testing.T) {
 		t.Fatalf("admitted = %d, want exactly the burst of 50", got)
 	}
 }
+
+// Chemin nominal d'une requête admise, trois fenêtres actives.
+func BenchmarkHandlerAllowed(b *testing.B) {
+	store := memory.New(1000)
+	b.Cleanup(store.Close)
+	cfg := testConfig(1e9, 1<<30)
+	cfg.RateLimit.RequestsPerMinute = 1 << 30
+	cfg.RateLimit.RequestsPerHour = 1 << 30
+	scoreManager, err := trust.NewScoreManager(store, cfg)
+	if err != nil {
+		b.Fatal(err)
+	}
+	middleware, err := New(store, scoreManager, cfg)
+	if err != nil {
+		b.Fatal(err)
+	}
+	handler := middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	request := requestFrom("9.9.9.9:1234")
+	response := httptest.NewRecorder()
+	b.ReportAllocs()
+	for b.Loop() {
+		handler.ServeHTTP(response, request)
+	}
+}
