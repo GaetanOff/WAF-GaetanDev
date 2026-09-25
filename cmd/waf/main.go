@@ -259,6 +259,7 @@ func run() error {
 			sources = append(sources, threatintel.NewHTTPSource(cfg.ThreatIntel.AbuseIPDB.URL, cfg.ThreatIntel.AbuseIPDB.APIKey, nil))
 		}
 		threatChecker := threatintel.NewChecker(cacheTTL, sources...)
+		defer threatChecker.Close()
 		detectors = append(detectors, threatintel.NewMiddleware(threatChecker, scoreManager).Handler)
 	}
 	if cfg.Geo.Enabled {

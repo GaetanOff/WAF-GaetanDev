@@ -60,6 +60,7 @@ type Checker struct {
 
 	mu       sync.Mutex
 	inflight map[string]struct{}
+	closed   bool
 }
 
 type lookup struct {
@@ -84,8 +85,16 @@ func NewChecker(ttl time.Duration, sources ...Source) *Checker {
 	return checker
 }
 
-// Close arrête les workers de résolution.
+// Close arrête les workers de résolution. Idempotent ; un miss postérieur n'est
+// plus résolu (le verdict reste LevelClean). Sous c.mu comme triggerAsync : sans
+// ce verrou, un envoi concurrent sur la file fermée paniquait.
 func (c *Checker) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if c.closed {
+		return
+	}
+	c.closed = true
 	close(c.lookups)
 }
 
@@ -120,6 +129,9 @@ func (c *Checker) Verdict(ip string) Verdict {
 func (c *Checker) triggerAsync(ip string, parsed net.IP) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if c.closed {
+		return
+	}
 	if _, busy := c.inflight[ip]; busy {
 		return
 	}
