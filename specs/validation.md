@@ -299,7 +299,8 @@ last-reviewed: 2026-09-30
 | 2026-09-30 | Sprint 23 (audit 8) | `go vet ./...` + `go build ./...` | pass | |
 | 2026-09-30 | Sprint 23 (audit 8) | `spectral lint` admin + public | pass | 0 erreur |
 | 2026-09-30 | Sprint 23 (audit 8) | `make security` | pass | 0 vulnérabilité atteignable ; 1 dans un module requis, non appelée. Échouait localement avant correction (« package requires newer Go version go1.27 ») |
-| 2026-09-30 | Sprint 23 (audit 8) | `golangci-lint run ./...`, `go test -race` | **non exécutés localement** | outil absent / cgo indisponible sur le poste ; couverts par la CI |
+| 2026-09-30 | Sprint 23 (audit 8) | `golangci-lint run ./...` | pass | 0 issue (après correction d'un SA4000 dans `replay_test.go` signalé par la CI) |
+| 2026-09-30 | Sprint 23 (audit 8) | `go test -race` | **non exécuté localement** | cgo indisponible sur le poste ; couvert par la CI |
 | 2026-09-30 | Page brandée d'un 5xx compressé | `TestErrorPageDropsUpstreamBodyHeaders` | pass | `Content-Encoding: gzip` conservé sur l'ancien code |
 | 2026-09-30 | Adresses d'écoute | `TestValidateServerTLS` (4 cas), `TestValidateListenersRejectsAdminOnThePublicPort` | pass | `:443` / `:443` et `0.0.0.0:443` / `:443` acceptés par l'ancienne validation |
 | 2026-09-30 | Apex d'un wildcard | `TestRedirectToHTTPSNormalizesTheHost` | pass | `Boxaria.fr` : 400 au lieu de 301 sur l'ancien code |

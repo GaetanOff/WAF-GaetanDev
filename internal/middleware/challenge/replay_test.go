@@ -103,8 +103,10 @@ func TestUsedTokensForgetsExpiredTokens(t *testing.T) {
 		t.Fatal("replay before expiry accepted")
 	}
 	// Pleine : un nouveau token passe sans être retenu tant que rien n'expire.
-	if used.consume("c.sig-c", 110, 105) || used.consume("c.sig-c", 110, 105) {
-		t.Fatal("saturated memory must let submissions through")
+	for range 2 {
+		if used.consume("c.sig-c", 110, 105) {
+			t.Fatal("saturated memory must let submissions through")
+		}
 	}
 	// Après expiration, la purge libère la place.
 	if used.consume("d.sig-d", 130, 111) {

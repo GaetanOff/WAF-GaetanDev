@@ -1097,6 +1097,6 @@ last-updated: 2026-09-30
 
 ### T23.4 - Outillage
 - [x] 4.1 `make security` : `go run govulncheck@latest` suit le go.mod de govulncheck (go 1.26) ; avec un Go local plus ancien et `GOTOOLCHAIN=auto`, l'outil etait compile en 1.26 et refusait ce module. La cible impose `GOTOOLCHAIN=$(go env GOVERSION)`. Le binaire installe suggere par l'audit etait lui aussi compile en 1.26
-- [x] 4.2 `golangci-lint` et `k6` absents du poste : environnement, non modifie (CI)
-- **Validation 2026-09-30** : `go build ./...`, `go vet ./...`, `go test ./...` (816 tests et sous-tests, 48 paquets), `spectral lint` (0 erreur), `make security` (0 vulnerabilite atteignable, 1 non appelee) ; execution reelle du binaire sur `configs/config.example.yaml` (`/waf/health` 200 ; `-listen :9090` refuse au demarrage, conflit avec `server.admin_listen`). `golangci-lint` et `go test -race` non executes localement — couverts par la CI.
+- [x] 4.2 `golangci-lint` et `k6` absents du poste : environnement, non modifie. `golangci-lint` s'execute sans installation par `GOTOOLCHAIN=$(go env GOVERSION) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...`
+- **Validation 2026-09-30** : `go build ./...`, `go vet ./...`, `go test ./...` (816 tests et sous-tests, 48 paquets), `spectral lint` (0 erreur), `make security` (0 vulnerabilite atteignable, 1 non appelee) ; execution reelle du binaire sur `configs/config.example.yaml` (`/waf/health` 200 ; `-listen :9090` refuse au demarrage, conflit avec `server.admin_listen`). `golangci-lint run` (0 issue). `go test -race` non executable localement (pas de cgo) — couvert par la CI.
 - **Statut** : implemente.
