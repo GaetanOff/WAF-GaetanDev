@@ -6,6 +6,33 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — huitième audit du 2026-09-28 (phase 23)
+
+- Un token de challenge n'est accepté qu'une fois par `POST /waf/verify` :
+  un rejeu reçoit `400 token_already_used`, sans cookie ni bonus de score
+  (FR-30).
+
+### Fixed — huitième audit du 2026-09-28
+
+- La page d'erreur brandée ne porte plus le `Content-Encoding` (ni
+  `Content-Range`, `ETag`, `Last-Modified`) d'un 5xx compressé de l'upstream :
+  le navigateur échouait à la décoder (FR-32).
+- Deux serveurs démarrés sur la même adresse (ex. `server.listen` et
+  `server.tls.listen` à `:443` avec `redirect_http`) sont refusés à la
+  validation au lieu d'échouer au bind ; la surcharge `-listen` est revalidée
+  (FR-40).
+- La redirection HTTPS accepte l'apex d'un domaine wildcard (`example.com` pour
+  `*.example.com`) au lieu de répondre 400 (FR-40).
+- Le domaine de l'état visiteur est rangé sous sa forme normalisée.
+- `make security` compile govulncheck avec la toolchain du module.
+
+### Changed — huitième audit du 2026-09-28
+
+- Contrats : public.openapi.yaml 1.5.0 (`token_already_used`) ;
+  config.schema.json : défauts `challenge.min_elapsed_ms` 0,
+  `max_elapsed_ms` 60000 et `risk_engine.shadow_mode` true, alignés sur le
+  code ; architecture.md 1.4.5 (séquence du challenge, `fp_hash`).
+
 ### Security — septième audit du 2026-09-25 (phase 22)
 
 - Corps de requête bornés avant décodage : 16 Kio sur `POST /waf/verify`,
