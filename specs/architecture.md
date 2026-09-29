@@ -1,8 +1,8 @@
 ---
 status: approved
-version: 1.4.4
-last-reviewed: 2026-09-25
-change: "Phase 21 : [6] staticassets n'exempte plus du rate limit (FR-24). Précédent (1.4.3) — Phase 19 : slowloris, strict_host et selfprotect descendent sous metrics et logger (refus comptés et journalisés) ; le middleware de trust score applique les déclencheurs déterministes sans moteur de risque. Précédent (1.4.2) — Phase 18 : architecture-advanced.md et architecture-ops.md dépréciés, ce document est la seule architecture de référence ; paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
+version: 1.4.5
+last-reviewed: 2026-09-30
+change: "Phase 23 : séquence du challenge et structure du cookie réalignées sur le code (pas d'attente minimale côté client, elapsed_ms borné par min_elapsed_ms = 0 et max_elapsed_ms = 60 s par défaut, token à usage unique, fp_hash SHA-256 complet). Précédent (1.4.4) — Phase 21 : [6] staticassets n'exempte plus du rate limit (FR-24). Précédent (1.4.3) — Phase 19 : slowloris, strict_host et selfprotect descendent sous metrics et logger (refus comptés et journalisés) ; le middleware de trust score applique les déclencheurs déterministes sans moteur de risque. Précédent (1.4.2) — Phase 18 : architecture-advanced.md et architecture-ops.md dépréciés, ce document est la seule architecture de référence ; paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
 ---
 
 # Architecture — WAF Anti-DDoS / Anti-Bot
@@ -347,15 +347,16 @@ Client                        WAF                         Browser JS
   │  (JS s'exécute)            │
   │  - génère fingerprint      │
   │  - résout proof-of-work    │
-  │  - attend min 500ms        │
+  │  (pas d'attente minimale)  │
   │                            │
   │  POST /waf/verify          │
   │  {token, pow, fingerprint, │
   │   elapsed_ms}              │
   ├───────────────────────────▶│
-  │                            │ valide token (HMAC + TTL 30s)
+  │                            │ valide token (HMAC + TTL 30s, usage unique)
   │                            │ valide proof-of-work
-  │                            │ valide elapsed_ms (500ms..10s)
+  │                            │ valide elapsed_ms (min_elapsed_ms..max_elapsed_ms,
+  │                            │   défaut 0..60s : plancher désactivé)
   │                            │ met à jour score (+25)
   │                            │ émet cookie signé
   │  HTTP 200 {redirect_url}   │
@@ -378,7 +379,7 @@ Format : waf_session=<base64(payload)>.<base64(hmac)>
 Payload JSON :
 {
   "ip_hash": "<SHA-256(ip)[:16]>",
-  "fp_hash": "<SHA-256(fingerprint)[:16]>",
+  "fp_hash": "<SHA-256(fingerprint), 64 hex>",
   "domain": "example.com",
   "issued_at": 1748880000,
   "expires_at": 1748966400,

@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 1.4.0
-last-reviewed: 2026-09-25
+version: 1.4.1
+last-reviewed: 2026-09-30
 reviewed-by: GaetanDev
 extends: requirements-advanced.md (v2.1.0), requirements-ops.md
-change: "FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
+change: "FR-38 : défaut de `shadow_mode` corrigé dans l'exemple de configuration (true, comme le code et config.schema.json). Précédent (1.4.0) — FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
 ---
 
 # Requirements Detection — Moteur de Risque & Décision (v4)
@@ -289,7 +289,7 @@ ci-dessous sont les **défauts** du profil `balanced` :
 risk_engine:
   enabled: true
   profile: "balanced"            # lenient | balanced | strict
-  shadow_mode: false             # true = calcule et journalise sans appliquer
+  shadow_mode: true              # défaut : calcule et journalise sans appliquer (FR-38) ; false après calibration
   block_min_confidence: 0.6      # pas de BLOCK sous ce niveau de confiance
   min_corroborating_families: 2  # familles requises pour un BLOCK heuristique
   # Bornes de score par tier (croissant). risk_score dans [0..100].
