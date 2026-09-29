@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.9.5
+version: 3.10.0
 last-reviewed: 2026-09-30
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-40 : la redirection HTTPS accepte l'apex d'un domaine wildcard. Précédent (3.9.4) — FR-40 : deux serveurs démarrés sur la même adresse d'écoute sont refusés à la validation. Précédent (3.9.3) — FR-32 : la page brandée qui remplace un corps d'erreur retire les en-têtes décrivant le corps d'origine (`Content-Encoding`, `Content-Range`, `ETag`, `Last-Modified`). Précédent (3.9.2) — FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+change: "FR-30 : détection de rejeu des tokens de challenge (`token_already_used`) implémentée. Précédent (3.9.5) — FR-40 : la redirection HTTPS accepte l'apex d'un domaine wildcard. Précédent (3.9.4) — FR-40 : deux serveurs démarrés sur la même adresse d'écoute sont refusés à la validation. Précédent (3.9.3) — FR-32 : la page brandée qui remplace un corps d'erreur retire les en-têtes décrivant le corps d'origine (`Content-Encoding`, `Content-Range`, `ETag`, `Last-Modified`). Précédent (3.9.2) — FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -270,11 +270,22 @@ change: "FR-40 : la redirection HTTPS accepte l'apex d'un domaine wildcard. Pré
 - Le corps DOIT être validé contre `challenge-submission.schema.json` avant tout
   traitement : un corps invalide (JSON malformé, champ manquant, `nonce` non
   numérique) reçoit `400 {"error": "invalid_submission"}`
+- Un token de challenge NE DOIT être accepté qu'une fois : une soumission qui
+  réutilise un token déjà accepté reçoit `400 {"error": "token_already_used"}`
+  (`X-WAF-Action: BLOCK`, `X-WAF-Reason: verify_token_already_used`), sans
+  cookie ni bonus de score. Sans cela, une seule PoW résolue se rejouait
+  jusqu'à expiration du token, chaque soumission réappliquant le bonus
+  - Seule une soumission acceptée consomme le token ; la vérification et la
+    consommation sont atomiques (deux soumissions concurrentes : une seule passe)
+  - Le rejeu n'est pas pénalisé (double envoi légitime d'un navigateur)
+  - La mémoire des tokens consommés est locale à l'instance, bornée
+    (65 536 entrées) et purgée à l'expiration des tokens. Saturée, elle laisse
+    passer sans retenir plutôt que de refuser les visiteurs légitimes ; le
+    rejeu reste alors lié à l'IP et au domaine signés dans le token
 - **Différé** (`waf-self-protection.feature`, scénarios `@deferred`) :
-  blacklist automatique d'1 h d'une IP qui dépasse la borne ; détection de
-  rejeu (`token_already_used`) — le token est un HMAC sans état, rejouable
-  jusqu'à son expiration pour la même IP et le même domaine ; blacklist sur
-  échecs de tokens répétés
+  blacklist automatique d'1 h d'une IP qui dépasse la borne ; blacklist sur
+  échecs de tokens répétés ; mémoire des tokens consommés partagée entre
+  instances
 
 ### Protection de l'API Admin
 - L'API admin DOIT verrouiller une IP après `self_protection.admin_max_failures`
