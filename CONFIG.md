@@ -81,7 +81,7 @@ sur le même listener.
 | `listen` | string | `":443"` | Adresse d'écoute HTTPS. |
 | `min_version` | string | `"1.2"` | Version TLS minimale : `"1.2"` ou `"1.3"`. Les versions inférieures sont refusées. |
 | `cipher_suites` | liste | `[]` | Liste explicite de cipher suites (TLS 1.2). Vide = défaut sécurisé de Go. Un nom inconnu/non sûr fait échouer le démarrage. |
-| `redirect_http` | bool | `true` | Rediriger le trafic HTTP (`server.listen`) vers HTTPS en `301`. |
+| `redirect_http` | bool | `true` | Rediriger le trafic HTTP (`server.listen`) vers HTTPS en `301`. `server.listen` doit alors différer de `server.tls.listen` (refusé à la validation sinon). |
 | `cert_file` | string | `""` | Certificat PEM **par défaut**, servi pour un SNI sans correspondance. Si absent, un SNI inconnu provoque un refus de handshake. |
 | `key_file` | string | `""` | Clé privée PEM du certificat par défaut. |
 

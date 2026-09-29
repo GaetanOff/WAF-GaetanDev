@@ -85,6 +85,14 @@ Feature: Terminaison TLS par domaine (sélection par SNI)
     When un client envoie une requête HTTP sur "http://alpha.example.com/page"
     Then le WAF répond une redirection 301 vers "https://alpha.example.com/page"
 
+  Scenario: Redirection HTTP sur le port HTTPS — configuration refusée
+    Given server.tls.redirect_http = true
+    And server.listen = ":443" et server.tls.listen = ":443"
+    When le WAF valide sa configuration au démarrage
+    Then le démarrage échoue avec une erreur de validation nommant server.tls.listen et server.listen
+    # Sans cette garde, la validation passait et le second serveur échouait au
+    # bind (address already in use).
+
   Scenario: Redirection HTTP vers HTTPS — Host inconnu rejeté (open-redirect)
     Given server.tls.redirect_http = true
     When un client envoie une requête HTTP avec Host "evil.com" sur le port d'écoute

@@ -80,6 +80,11 @@ func loadConfig(flags cliFlags) (*config.Config, error) {
 	}
 	if flags.listenAddress != "" {
 		cfg.Server.Listen = flags.listenAddress
+		// La surcharge peut créer un conflit d'adresses d'écoute que la
+		// validation du fichier n'a pas vu.
+		if err := cfg.Validate(); err != nil {
+			return nil, err
+		}
 	}
 	warnUntrustedInfrastructureHeaders(*cfg)
 	if geoChallengeInert(*cfg) {

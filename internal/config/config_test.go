@@ -434,6 +434,48 @@ func TestValidateServerTLS(t *testing.T) {
 			wantErr: true,
 		},
 		{
+			name: "redirect listener on the tls port",
+			mutate: func(c *Config) {
+				c.Server.TLS.Enabled = true
+				c.Server.TLS.CertFile = "def.crt"
+				c.Server.TLS.KeyFile = "def.key"
+				c.Server.Listen = ":443"
+			},
+			wantErr: true,
+		},
+		{
+			name: "redirect listener on the tls port of every interface",
+			mutate: func(c *Config) {
+				c.Server.TLS.Enabled = true
+				c.Server.TLS.CertFile = "def.crt"
+				c.Server.TLS.KeyFile = "def.key"
+				c.Server.Listen = "0.0.0.0:443"
+			},
+			wantErr: true,
+		},
+		{
+			name: "same port without redirect listener",
+			mutate: func(c *Config) {
+				c.Server.TLS.Enabled = true
+				c.Server.TLS.CertFile = "def.crt"
+				c.Server.TLS.KeyFile = "def.key"
+				c.Server.TLS.RedirectHTTP = false
+				c.Server.Listen = ":443"
+			},
+			wantErr: false,
+		},
+		{
+			name: "same port on distinct interfaces",
+			mutate: func(c *Config) {
+				c.Server.TLS.Enabled = true
+				c.Server.TLS.CertFile = "def.crt"
+				c.Server.TLS.KeyFile = "def.key"
+				c.Server.TLS.Listen = "10.0.0.1:443"
+				c.Server.Listen = "10.0.0.2:443"
+			},
+			wantErr: false,
+		},
+		{
 			name:    "disabled tls is always valid",
 			mutate:  func(c *Config) { c.Server.TLS.Enabled = false },
 			wantErr: false,
@@ -451,6 +493,17 @@ func TestValidateServerTLS(t *testing.T) {
 				t.Fatalf("Validate() unexpected error = %v", err)
 			}
 		})
+	}
+}
+
+func TestValidateListenersRejectsAdminOnThePublicPort(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.Admin.Enabled = true
+	cfg.Admin.Token = testSecret
+	cfg.Server.AdminListen = ":8080"
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "server.listen and server.admin_listen") {
+		t.Fatalf("Validate() = %v, want a listener conflict", err)
 	}
 }
 
