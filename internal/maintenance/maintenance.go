@@ -13,6 +13,12 @@ import (
 	"github.com/gaetandev/waf/internal/config"
 )
 
+// upstreamBodyHeaders décrivent le corps d'origine (codage, plage, version) :
+// recopiés par le reverse proxy, ils sont faux pour la page brandée qui le
+// remplace. Un Content-Encoding: gzip laissé sur la page en clair faisait
+// échouer le décodage du navigateur (ERR_CONTENT_DECODING_FAILED).
+var upstreamBodyHeaders = []string{"Content-Encoding", "Content-Range", "Etag", "Last-Modified"}
+
 var bypassPaths = map[string]struct{}{
 	"/waf/health":  {},
 	"/waf/metrics": {},
@@ -77,6 +83,9 @@ func (w *pageWriter) WriteHeader(statusCode int) {
 	if shouldReplace(statusCode, w.Header().Get("Content-Type")) {
 		title, msg := messageFor(statusCode)
 		body := page(title, msg)
+		for _, name := range upstreamBodyHeaders {
+			w.Header().Del(name)
+		}
 		w.Header().Set("Content-Type", "text/html; charset=utf-8")
 		w.Header().Set("Content-Length", strconv.Itoa(len(body)))
 		w.ResponseWriter.WriteHeader(statusCode)

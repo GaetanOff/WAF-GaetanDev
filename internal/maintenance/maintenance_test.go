@@ -133,6 +133,34 @@ func TestErrorPageBrandsHTMLGatewayError(t *testing.T) {
 	}
 }
 
+// Un 5xx compressé par l'upstream : la page brandée qui remplace le corps est en
+// clair, les en-têtes qui décrivaient le corps d'origine doivent disparaître.
+func TestErrorPageDropsUpstreamBodyHeaders(t *testing.T) {
+	m := New(config.Maintenance{Enabled: false, ErrorPages: true})
+	handler := m.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Content-Range", "bytes 0-19/20")
+		w.Header().Set("ETag", `"upstream"`)
+		w.Header().Set("Last-Modified", "Mon, 28 Sep 2026 09:00:00 GMT")
+		w.WriteHeader(http.StatusInternalServerError)
+		_, _ = w.Write([]byte{0x1f, 0x8b, 0x08, 0x00})
+	}))
+	resp := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodGet, "http://x/", nil)
+	request.Header.Set("Accept", "text/html")
+	handler.ServeHTTP(resp, request)
+
+	if !strings.Contains(resp.Body.String(), "Protected by") {
+		t.Fatalf("5xx must be branded: %q", resp.Body.String())
+	}
+	for _, name := range []string{"Content-Encoding", "Content-Range", "ETag", "Last-Modified"} {
+		if value := resp.Header().Get(name); value != "" {
+			t.Fatalf("%s = %q on the branded page, want none", name, value)
+		}
+	}
+}
+
 // Un 4xx déjà en HTML (page d'erreur légitime d'une appli) reste préservé même
 // sur une navigation navigateur : on ne brande que les 4xx non-HTML.
 // Une navigation (Accept: text/html,*/*) qui reçoit une erreur JSON d'une API
