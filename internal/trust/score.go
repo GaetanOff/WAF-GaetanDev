@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/hostname"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/wafheader"
@@ -158,7 +159,7 @@ func (m *ScoreManager) create(ipHash string, domain string, now time.Time) stora
 func (m *ScoreManager) initialVisitor(ipHash string, domain string, now time.Time) storage.VisitorState {
 	return storage.VisitorState{
 		IPHash:    ipHash,
-		Domain:    domain,
+		Domain:    hostname.Normalize(domain),
 		Score:     m.initialScore,
 		FirstSeen: now,
 		LastSeen:  now,
@@ -176,7 +177,7 @@ func (m *ScoreManager) Set(ip string, domain string, score int) storage.VisitorS
 	ipHash := HashIP(ip)
 	visitor := storage.VisitorState{
 		IPHash:    ipHash,
-		Domain:    domain,
+		Domain:    hostname.Normalize(domain),
 		Score:     clamp(score, 0, 100),
 		FirstSeen: now,
 		LastSeen:  now,
