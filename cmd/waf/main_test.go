@@ -1077,6 +1077,8 @@ func TestRedirectToHTTPSNormalizesTheHost(t *testing.T) {
 		{host: "example.com", wantCode: http.StatusMovedPermanently, wantURL: "https://example.com/path?q=1"},
 		{host: "EXAMPLE.com:80", wantCode: http.StatusMovedPermanently, wantURL: "https://example.com/path?q=1"},
 		{host: "www.Boxaria.fr:8080", wantCode: http.StatusMovedPermanently, wantURL: "https://www.boxaria.fr/path?q=1"},
+		{host: "Boxaria.fr", wantCode: http.StatusMovedPermanently, wantURL: "https://boxaria.fr/path?q=1"},
+		{host: "evilboxaria.fr", wantCode: http.StatusBadRequest},
 		{host: "evil.test", wantCode: http.StatusBadRequest},
 		{host: "[::1]:8080", wantCode: http.StatusBadRequest},
 	}

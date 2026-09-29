@@ -85,6 +85,15 @@ Feature: Terminaison TLS par domaine (sélection par SNI)
     When un client envoie une requête HTTP sur "http://alpha.example.com/page"
     Then le WAF répond une redirection 301 vers "https://alpha.example.com/page"
 
+  Scenario: Redirection HTTP vers HTTPS — l'apex d'un domaine wildcard est redirigé
+    Given server.tls.redirect_http = true
+    And le domaine "*.example.com" est déclaré
+    When un client envoie une requête HTTP sur "http://example.com/page"
+    Then le WAF répond une redirection 301 vers "https://example.com/page"
+    And une requête HTTP avec Host "evilexample.com" reçoit 400 Bad Request
+    # Mêmes règles que le routage (reverse-proxy.feature) et la sélection SNI :
+    # un wildcard couvre aussi l'apex. La redirection répondait 400.
+
   Scenario: Redirection HTTP sur le port HTTPS — configuration refusée
     Given server.tls.redirect_http = true
     And server.listen = ":443" et server.tls.listen = ":443"
