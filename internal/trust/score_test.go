@@ -29,6 +29,30 @@ func TestScoreManagerInitializesNewVisitor(t *testing.T) {
 	}
 }
 
+// Les middlewares passent r.Host tel quel : le domaine du visiteur est rangé
+// sous la forme normalisée du package hostname, port et casse retirés.
+func TestScoreManagerNormalizesTheVisitorDomain(t *testing.T) {
+	manager, store, _ := newTestManager(t)
+	defer store.Close()
+
+	created := manager.Get("4.4.4.4", "Example.com:8080")
+	peeked := manager.Peek("5.5.5.5", "EXAMPLE.com")
+	set := manager.Set("6.6.6.6", "[::1]:8443", 40)
+
+	for _, got := range []string{created.Domain, peeked.Domain} {
+		if got != "example.com" {
+			t.Fatalf("Domain = %q, want example.com", got)
+		}
+	}
+	if set.Domain != "::1" {
+		t.Fatalf("Domain = %q, want ::1", set.Domain)
+	}
+	stored, _ := store.GetVisitor(HashIP("4.4.4.4"))
+	if stored.Domain != "example.com" {
+		t.Fatalf("stored Domain = %q, want example.com", stored.Domain)
+	}
+}
+
 func TestScoreManagerApplyDeltaAndClamp(t *testing.T) {
 	manager, store, _ := newTestManager(t)
 	defer store.Close()

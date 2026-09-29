@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"net"
 	"net/url"
 	"os"
 	"slices"
@@ -850,6 +851,7 @@ func (c *Config) Validate() error {
 		fields = append(fields, "acme.domains must not be empty when enabled")
 	}
 	validateServerTLS(&fields, c)
+	validateListeners(&fields, c)
 	if c.SelfProtection.Enabled {
 		validateDuration(&fields, "self_protection.admin_lockout", c.SelfProtection.AdminLockout)
 		if c.SelfProtection.VerifyMaxPerMinute < 1 {
@@ -970,6 +972,68 @@ func validateCloudflare(fields *[]string, cfg Cloudflare) {
 	if interval < minRangeUpdateInterval {
 		*fields = append(*fields, fmt.Sprintf("cloudflare.update_interval must be >= %s when auto_update_ranges is enabled", minRangeUpdateInterval))
 	}
+}
+
+// listener est une adresse d'écoute effectivement ouverte au démarrage.
+type listener struct {
+	field string
+	addr  string
+}
+
+// validateListeners refuse deux serveurs démarrés sur la même adresse : le
+// second échouait au démarrage en « bind: address already in use », après
+// une validation réussie (ex. server.listen et server.tls.listen à ":443"
+// avec redirect_http).
+func validateListeners(fields *[]string, c *Config) {
+	listeners := activeListeners(c)
+	for i := range listeners {
+		for j := i + 1; j < len(listeners); j++ {
+			if sameListenAddress(listeners[i].addr, listeners[j].addr) {
+				*fields = append(*fields, fmt.Sprintf("%s and %s must not listen on the same address (%s)", listeners[i].field, listeners[j].field, listeners[j].addr))
+			}
+		}
+	}
+}
+
+// activeListeners reprend la logique de démarrage de cmd/waf (serve) : le
+// serveur public écoute sur server.tls.listen ou acme.tls_listen quand le TLS
+// est terminé par le WAF, et server.listen ne sert alors qu'à la redirection.
+func activeListeners(c *Config) []listener {
+	var listeners []listener
+	switch {
+	case c.Server.TLS.Enabled:
+		listeners = append(listeners, listener{"server.tls.listen", c.Server.TLS.Listen})
+		if c.Server.TLS.RedirectHTTP {
+			listeners = append(listeners, listener{"server.listen", c.Server.Listen})
+		}
+	case c.ACME.Enabled:
+		listeners = append(listeners,
+			listener{"acme.tls_listen", c.ACME.TLSListen},
+			listener{"acme.http_challenge_listen", c.ACME.HTTPChallengeListen})
+	default:
+		listeners = append(listeners, listener{"server.listen", c.Server.Listen})
+	}
+	if c.Admin.Enabled {
+		listeners = append(listeners, listener{"server.admin_listen", c.Server.AdminListen})
+	}
+	return listeners
+}
+
+// sameListenAddress compare deux adresses d'écoute : même port, et même hôte
+// ou l'un des deux en écoute sur toutes les interfaces (":443" et
+// "0.0.0.0:443" se disputent le même port). Une adresse vide ou mal formée
+// est signalée ailleurs (requireString) ou par le bind lui-même.
+func sameListenAddress(a string, b string) bool {
+	hostA, portA, errA := net.SplitHostPort(a)
+	hostB, portB, errB := net.SplitHostPort(b)
+	if errA != nil || errB != nil || portA != portB || portA == "0" {
+		return false
+	}
+	return hostA == hostB || isAnyHost(hostA) || isAnyHost(hostB)
+}
+
+func isAnyHost(host string) bool {
+	return host == "" || host == "0.0.0.0" || host == "::"
 }
 
 // validateServerTLS valide la terminaison TLS par domaine (FR-40). Les

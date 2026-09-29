@@ -1,8 +1,9 @@
 // Package hostname normalise l'hôte d'une requête HTTP. Toute décision ou
 // signature liée à un hôte (routage domains[], surcharge de challenge, tokens
 // et cookies de challenge, token d'origine, redirection HTTPS, scope du mode
-// sous attaque, sélection SNI) doit porter sur la même forme :
-// "Example.com", "example.com:443" et "example.com" désignent un seul domaine.
+// sous attaque, sélection SNI, domaine de l'état visiteur) doit porter sur la
+// même forme : "Example.com", "example.com:443" et "example.com" désignent un
+// seul domaine.
 package hostname
 
 import (

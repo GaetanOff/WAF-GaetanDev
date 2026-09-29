@@ -14,7 +14,7 @@
     },
     "domain": {
       "type": "string",
-      "description": "Domaine pour lequel cet état est maintenu"
+      "description": "Domaine pour lequel cet état est maintenu, sous forme normalisée (minuscules, sans port : \"Example.com:443\" est rangé \"example.com\")"
     },
     "score": {
       "type": "integer",

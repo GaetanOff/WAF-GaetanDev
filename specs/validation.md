@@ -1,7 +1,7 @@
 ---
 status: implemented
 version: 1.0.0
-last-reviewed: 2026-09-25
+last-reviewed: 2026-09-30
 ---
 
 # Validation Report — WAF Anti-DDoS / Anti-Bot
@@ -295,6 +295,20 @@ last-reviewed: 2026-09-25
 | 2026-09-24 | `ttlcache` sous contention | Benchmark `Get` parallèle (non versionné), 1/4/8/16 cœurs | mesure | 37 / 91 / 85 / 108 ns/op : ~10 M lectures/s par cache, sharding non justifié |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `Example.com:8080` compté sous `domain="example.com"` ; `attack-1.test`, `attack-2.test` sous `_undeclared` ; `GET /waf/admin/config` masque les secrets |
 
+| 2026-09-30 | Sprint 23 (audit 8) | `go test ./...` | pass | 816 tests et sous-tests, 48 paquets |
+| 2026-09-30 | Sprint 23 (audit 8) | `go vet ./...` + `go build ./...` | pass | |
+| 2026-09-30 | Sprint 23 (audit 8) | `spectral lint` admin + public | pass | 0 erreur |
+| 2026-09-30 | Sprint 23 (audit 8) | `make security` | pass | 0 vulnérabilité atteignable ; 1 dans un module requis, non appelée. Échouait localement avant correction (« package requires newer Go version go1.27 ») |
+| 2026-09-30 | Sprint 23 (audit 8) | `golangci-lint run ./...` | pass | 0 issue (après correction d'un SA4000 dans `replay_test.go` signalé par la CI) |
+| 2026-09-30 | Sprint 23 (audit 8) | `go test -race` | **non exécuté localement** | cgo indisponible sur le poste ; couvert par la CI |
+| 2026-09-30 | Page brandée d'un 5xx compressé | `TestErrorPageDropsUpstreamBodyHeaders` | pass | `Content-Encoding: gzip` conservé sur l'ancien code |
+| 2026-09-30 | Adresses d'écoute | `TestValidateServerTLS` (4 cas), `TestValidateListenersRejectsAdminOnThePublicPort` | pass | `:443` / `:443` et `0.0.0.0:443` / `:443` acceptés par l'ancienne validation |
+| 2026-09-30 | Apex d'un wildcard | `TestRedirectToHTTPSNormalizesTheHost` | pass | `Boxaria.fr` : 400 au lieu de 301 sur l'ancien code |
+| 2026-09-30 | Rejeu des tokens | `TestMiddlewareVerifyRejectsReplayedToken`, `TestMiddlewareVerifyRejectionDoesNotBurnTheToken`, `TestUsedTokensConcurrentConsumeAcceptsOnce`, `TestUsedTokensForgetsExpiredTokens`, `TestVerifyErrorCodesAreInTheContract` | pass | Rejeu accepté (200, nouveau cookie) sur l'ancien code |
+| 2026-09-30 | Domaine du visiteur | `TestScoreManagerNormalizesTheVisitorDomain` | pass | `Example.com:8080` rangé tel quel sur l'ancien code |
+| 2026-09-30 | Défauts du schéma | `TestSchemaDefaultsMatchDefaultConfig` | pass | 3 écarts sur l'ancien schéma (`min_elapsed_ms`, `max_elapsed_ms`, `shadow_mode`) |
+| 2026-09-30 | Intégrité (mesure) | Benchmark `Evaluate` sur requête nominale (non versionné) | mesure | 609 ns / 3 allocations ; aucun décodage répété sans `%` ni `+` |
+| 2026-09-30 | Binaire | Exécution réelle sur `configs/config.example.yaml` | pass | `/waf/health` 200 ; `-listen :9090` refusé au démarrage (conflit avec `server.admin_listen`) |
 | 2026-09-25 | Sprint 22 (audit 7) | `go test ./...` | pass | 803 tests et sous-tests, 48 paquets |
 | 2026-09-25 | Sprint 22 (audit 7) | `go vet ./...` + `go build ./...` | pass | |
 | 2026-09-25 | Sprint 22 (audit 7) | `golangci-lint run ./...` | pass | 0 issue |
@@ -349,6 +363,23 @@ last-reviewed: 2026-09-25
 | 2026-09-24 | Pool d'upstreams | `BenchmarkPoolPick`, `TestPoolPickDoesNotAllocate` | pass | 1 alloc (48 B/op) avant, 0 après, 4 stratégies |
 | 2026-09-24 | Verrous visiteurs / DDoS | Benchmarks parallèles (non versionnés), 1 et 8 cœurs | mesure | `observe` 93 / 131 ns/op ; `Record` 60 / 117 ; `Observe` 98 / 284 : verrous occupés < 1 % à 20 000 req/s |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` + `strict_host` | pass | Host non déclaré : 400, `BLOCK host_not_declared` journalisé, `waf_blocked_total{domain="_undeclared"}` ; `/waf/metrics` par IP 400 ; `/waf/health` 200 |
+
+### Sprint 23 — huitième audit du 2026-09-28 : ce qui était exact, ce qui ne l'était pas
+
+- **Exact et corrigé** : 1.1 à 1.5, 2.1, 4.1. Chaque correctif de code a un
+  test en échec sur l'ancien code.
+- **Exact, différent de sa description** : 1.4 — le rejeu n'ouvre pas un score
+  arbitraire (IP et domaine signés, borne `verify_max_per_minute`, score borné
+  à 100), mais il épargne la PoW adaptative : une seule résolution suffisait à
+  monter au maximum. 2.1 — le schéma JSON était lui aussi obsolète (500 /
+  10 000), contrairement à ce qu'affirmait l'audit ; `shadow_mode` l'était
+  aussi. 4.1 — la cause est la toolchain choisie par `go run pkg@latest`, et
+  le binaire installé proposé en remède était compilé en 1.26 lui aussi.
+- **Infirmé** : 3.1 (timers collectés sans `Stop` depuis Go 1.23), 3.2
+  (`QueryUnescape` ne décode rien sans `%` ni `+`), 3.3 (`max_idle_conns`
+  existe déjà).
+- **Non retenu** : 2.3 — la convention `@deferred` est documentée et assumée ;
+  la planification des scénarios différés relève de la roadmap.
 
 ### Sprint 22 — septième audit du 2026-09-25 : ce qui était exact, ce qui ne l'était pas
 

@@ -8,9 +8,10 @@ Feature: Auto-protection du WAF
   # (public.openapi.yaml, VerifyError), FR-30. Les scénarios @deferred sont
   # spécifiés mais NON implémentés (audit du 2026-09-25, phase 21) : ils ne sont
   # pas un critère d'acceptation tant que leur implémentation n'est pas planifiée
-  # (specs/tasks.md). Le token de challenge est un HMAC sans état : aucun store
-  # de nonces n'existe, donc ni détection de rejeu (`token_already_used`), ni
-  # `challenge.max_pending_nonces`, ni détection d'amplification.
+  # (specs/tasks.md). Le token de challenge est un HMAC sans état ; seuls les
+  # tokens acceptés sont retenus jusqu'à expiration (détection de rejeu,
+  # `token_already_used`, sprint 23). Aucun store des tokens émis n'existe,
+  # donc ni `challenge.max_pending_nonces`, ni détection d'amplification.
 
   Background:
     Given le WAF est opérationnel
@@ -33,17 +34,22 @@ Feature: Auto-protection du WAF
     Then l'IP est automatiquement blacklistée pour 1h
     And un event est journalisé avec reason="verify_endpoint_flooded"
 
-  @deferred
   Scenario: Replay attack — token de challenge soumis deux fois
     Given un attaquant récupère un token de challenge valide
     When il soumet POST /waf/verify avec ce token une première fois → validé avec succès
     And il soumet à nouveau POST /waf/verify avec le même token
     Then la deuxième soumission reçoit HTTP 400 avec {"error": "token_already_used"}
-    And le token est invalidé après la première utilisation (nonce usage tracking)
-    # Aujourd'hui le token reste rejouable jusqu'à son expiration, borné à la
-    # même IP et au même domaine (payload signé) et au débit de
-    # verify_max_per_minute. `token_already_used` n'est pas dans l'enum
-    # VerifyError : l'ajouter est une évolution mineure de public.openapi.yaml.
+    And la réponse porte X-WAF-Action "BLOCK" et X-WAF-Reason "verify_token_already_used"
+    And aucun cookie de clearance n'est émis et le score ne reçoit pas de second bonus
+    # Le token est retenu jusqu'à son expiration, par instance. Seule une
+    # soumission acceptée le consomme : une soumission rejetée (PoW faux…) ne
+    # le brûle pas. Le rejeu n'est pas pénalisé (double envoi d'un navigateur).
+
+  Scenario: Replay attack — deux soumissions concurrentes du même token
+    Given un token de challenge valide et sa PoW résolue
+    When deux soumissions POST /waf/verify identiques arrivent en même temps
+    Then une seule reçoit HTTP 200 et un cookie de clearance
+    And l'autre reçoit HTTP 400 {"error": "token_already_used"}
 
   @deferred
   Scenario: Flooding /waf/verify avec tokens différents (bots brute-force)

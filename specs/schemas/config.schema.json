@@ -336,7 +336,8 @@
         },
         "shadow_mode": {
           "type": "boolean",
-          "default": false
+          "default": true,
+          "description": "Calcule et journalise les décisions sans les appliquer (FR-38) ; actif par défaut le temps de la calibration (NFR-15)"
         },
         "block_min_confidence": {
           "type": "number",
@@ -683,13 +684,14 @@
         },
         "min_elapsed_ms": {
           "type": "integer",
-          "default": 500,
-          "description": "Durée minimale du challenge en ms (en dessous = bot suspect)"
+          "minimum": 0,
+          "default": 0,
+          "description": "Durée minimale du challenge en ms (en dessous : challenge_too_fast). 0 = plancher désactivé : une PoW se résout en quelques dizaines de ms sur un client rapide"
         },
         "max_elapsed_ms": {
           "type": "integer",
-          "default": 10000,
-          "description": "Durée maximale du challenge en ms"
+          "default": 60000,
+          "description": "Durée maximale du challenge en ms (au-delà : challenge_timeout). Doit être > min_elapsed_ms"
         }
       }
     },

@@ -189,11 +189,13 @@ func redirectToHTTPS(domains []config.DomainConfig) http.HandlerFunc {
 }
 
 // hostAllowed vérifie qu'un host correspond à l'un des patterns configurés
-// (exact ou wildcard de la forme "*.example.com").
+// (exact ou wildcard de la forme "*.example.com"). Comme pour le routage du
+// proxy et la sélection SNI, un wildcard couvre aussi l'apex : "example.com"
+// recevait un 400 au lieu de sa redirection HTTPS.
 func hostAllowed(host string, patterns []string) bool {
 	for _, p := range patterns {
-		if strings.HasPrefix(p, "*.") {
-			if strings.HasSuffix(host, p[1:]) { // p[1:] == ".example.com"
+		if base, wildcard := strings.CutPrefix(p, "*."); wildcard {
+			if host == base || strings.HasSuffix(host, "."+base) {
 				return true
 			}
 		} else if host == p {

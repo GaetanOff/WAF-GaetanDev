@@ -13,7 +13,7 @@ info:
     (défaut :80), hors de la chaîne de protection : il sert le challenge
     HTTP-01 (/.well-known/acme-challenge/{token}) et redirige toute autre
     requête GET/HEAD vers HTTPS (302 ; 400 pour les autres méthodes).
-  version: 1.4.0
+  version: 1.5.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -57,6 +57,7 @@ components:
             - challenge_too_fast
             - challenge_timeout
             - headless_webgl_renderer
+            - token_already_used
             - cookie_issue_failed
 
     OriginVerification:
@@ -180,8 +181,8 @@ paths:
                 $ref: "#/components/schemas/VerifySuccess"
         "400":
           description: >-
-            Soumission rejetée (corps invalide, token invalide ou expiré, PoW
-            faux, timing ou fingerprint refusé) en JSON ; en texte brut, Host
+            Soumission rejetée (corps invalide, token invalide, expiré ou déjà
+            accepté une fois, PoW faux, timing ou fingerprint refusé) en JSON ; en texte brut, Host
             non déclaré sous server.strict_host (ADR-020). X-WAF-Action vaut
             BLOCK ; Cache-Control, Pragma et Expires accompagnent le seul refus
             JSON.

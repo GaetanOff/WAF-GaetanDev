@@ -1,7 +1,7 @@
 ---
 status: implemented
-sprint: 22
-last-updated: 2026-09-25
+sprint: 23
+last-updated: 2026-09-30
 ---
 
 # Tasks — WAF Anti-DDoS / Anti-Bot
@@ -1067,4 +1067,36 @@ last-updated: 2026-09-25
 - [x] 4.5 Pause « stop-the-world » de `cleanupBuckets` : **infirme**. La passe tourne dans la goroutine de nettoyage, jamais sur le chemin de requete, et le tri ne suspend pas les autres goroutines ; la passe sans allocation sous la borne date de T21.3. Non modifie
 - [x] 4.6 En-tetes internes vers l'upstream : seuls `X-WAF-Score` et `X-WAF-Origin-Token` sont transmis, les autres `X-WAF-*` sont retires dans `Rewrite`
 - **Validation 2026-09-25** : `go build ./...`, `go vet ./...`, `go test ./...` (803 tests et sous-tests, 48 paquets), `golangci-lint run` (0 issue), `spectral lint` (0 erreur), `govulncheck` (0 vulnerabilite atteignable, 1 non appelee) ; execution reelle du binaire sur `configs/config.example.yaml` (`/waf/health` 200, `POST /waf/health` 405 `Allow: GET, HEAD`, `/robots.txt` bypasse et compte, corps de 20 Ko sur `/waf/verify` refuse en `invalid_submission`, 502 journalises avec leur cause, `-healthcheck` ok). `go test -race` non executable localement (pas de cgo) — couvert par la CI.
+- **Statut** : implemente.
+
+## Sprint 23 - Remediation du huitieme audit du 2026-09-28 (Phase 23)
+
+> Huitieme audit externe du 2026-09-28 : chaque point a ete verifie contre le
+> code avant correction, sur la branche `fix/audit-8-remediation`, a raison
+> d'un commit par correction. Trois points d'optimisation sont infirmes
+> (timers du tarpit, decodage de l'integrite, `max_idle_conns`).
+
+### T23.1 - Anomalies du code
+- [x] 1.1 Page brandee sur un 5xx compresse : `Content-Encoding` (et `Content-Range`, `ETag`, `Last-Modified`) de l'upstream restaient sur la page HTML en clair, que le navigateur ne pouvait pas decoder. Retires au remplacement du corps
+- [x] 1.2 Conflit d'adresses d'ecoute : `server.listen` et `server.tls.listen` identiques avec `redirect_http` passaient la validation et le second serveur echouait au bind. Validation generale des serveurs demarres (public, redirection, challenge ACME, admin), `:443` et `0.0.0.0:443` confondus ; la surcharge `-listen` est revalidee
+- [x] 1.3 Redirection HTTPS : `hostAllowed` refusait en 400 l'apex d'un wildcard (`example.com` pour `*.example.com`), que le routage et la selection SNI acceptent. Aligne ; `evilexample.com` reste refuse
+- [x] 1.4 Rejeu des tokens de challenge : une PoW resolue se rejouait jusqu'a expiration du token, chaque soumission reappliquant le bonus de score. Tokens acceptes retenus jusqu'a expiration (par instance, 65 536 entrees, purge a l'expiration, sature = laisse passer), 400 `token_already_used`, sans penalite ; seule une soumission acceptee consomme le token. public.openapi.yaml 1.5.0. Scenario sorti de `@deferred`
+- [x] 1.5 `ScoreManager` : le domaine du visiteur etait range tel que `r.Host` (casse et port). Normalise par `hostname.Normalize` a la creation et dans `Set`
+- **Spec** : requirements-ops.md FR-30, FR-32, FR-40 (v3.10.0) ; public.openapi.yaml 1.5.0 ; visitor.schema.json ; features/maintenance-page, per-domain-tls, waf-self-protection
+
+### T23.2 - Contrats SDD
+- [x] 2.1 architecture.md (v1.4.5) : sequence du challenge (ni attente de 500 ms cote client, ni borne 500 ms..10 s : `min_elapsed_ms` 0 et `max_elapsed_ms` 60 s par defaut) ; `fp_hash` est le SHA-256 complet (64 hex), pas `[:16]`. `ip_hash` (16 hex) etait exact
+- [x] 2.2 Constat de l'audit inexact sur le schema : `config.schema.json` annoncait lui aussi 500 / 10 000. Corrige, avec `risk_engine.shadow_mode` (schema `false`, code `true` — NFR-15) trouve par le nouveau test `TestSchemaDefaultsMatchDefaultConfig` ; exemple de FR-38 corrige (requirements-detection.md v1.4.1)
+- [x] 2.3 Scenarios `@deferred` : **non modifie**. La convention est documentee (CLAUDE.md, gate G4 : hors perimetre ; en-tete de chaque feature : pas un critere d'acceptation tant que non planifie). Les regrouper dans un jalon est une decision de roadmap, pas une correction
+- [x] 2.4 Test `TestVerifyErrorCodesAreInTheContract` : tout code d'erreur de `/waf/verify` doit figurer dans l'enum `VerifyError`
+
+### T23.3 - Performance
+- [x] 3.1 Timers du tarpit : **infirme**. Depuis Go 1.23 (module en go 1.27), un timer de `time.After` non reference est collecte sans attendre son echeance. Non modifie
+- [x] 3.2 Court-circuit du decodage d'integrite : **infirme**. `url.QueryUnescape` rend deja la chaine sans allouer quand elle ne contient ni `%` ni `+` : une seule passe, arretee aussitot. Mesure : 609 ns / 3 allocations par requete nominale, le cout vient des motifs, pas du decodage. Non modifie
+- [x] 3.3 `MaxIdleConnsPerHost` : **infirme**. Deja configurable (`upstream.max_idle_conns`, applique a `MaxIdleConns` et `MaxIdleConnsPerHost`). Non modifie
+
+### T23.4 - Outillage
+- [x] 4.1 `make security` : `go run govulncheck@latest` suit le go.mod de govulncheck (go 1.26) ; avec un Go local plus ancien et `GOTOOLCHAIN=auto`, l'outil etait compile en 1.26 et refusait ce module. La cible impose `GOTOOLCHAIN=$(go env GOVERSION)`. Le binaire installe suggere par l'audit etait lui aussi compile en 1.26
+- [x] 4.2 `golangci-lint` et `k6` absents du poste : environnement, non modifie. `golangci-lint` s'execute sans installation par `GOTOOLCHAIN=$(go env GOVERSION) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...`
+- **Validation 2026-09-30** : `go build ./...`, `go vet ./...`, `go test ./...` (816 tests et sous-tests, 48 paquets), `spectral lint` (0 erreur), `make security` (0 vulnerabilite atteignable, 1 non appelee) ; execution reelle du binaire sur `configs/config.example.yaml` (`/waf/health` 200 ; `-listen :9090` refuse au demarrage, conflit avec `server.admin_listen`). `golangci-lint run` (0 issue). `go test -race` non executable localement (pas de cgo) — couvert par la CI.
 - **Statut** : implemente.

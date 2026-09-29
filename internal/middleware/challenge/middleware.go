@@ -53,6 +53,7 @@ type Middleware struct {
 	minElapsedMS int
 	maxElapsedMS int
 	humanCredit  func(ip string, domain string, fpHash string)
+	usedTokens   *usedTokens
 }
 
 // WithHumanCredit branche l'enregistrement de la preuve humaine (FR-37) sur un
@@ -153,6 +154,7 @@ func NewMiddlewareFromTemplate(cfg config.Config, scores *trust.ScoreManager, pa
 		difficulty:   new(atomic.Int64),
 		minElapsedMS: cfg.Challenge.MinElapsedMS,
 		maxElapsedMS: cfg.Challenge.MaxElapsedMS,
+		usedTokens:   newUsedTokens(maxUsedTokens),
 	}
 	middleware.difficulty.Store(int64(cfg.Challenge.PowDifficulty))
 	return middleware, nil
@@ -289,6 +291,12 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// Consommé en dernier : une soumission rejetée plus haut ne brûle pas le
+	// token. Un rejeu n'est pas pénalisé (double envoi d'un navigateur).
+	if m.usedTokens.consume(submission.Token, payload.ExpiresAt, m.tokenIssuer.now().Unix()) {
+		rejectSubmission(w, "token_already_used")
+		return
+	}
 	visitor := m.scores.Apply(ip, host, trust.DeltaChallengePassed)
 	fpHash := fingerprintHash(browserfp.Hash(parsedFingerprint))
 	cookie, err := m.cookieIssuer.Issue(ip, host, fpHash, visitor.Score, m.cookieTTL)

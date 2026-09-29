@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.9.2
-last-reviewed: 2026-09-25
+version: 3.10.0
+last-reviewed: 2026-09-30
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+change: "FR-30 : détection de rejeu des tokens de challenge (`token_already_used`) implémentée. Précédent (3.9.5) — FR-40 : la redirection HTTPS accepte l'apex d'un domaine wildcard. Précédent (3.9.4) — FR-40 : deux serveurs démarrés sur la même adresse d'écoute sont refusés à la validation. Précédent (3.9.3) — FR-32 : la page brandée qui remplace un corps d'erreur retire les en-têtes décrivant le corps d'origine (`Content-Encoding`, `Content-Range`, `ETag`, `Last-Modified`). Précédent (3.9.2) — FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -270,11 +270,22 @@ change: "FR-27 : un échec d'écriture du fichier d'audit est journalisé. Préc
 - Le corps DOIT être validé contre `challenge-submission.schema.json` avant tout
   traitement : un corps invalide (JSON malformé, champ manquant, `nonce` non
   numérique) reçoit `400 {"error": "invalid_submission"}`
+- Un token de challenge NE DOIT être accepté qu'une fois : une soumission qui
+  réutilise un token déjà accepté reçoit `400 {"error": "token_already_used"}`
+  (`X-WAF-Action: BLOCK`, `X-WAF-Reason: verify_token_already_used`), sans
+  cookie ni bonus de score. Sans cela, une seule PoW résolue se rejouait
+  jusqu'à expiration du token, chaque soumission réappliquant le bonus
+  - Seule une soumission acceptée consomme le token ; la vérification et la
+    consommation sont atomiques (deux soumissions concurrentes : une seule passe)
+  - Le rejeu n'est pas pénalisé (double envoi légitime d'un navigateur)
+  - La mémoire des tokens consommés est locale à l'instance, bornée
+    (65 536 entrées) et purgée à l'expiration des tokens. Saturée, elle laisse
+    passer sans retenir plutôt que de refuser les visiteurs légitimes ; le
+    rejeu reste alors lié à l'IP et au domaine signés dans le token
 - **Différé** (`waf-self-protection.feature`, scénarios `@deferred`) :
-  blacklist automatique d'1 h d'une IP qui dépasse la borne ; détection de
-  rejeu (`token_already_used`) — le token est un HMAC sans état, rejouable
-  jusqu'à son expiration pour la même IP et le même domaine ; blacklist sur
-  échecs de tokens répétés
+  blacklist automatique d'1 h d'une IP qui dépasse la borne ; blacklist sur
+  échecs de tokens répétés ; mémoire des tokens consommés partagée entre
+  instances
 
 ### Protection de l'API Admin
 - L'API admin DOIT verrouiller une IP après `self_protection.admin_max_failures`
@@ -357,6 +368,7 @@ change: "FR-27 : un échec d'écriture du fichier d'audit est journalisé. Préc
 - Le WAF DOIT supporter le mode `maintenance_forced: true` : forcer la page de maintenance pour tout le trafic (outil de déploiement)
 - Les **pages d'erreur brandées** (remplacement du corps 4xx/5xx) ne DOIVENT s'appliquer qu'aux **navigations de navigateur** (`Accept: text/html`). Les appels API/XHR (`Accept: application/json`, `*/*`, ou absent) DOIVENT conserver leur corps d'erreur d'origine (souvent JSON), sinon les clients `fetch`/`axios` ne peuvent plus parser la réponse. La page de maintenance forcée (503) reste servie à tous
 - Pour les erreurs **5xx** (502/503/504 : origine/passerelle en panne), le WAF DOIT remplacer le corps **même s'il est déjà en HTML** : une page d'erreur générique d'un reverse proxy en aval (nginx/OpenResty) n'est pas du contenu applicatif à préserver. Pour les **4xx**, le WAF NE DOIT remplacer que les corps en **texte brut** (`text/plain`) ou **sans `Content-Type`** — la forme des refus du WAF —, afin de préserver les pages d'erreur HTML et le JSON légitimes des applications. Le critère « non-HTML » remplaçait une erreur JSON d'API (400, 422) dès que la requête acceptait `text/html`
+- Quand le WAF remplace un corps d'erreur, il DOIT retirer les en-têtes qui décrivaient le corps d'origine : `Content-Encoding`, `Content-Range`, `ETag`, `Last-Modified`. La page brandée est servie en clair ; un `Content-Encoding: gzip` recopié de l'upstream faisait échouer son décodage par le navigateur (`ERR_CONTENT_DECODING_FAILED`)
 - Limite : si Cloudflare est configuré pour afficher ses propres pages d'erreur (Custom Pages) ou intercepte les erreurs d'origine, la page brandée du WAF peut être masquée par celle de Cloudflare (hors périmètre du WAF)
 
 ## FR-40 — Terminaison TLS par domaine (sélection par SNI)
@@ -380,7 +392,8 @@ change: "FR-27 : un échec d'écriture du fichier d'audit est journalisé. Préc
 - Le WAF DOIT supporter **TLS 1.2 et 1.3**, avec un plancher configurable `server.tls.min_version` (défaut `1.2`), et refuser les versions inférieures
 - Le WAF DOIT permettre une liste explicite de cipher suites (`server.tls.cipher_suites`), avec un défaut sécurisé si la liste est vide
 - Quand `server.tls.redirect_http: true`, le WAF DOIT rediriger le trafic HTTP (`server.listen`) vers HTTPS en `301`, en préservant chemin et query
-- Le handler de redirection DOIT valider le `Host` entrant contre la liste des domaines configurés (exact ou wildcard) avant de rediriger ; un `Host` non reconnu DOIT recevoir `400 Bad Request` (protection contre l'open-redirect par injection de header `Host`)
+- `server.listen` (redirection) et `server.tls.listen` DOIVENT être des adresses distinctes quand `redirect_http` est actif : la configuration DOIT être refusée à la validation, et non au bind du second serveur (`address already in use`). Plus généralement, deux serveurs démarrés (public, redirection, challenge ACME, API admin) NE DOIVENT PAS partager une adresse ; ":443" et "0.0.0.0:443" désignent la même. La surcharge `-listen` est revalidée
+- Le handler de redirection DOIT valider le `Host` entrant contre la liste des domaines configurés (exact ou wildcard) avant de rediriger, selon les règles du routage (un wildcard `*.example.com` couvre aussi l'apex `example.com`) ; un `Host` non reconnu DOIT recevoir `400 Bad Request` (protection contre l'open-redirect par injection de header `Host`)
 - Le WAF DOIT exposer `waf_tls_cert_expiry_seconds{domain}` pour chaque certificat chargé (réutilise FR-31)
 - Le WAF DEVRAIT recharger les certificats sans redémarrage (`SIGHUP`) — **optionnel**, hors première tranche
 - Le renouvellement des certificats statiques est géré **hors WAF** (outillage amont) ; ACME (FR-31) reste un mécanisme complémentaire et n'est pas activé simultanément sur le même listener dans la première version

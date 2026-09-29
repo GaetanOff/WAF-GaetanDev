@@ -82,6 +82,15 @@ Feature: Page de Maintenance & Erreurs Custom
     Then le WAF remplace la page passerelle générique par sa page brandée
     # Les 5xx sont brandés même en HTML : ce n'est pas du contenu applicatif.
 
+  Scenario: Origine en erreur avec un corps compressé — la page brandée est servie en clair
+    Given error_pages activé
+    And l'origine renvoie un 500 avec "Content-Encoding: gzip", un ETag et un Last-Modified
+    When un visiteur navigateur (Accept "text/html") reçoit ce 500
+    Then le WAF sert sa page brandée non compressée
+    And la réponse ne porte ni Content-Encoding, ni Content-Range, ni ETag, ni Last-Modified
+    # Ces en-têtes décrivaient le corps d'origine ; sur la page brandée, un
+    # Content-Encoding recopié fait échouer le décodage du navigateur.
+
   Scenario: Erreur 4xx JSON d'une API — préservée même pour une navigation
     Given error_pages activé
     When une requête avec Accept "text/html,*/*" reçoit une erreur 422 en application/json
