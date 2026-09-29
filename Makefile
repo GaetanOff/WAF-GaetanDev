@@ -45,8 +45,11 @@ behavior:
 	go test ./... -race
 
 # G5 — vulnérabilités connues des dépendances et de la toolchain.
+# `go run pkg@version` suit le go.mod de govulncheck (go 1.26) : avec un Go
+# local plus ancien et GOTOOLCHAIN=auto, l'outil était compilé en 1.26 et
+# refusait d'analyser ce module (go 1.27). La toolchain du module est imposée.
 security:
-	go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	GOTOOLCHAIN=$$(go env GOVERSION) go run golang.org/x/vuln/cmd/govulncheck@latest ./...
 
 # G6 — charge contre un WAF lancé localement (WAF_URL, défaut http://127.0.0.1:8080).
 perf:
