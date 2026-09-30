@@ -23,12 +23,24 @@ func TestMaintenanceModeServes503ForAllButInternal(t *testing.T) {
 	if !strings.Contains(resp.Body.String(), "Protected by") {
 		t.Fatal("maintenance page missing branding")
 	}
+	if got := resp.Header().Get("Retry-After"); got != "300" {
+		t.Fatalf("Retry-After = %q, want 300 (FR-32)", got)
+	}
 
-	// /waf/health exempté.
-	health := httptest.NewRecorder()
-	handler.ServeHTTP(health, httptest.NewRequest(http.MethodGet, "http://x/waf/health", nil))
-	if health.Code != http.StatusOK {
-		t.Fatalf("health status = %d, want 200 (bypassed)", health.Code)
+	// Les assets ne sont pas exemptés (exemption différée, FR-32).
+	asset := httptest.NewRecorder()
+	handler.ServeHTTP(asset, httptest.NewRequest(http.MethodGet, "http://x/favicon.ico", nil))
+	if asset.Code != http.StatusServiceUnavailable {
+		t.Fatalf("asset status = %d, want 503", asset.Code)
+	}
+
+	// /waf/health et /waf/metrics exemptés.
+	for _, path := range []string{"/waf/health", "/waf/metrics"} {
+		internal := httptest.NewRecorder()
+		handler.ServeHTTP(internal, httptest.NewRequest(http.MethodGet, "http://x"+path, nil))
+		if internal.Code != http.StatusOK {
+			t.Fatalf("%s status = %d, want 200 (bypassed)", path, internal.Code)
+		}
 	}
 }
 
