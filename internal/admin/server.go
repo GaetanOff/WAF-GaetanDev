@@ -30,6 +30,15 @@ type Server struct {
 	httpServer  *http.Server
 	onBlacklist func(value string)
 	applyConfig ConfigApplier
+	erasers     []func(ipHash string)
+}
+
+// WithErasers branche l'effacement RGPD (FR-28) sur les états par visiteur
+// tenus hors du store de visiteurs : buckets de rate limit, profil
+// comportemental, dernier JA3. Sans eux, POST /waf/admin/gdpr/erase ne
+// supprimait que le visiteur.
+func (s *Server) WithErasers(erasers ...func(ipHash string)) {
+	s.erasers = append(s.erasers, erasers...)
 }
 
 // EventRecorder retourne le puits d'événements de sécurité à brancher sur le
@@ -107,6 +116,7 @@ func NewServer(cfg config.Config, store storage.Store, scores *trust.ScoreManage
 		// Même borne FR-23 que le listener public : l'API admin est censée être
 		// sur loopback, mais la défense en profondeur ne coûte rien ici.
 		MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
+		MaxHeaderBytes:      cfg.Server.MaxHeaderBytes,
 	}
 	return server, nil
 }

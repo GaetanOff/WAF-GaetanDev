@@ -43,7 +43,7 @@ type Payload struct {
 func NewCookieIssuer(name string, key string) CookieIssuer {
 	return CookieIssuer{
 		Name: name,
-		Key:  []byte(key),
+		Key:  signing.Derive([]byte(key), clearanceKeyPurpose),
 		Now:  time.Now,
 	}
 }

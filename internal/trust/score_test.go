@@ -1,6 +1,7 @@
 package trust
 
 import (
+	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
 	"net/http"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/ipkey"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/storage/memory"
 )
@@ -314,6 +316,16 @@ func (s *countingStore) SetVisitor(key string, visitor storage.VisitorState) {
 	s.Store.SetVisitor(key, visitor)
 }
 
+func (s *countingStore) UpdateVisitor(key string, update func(*storage.VisitorState) (storage.VisitorState, bool)) {
+	s.Store.UpdateVisitor(key, func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		next, write := update(current)
+		if write {
+			s.writes++
+		}
+		return next, write
+	})
+}
+
 func TestGetRewritesAKnownVisitorOncePerTouchInterval(t *testing.T) {
 	manager, store, clock := newTestManager(t)
 	defer store.Close()
@@ -370,16 +382,60 @@ func TestPeekNeverWrites(t *testing.T) {
 	}
 }
 
-// La clé est persistée (Redis, cookie de clearance, token de challenge) : son
-// format ne doit pas changer d'une version à l'autre.
+// withHashKey fixe la clé de HashIP le temps d'un test.
+func withHashKey(t *testing.T, key string) {
+	t.Helper()
+	previous := hashKey.Load()
+	SetHashKey([]byte(key))
+	t.Cleanup(func() { hashKey.Store(previous) })
+}
+
+// keyedHash recalcule HashIP par sa définition : HMAC-SHA256 du client, tronqué.
+func keyedHash(ip string) string {
+	mac := hmac.New(sha256.New, *hashKey.Load())
+	_, _ = mac.Write([]byte(ipkey.Subject(ip)))
+	return hex.EncodeToString(mac.Sum(nil)[:ipHashBytes])
+}
+
+// La clé est persistée (Redis, cookie de clearance, token de challenge) : pour
+// une clé donnée, son format ne doit pas changer d'une version à l'autre sans
+// être annoncé.
 func TestHashIPIsStable(t *testing.T) {
+	withHashKey(t, "0123456789abcdef0123456789abcdef")
 	for ip, want := range map[string]string{
-		"203.0.113.7": "fec52565aa0cf18f",
-		"2001:db8::1": "5afd19e856d1c18d",
+		"203.0.113.7": "55a7c9ba39c762e9",
+		"2001:db8::1": "d8702f872354b085", // hash du /64 (agrégation IPv6)
 	} {
 		if got := HashIP(ip); got != want {
 			t.Fatalf("HashIP(%q) = %q, want %q", ip, got, want)
 		}
+	}
+}
+
+// FR-28 : l'ip_hash est un HMAC. Un SHA-256 sans clé d'une IPv4 se renversait
+// en parcourant les 2³² adresses ; changer de clé change tous les hashes, et
+// le cache ne rend jamais un hash de l'ancienne clé.
+func TestHashIPIsKeyed(t *testing.T) {
+	unkeyed := sha256.Sum256([]byte("203.0.113.7"))
+	withHashKey(t, "first-key-first-key-first-key-32")
+	first := HashIP("203.0.113.7")
+	if first == hex.EncodeToString(unkeyed[:ipHashBytes]) {
+		t.Fatal("HashIP must not be a plain SHA-256 of the IP")
+	}
+	SetHashKey([]byte("other-key-other-key-other-key-32"))
+	if second := HashIP("203.0.113.7"); second == first || second != keyedHash("203.0.113.7") {
+		t.Fatalf("after a key change HashIP = %q, want %q (not the cached %q)", second, keyedHash("203.0.113.7"), first)
+	}
+}
+
+// Un abonné IPv6 dispose d'un /64 : chaque adresse n'était pas un nouveau
+// visiteur, au score initial et au bucket plein.
+func TestHashIPAggregatesIPv6Per64(t *testing.T) {
+	if HashIP("2001:db8:1:2::1") != HashIP("2001:db8:1:2:aaaa:bbbb:cccc:dddd") {
+		t.Fatal("two addresses of one /64 must share their hash")
+	}
+	if HashIP("2001:db8:1:2::1") == HashIP("2001:db8:1:3::1") {
+		t.Fatal("two /64 prefixes must not share their hash")
 	}
 }
 
@@ -417,8 +473,7 @@ func TestHashIPCacheNeverReturnsAnotherIPHash(t *testing.T) {
 		wg.Go(func() {
 			for round := range 4 {
 				for i := worker + round; i < len(ips); i += 8 {
-					sum := sha256.Sum256([]byte(ips[i]))
-					if got, want := HashIP(ips[i]), hex.EncodeToString(sum[:ipHashBytes]); got != want {
+					if got, want := HashIP(ips[i]), keyedHash(ips[i]); got != want {
 						t.Errorf("HashIP(%q) = %q, want %q", ips[i], got, want)
 						return
 					}
@@ -427,4 +482,23 @@ func TestHashIPCacheNeverReturnsAnotherIPHash(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+// Pénalités concurrentes d'un même visiteur : aucune n'est perdue. Get puis
+// SetVisitor laissait la dernière écriture effacer les autres.
+func TestApplyIsAtomicUnderConcurrency(t *testing.T) {
+	manager, store, _ := newTestManager(t)
+	defer store.Close()
+	manager.Set("1.2.3.4", "example.test", 60)
+
+	var wg sync.WaitGroup
+	for range 50 {
+		wg.Go(func() { manager.Apply("1.2.3.4", "example.test", -1) })
+		wg.Go(func() { manager.Get("1.2.3.4", "example.test") })
+	}
+	wg.Wait()
+
+	if visitor := manager.Peek("1.2.3.4", "example.test"); visitor.Score != 10 {
+		t.Fatalf("score = %d, want 10 (60 - 50 penalties)", visitor.Score)
+	}
 }

@@ -30,3 +30,17 @@ func TestVerifyRejectsInvalidSignatureEncoding(t *testing.T) {
 		t.Fatal("expected invalid signature encoding to be rejected")
 	}
 }
+
+func TestDeriveSeparatesPurposes(t *testing.T) {
+	secret := []byte("0123456789abcdef0123456789abcdef")
+	token := Derive(secret, "token")
+	cookie := Derive(secret, "cookie")
+
+	sig := Sign(token, "payload")
+	if Verify(cookie, "payload", sig) {
+		t.Fatal("a signature made for one purpose must not verify for another")
+	}
+	if !Verify(Derive(secret, "token"), "payload", sig) {
+		t.Fatal("derivation must be deterministic")
+	}
+}

@@ -1,6 +1,6 @@
 ---
 status: implemented
-sprint: 23
+sprint: 24
 last-updated: 2026-09-30
 ---
 
@@ -1099,4 +1099,43 @@ last-updated: 2026-09-30
 - [x] 4.1 `make security` : `go run govulncheck@latest` suit le go.mod de govulncheck (go 1.26) ; avec un Go local plus ancien et `GOTOOLCHAIN=auto`, l'outil etait compile en 1.26 et refusait ce module. La cible impose `GOTOOLCHAIN=$(go env GOVERSION)`. Le binaire installe suggere par l'audit etait lui aussi compile en 1.26
 - [x] 4.2 `golangci-lint` et `k6` absents du poste : environnement, non modifie. `golangci-lint` s'execute sans installation par `GOTOOLCHAIN=$(go env GOVERSION) go run github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest run ./...`
 - **Validation 2026-09-30** : `go build ./...`, `go vet ./...`, `go test ./...` (816 tests et sous-tests, 48 paquets), `spectral lint` (0 erreur), `make security` (0 vulnerabilite atteignable, 1 non appelee) ; execution reelle du binaire sur `configs/config.example.yaml` (`/waf/health` 200 ; `-listen :9090` refuse au demarrage, conflit avec `server.admin_listen`). `golangci-lint run` (0 issue). `go test -race` non executable localement (pas de cgo) — couvert par la CI.
+- **Statut** : implemente.
+
+## Sprint 24 - Remediation du neuvieme audit du 2026-09-30 (Phase 24)
+
+> Neuvieme audit du 2026-09-30 : chaque point a ete verifie contre le code avant
+> correction, sur la branche `fix/audit-9-remediation`, a raison d'un commit par
+> correction, avec un test en echec sur l'ancien code pour chaque defaut.
+
+### T24.1 - Critique et grave
+- [x] 1.1 Token de challenge rejoue comme cookie de clearance : meme cle, meme format, accepte (challenge contourne sans PoW, mode sous attaque compris). Cles derivees par usage (`signing.Derive`) ; `TestMiddlewareRejectsChallengeTokenReplayedAsCookie`
+- [x] 1.2 Pool d'upstreams : `SetHealthy(false)` avant le filtre `context.Canceled`, une annulation client mettait un pool d'un membre hors service. Filtre ajoute ; la vraie erreur de connexion retire toujours le membre
+- [x] 1.3 `whitelist_user_agents` sans verification reverse-DNS pour 4 UA sur 8 : exemption consultee aupres du verificateur (`risk.Middleware.CrawlerStatus`) — sous attaque seul un crawler `verified` passe, hors attaque un `spoofed` est challenge ; Slurp (`*.crawl.yahoo.net`) et Baiduspider (`*.baidu.com`, `*.baidu.jp`) verifiables
+- [x] 1.4 Sous attaque, `Accept: application/json` ou une methode non GET/HEAD soustrayait la requete a toute mitigation : le plafond `THROTTLE` exige par FR-39 n'etait pas cable. Cable (en-tete interne `X-WAF-Under-Attack-Throttle`, 429 neutre `rate_limit_under_attack`) ; option `under_attack.challenge_non_browser` ; ADR-018 amende
+- [x] 1.5 IPv6 : aucune agregation. `ipkey.Subject` (IPv6 -> /64, IPv4 mappee demappee) dans `HashIP`, slowloris et l'auto-protection ; whitelist/blacklist restent sur l'adresse complete (CIDR)
+
+### T24.2 - Bugs qui violent la spec
+- [x] 2.1 FR-14 : `ObservePressure` remettait `lastDecay` a chaque requete, la difficulte ne redescendait jamais (24 bits apres 30 min). La decroissance avance dans `ObservePressure` ; tests qui rejouent l'ordre du pipeline
+- [x] 2.2 Baseline de l'AII : EMA par challenge servi (rejoignait 500 req/s en ~10 s, 495,7 mesure). Baseline par seconde ecoulee (moyenne cumulee la 1re heure, puis constante 1 h), secondes vides a 0, aucun bit AII avant 10 s d'historique
+
+### T24.3 - A corriger ensuite
+- [x] 3.1 Trust score : Get + SetVisitor non atomique (50 penalites concurrentes -> score 24 au lieu de 10). `Store.UpdateVisitor` (verrou memoire, compare-and-set Redis rejoue) ; score, breaker, preuve humaine et cluster migres
+- [x] 3.2 Secrets sans override d'environnement : `WAF_ABUSEIPDB_KEY` (cite par CONFIG.md, absent du code), `WAF_ALERTING_WEBHOOKS_<i>_URL` ; webhook actif sans URL refuse au demarrage. **Reste a faire cote prod** : revoquer le webhook Discord en clair et le fournir par l'environnement
+- [x] 3.3 `admin_listen` par defaut `:9090` (toutes interfaces, HTTP clair) -> `127.0.0.1:9090`
+- [x] 3.4 `elapsed_ms` fourni par le client : duree mesuree par le serveur depuis `issued_at_ms` signe dans le token
+- [x] 3.5 `MaxHeaderBytes` absent (1 Mio) : `server.max_header_bytes`, 64 Kio par defaut, sur tous les serveurs. `WriteTimeout` : **non modifie** (configurable) ; CONFIG.md precise qu'il coupe telechargements et flux longs, pas les WebSockets (verifie : le proxy leve l'echeance a l'upgrade)
+- [x] 3.6 `Logger.Dropped()` jamais lu : `waf_log_events_dropped_total`
+- [ ] 3.7 Backend Redis (4 a 6 allers-retours par requete, pas de cache de lecture ; `GET /waf/stats` parcourt le keyspace) : **differe**. Optimisation a mesurer d'abord (k6 absent du poste) ; `UpdateVisitor` retire deja le `GET` prealable de `Apply`
+- [x] 3.8 RGPD : effacement limite au visiteur -> buckets (3 fenetres), mesure THROTTLE, profil comportemental, dernier JA3 effaces, sur `gdpr/erase` et `DELETE /visitors/{ip_hash}` ; `ip_hash` en HMAC a cle derivee de `challenge.secret_key`
+- [x] 3.9 Chaine d'approvisionnement : actions par SHA, golangci-lint v2.14.0 (compile en Go 1.27.0), images par digest, `.github/dependabot.yml`. Le frontend `# syntax=docker/dockerfile:1` reste par tag
+- [x] 3.10 Couverture faible : constat, pas un defaut ; non traite dans ce sprint
+- [x] 3.11 Exposition de l'IP d'origine : risque accepte par ADR-019 ; mitigation d'exploitation (pare-feu sur les plages Cloudflare ou Authenticated Origin Pulls), hors code
+
+### T24.4 - Specs contre code
+- [x] 4.1 FR-14 corrige et teste dans le cablage reel (2.1)
+- [x] 4.2 CONFIG.md `WAF_ABUSEIPDB_KEY` : desormais implementee (3.2)
+- [x] 4.3 architecture.md : `routes()` est dans `cmd/waf/routes.go`
+- [x] 4.4 Specs manquantes ecrites : agregation IPv6 (FR-02), separation token/cookie (FR-06), clients non-navigateurs sous attaque (FR-39, ADR-018)
+- [x] 4.5 Defaut `cluster.channel` : **non modifie**, exception documentee de `TestSchemaDefaultsMatchDefaultConfig` (vide = defaut applique par `buildCluster`)
+- **Validation 2026-09-30** : `make gates` (spectral 0 erreur, vet/build, conformance, behavior, govulncheck 0 vulnerabilite atteignable), `go test -race ./...`, `golangci-lint` v2.14.0 (0 issue), `go test ./...` (865 tests et sous-tests, 49 paquets) ; binaire reel sur `configs/config.example.yaml` (`/waf/health` 200, en-tetes de 100 Ko -> 431, admin sur `127.0.0.1:9090`, `waf_log_events_dropped_total` expose). Build Docker non verifie localement (daemon arrete) ; digests resolus depuis les registres.
 - **Statut** : implemente.

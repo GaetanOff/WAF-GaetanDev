@@ -140,7 +140,7 @@ func newTestBotVerifier(resolver fakeBotResolver) *BotVerifier {
 		Enabled:         true,
 		SuccessCacheTTL: time.Hour,
 		FailureCacheTTL: time.Minute,
-		Crawlers:        []string{"googlebot", "bingbot", "duckduckbot", "applebot"},
+		Crawlers:        []string{"googlebot", "bingbot", "duckduckbot", "applebot", "slurp", "baiduspider"},
 	}, resolver)
 	return verifier
 }
@@ -274,5 +274,49 @@ func TestMiddlewareCloseStopsBotVerifierWorkers(t *testing.T) {
 	}
 	if state := verifier.Check("66.249.66.1", "Googlebot").State; state != BotVerificationUnverified {
 		t.Fatalf("state after Close = %q, want unverified", state)
+	}
+}
+
+// Slurp et Baiduspider, exemptés du challenge par whitelist_user_agents, sont
+// vérifiables par reverse-DNS : sous attaque (FR-39), seul un crawler vérifié
+// garde son exemption.
+func TestBotVerifierVerifiesSlurpAndBaiduspider(t *testing.T) {
+	resolver := fakeBotResolver{
+		names: map[string][]string{
+			"72.30.14.1":  {"b1.crawl.yahoo.net."},
+			"180.76.15.1": {"baiduspider-180-76-15-1.crawl.baidu.com."},
+		},
+		hosts: map[string][]string{
+			"b1.crawl.yahoo.net":                      {"72.30.14.1"},
+			"baiduspider-180-76-15-1.crawl.baidu.com": {"180.76.15.1"},
+		},
+	}
+	verifier := newTestBotVerifier(resolver)
+	t.Cleanup(verifier.Close)
+
+	_ = verifier.Check("72.30.14.1", "Mozilla/5.0 (compatible; Yahoo! Slurp)")
+	waitForBotState(t, verifier, "72.30.14.1", "Mozilla/5.0 (compatible; Yahoo! Slurp)", BotVerificationVerified)
+	_ = verifier.Check("180.76.15.1", "Mozilla/5.0 (compatible; Baiduspider/2.0)")
+	waitForBotState(t, verifier, "180.76.15.1", "Mozilla/5.0 (compatible; Baiduspider/2.0)", BotVerificationVerified)
+}
+
+func TestMiddlewareCrawlerStatus(t *testing.T) {
+	resolver := fakeBotResolver{
+		names: map[string][]string{"203.0.113.10": {"attacker.example.net."}},
+		hosts: map[string][]string{"attacker.example.net": {"203.0.113.10"}},
+	}
+	verifier := newTestBotVerifier(resolver)
+	middleware := NewMiddlewareWithVerifier(nil, FusionConfig{}, DecisionConfig{}, nil, verifier, false)
+	t.Cleanup(middleware.Close)
+
+	if verified, spoofed := middleware.CrawlerStatus("203.0.113.10", "curl/8"); verified || spoofed {
+		t.Fatal("a non-crawler User-Agent is neither verified nor spoofed")
+	}
+	waitForBotState(t, verifier, "203.0.113.10", "Googlebot", BotVerificationSpoofed)
+	if verified, spoofed := middleware.CrawlerStatus("203.0.113.10", "Googlebot"); verified || !spoofed {
+		t.Fatalf("CrawlerStatus = (%v, %v), want spoofed", verified, spoofed)
+	}
+	if verified, spoofed := (&Middleware{}).CrawlerStatus("203.0.113.10", "Googlebot"); verified || spoofed {
+		t.Fatal("without verifier, no crawler is verified")
 	}
 }

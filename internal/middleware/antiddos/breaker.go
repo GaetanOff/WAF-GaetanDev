@@ -55,11 +55,17 @@ func (b CircuitBreaker) IsOpen(ip string) bool {
 		return true
 	}
 
-	visitor.CircuitOpen = false
-	visitor.CircuitOpenUntil = nil
-	visitor.ViolationCount = 0
-	visitor.LastViolation = nil
-	b.store.SetVisitor(visitor.IPHash, *visitor)
+	b.store.UpdateVisitor(visitor.IPHash, func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		if current == nil || !current.CircuitOpen || current.CircuitOpenUntil == nil || current.CircuitOpenUntil.After(b.now()) {
+			return storage.VisitorState{}, false // déjà refermé, ou rouvert entre-temps
+		}
+		closed := *current
+		closed.CircuitOpen = false
+		closed.CircuitOpenUntil = nil
+		closed.ViolationCount = 0
+		closed.LastViolation = nil
+		return closed, true
+	})
 	return false
 }
 
@@ -72,18 +78,33 @@ func (b CircuitBreaker) IsOpen(ip string) bool {
 // ouvrir le circuit.
 func (b CircuitBreaker) RecordViolation(ip string) storage.VisitorState {
 	key := trust.HashIP(ip)
-	visitor, ok := b.store.GetVisitor(key)
-	if !ok {
-		now := b.now()
-		visitor = &storage.VisitorState{
+	var result storage.VisitorState
+	var opened bool
+	b.store.UpdateVisitor(key, func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		result, opened = b.countViolation(key, current)
+		return result, true
+	})
+	if opened && b.onOpen != nil {
+		b.onOpen(result.IPHash, *result.CircuitOpenUntil)
+	}
+	return result
+}
+
+// countViolation calcule l'état du visiteur après une violation et indique si
+// elle ouvre le circuit.
+func (b CircuitBreaker) countViolation(key string, current *storage.VisitorState) (storage.VisitorState, bool) {
+	now := b.now()
+	var visitor storage.VisitorState
+	if current != nil {
+		visitor = *current
+	} else {
+		visitor = storage.VisitorState{
 			IPHash:    key,
 			FirstSeen: now,
 			LastSeen:  now,
 			ExpiresAt: now.Add(b.openDuration),
 		}
 	}
-
-	now := b.now()
 	visitor.LastSeen = now
 	if visitor.ExpiresAt.IsZero() || !visitor.ExpiresAt.After(now) {
 		visitor.ExpiresAt = now.Add(b.openDuration)
@@ -100,9 +121,5 @@ func (b CircuitBreaker) RecordViolation(ip string) storage.VisitorState {
 		visitor.CircuitOpen = true
 		visitor.CircuitOpenUntil = &openUntil
 	}
-	b.store.SetVisitor(visitor.IPHash, *visitor)
-	if opened && b.onOpen != nil {
-		b.onOpen(visitor.IPHash, *visitor.CircuitOpenUntil)
-	}
-	return *visitor
+	return visitor, opened
 }

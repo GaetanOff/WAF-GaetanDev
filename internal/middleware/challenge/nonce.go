@@ -32,12 +32,25 @@ type TokenPayload struct {
 	RedirectURL string `json:"redirect_url,omitempty"`
 	Difficulty  int    `json:"difficulty,omitempty"`
 	IssuedAt    int64  `json:"issued_at"`
-	ExpiresAt   int64  `json:"expires_at"`
+	// IssuedAtMS date l'émission à la milliseconde : /waf/verify en déduit la
+	// durée du challenge, au lieu de croire l'elapsed_ms du client.
+	IssuedAtMS int64 `json:"issued_at_ms"`
+	ExpiresAt  int64 `json:"expires_at"`
 }
+
+// tokenKeyPurpose et clearanceKeyPurpose séparent les clés du token de
+// challenge et du cookie de clearance, dérivées du même challenge.secret_key
+// (FR-06). Avec une clé commune, le token — remis à tout visiteur dans la page
+// — se validait comme cookie : posé tel quel dans waf_session, il franchissait
+// le challenge sans PoW, mode « sous attaque » compris.
+const (
+	tokenKeyPurpose     = "waf/challenge-token/v1"
+	clearanceKeyPurpose = "waf/clearance-cookie/v1"
+)
 
 func NewTokenIssuer(key string, ttl time.Duration) TokenIssuer {
 	return TokenIssuer{
-		Key: []byte(key),
+		Key: signing.Derive([]byte(key), tokenKeyPurpose),
 		TTL: ttl,
 		Now: time.Now,
 	}
@@ -69,6 +82,7 @@ func (i TokenIssuer) GenerateForRedirectWithDifficulty(ip string, domain string,
 		RedirectURL: redirectURL,
 		Difficulty:  difficulty,
 		IssuedAt:    now.Unix(),
+		IssuedAtMS:  now.UnixMilli(),
 		ExpiresAt:   now.Add(i.TTL).Unix(),
 	}
 

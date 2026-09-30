@@ -137,6 +137,12 @@ func (t *Tracker) enqueue(e event) {
 }
 
 // Score retourne le dernier score d'anomalie calculé pour ce visiteur.
+// Forget efface le profil comportemental d'un visiteur — les chemins qu'il a
+// visités (droit à l'effacement, FR-28).
+func (t *Tracker) Forget(ipHash string) {
+	t.profiles.Delete(ipHash)
+}
+
 func (t *Tracker) Score(ipHash string) int {
 	current, _ := t.profiles.Get(ipHash)
 	return current.score

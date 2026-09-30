@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.10.0
+version: 3.10.4
 last-reviewed: 2026-09-30
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-30 : détection de rejeu des tokens de challenge (`token_already_used`) implémentée. Précédent (3.9.5) — FR-40 : la redirection HTTPS accepte l'apex d'un domaine wildcard. Précédent (3.9.4) — FR-40 : deux serveurs démarrés sur la même adresse d'écoute sont refusés à la validation. Précédent (3.9.3) — FR-32 : la page brandée qui remplace un corps d'erreur retire les en-têtes décrivant le corps d'origine (`Content-Encoding`, `Content-Range`, `ETag`, `Last-Modified`). Précédent (3.9.2) — FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+change: "FR-28 : ip_hash = HMAC-SHA256 à clé (dérivée de challenge.secret_key) au lieu d'un SHA-256 sans clé renversable sur IPv4. Précédent (3.10.3) — FR-28 : l'effacement supprime aussi buckets de rate limit, mesure THROTTLE, profil comportemental et dernier JA3. Précédent (3.10.2) — FR-23 : taille des en-têtes bornée (server.max_header_bytes, 64 Kio par défaut). Précédent (3.10.1) — FR-25 : l'annulation d'une requête par le client ne retire plus le membre du pool. Précédent (3.10.0) — FR-30 : détection de rejeu des tokens de challenge (`token_already_used`) implémentée. Précédent (3.9.5) — FR-40 : la redirection HTTPS accepte l'apex d'un domaine wildcard. Précédent (3.9.4) — FR-40 : deux serveurs démarrés sur la même adresse d'écoute sont refusés à la validation. Précédent (3.9.3) — FR-32 : la page brandée qui remplace un corps d'erreur retire les en-têtes décrivant le corps d'origine (`Content-Encoding`, `Content-Range`, `ETag`, `Last-Modified`). Précédent (3.9.2) — FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -56,6 +56,11 @@ change: "FR-30 : détection de rejeu des tokens de challenge (`token_already_use
   - Au-delà → TCP RST ou HTTP 429 selon config
 - Le WAF DOIT détecter les connexions qui consomment le pool sans envoyer de données :
   - Connexions ouvertes > `idle_read_timeout` sans byte reçu → fermer
+- Le WAF DOIT borner la **taille des en-têtes** d'une requête, sur le listener public,
+  l'API admin et les serveurs annexes :
+  - `max_header_bytes`: configurable (défaut: 65536 ; `0` = défaut Go, 1 Mio)
+  - Au-delà → `431 Request Header Fields Too Large`, avant tout middleware. Sans borne,
+    chaque requête pouvait faire parser 1 Mio d'en-têtes
 - Le WAF DOIT borner le **nombre de valeurs d'en-tête** acceptées par requête :
   - `max_header_value_count`: configurable (défaut: 100 ; `0` = défaut Go, 500)
   - Au-delà → la requête est rejetée par le serveur HTTP avant d'atteindre les middlewares
@@ -100,7 +105,10 @@ change: "FR-30 : détection de rejeu des tokens de challenge (`token_already_use
   et hôte), comme `upstream.address` : une adresse invalide est refusée au
   démarrage, et non découverte par les sondes
 - Une erreur de proxy sur une requête DOIT retirer le membre du service
-  immédiatement (le client reçoit `502`) ; les sondes le remettent en service
+  immédiatement (le client reçoit `502`) ; les sondes le remettent en service.
+  Le départ du client (requête annulée, `context.Canceled`) n'est PAS une erreur
+  de l'upstream et NE DOIT PAS retirer le membre : une seule annulation mettait
+  un pool d'un membre hors service pour tous les visiteurs
 - Quand un upstream est retiré du service :
   - Si un **upstream de secours** (`backup`) est configuré et qu'aucun principal
     n'est sain, basculer automatiquement
@@ -156,9 +164,11 @@ change: "FR-30 : détection de rejeu des tokens de challenge (`token_already_use
   - `privacy.event_retention_hours` : durée max des events de sécurité en mémoire (défaut: 24h)
   - Suppression automatique par goroutine de purge
 - Le WAF DOIT fournir un endpoint `DELETE /waf/admin/visitors/{ip_hash}` pour le **droit à l'effacement** (déjà dans FR-10 mais formalisé ici avec audit log)
+- L'effacement (`DELETE /waf/admin/visitors/{ip_hash}` comme `POST /waf/admin/gdpr/erase`) DOIT supprimer **tout** l'état tenu pour le visiteur : `VisitorState`, buckets de rate limit des trois fenêtres (store partagé compris) et mesure `THROTTLE`, profil comportemental (chemins visités), dernier JA3 retenu. Il ne supprimait que le `VisitorState`, alors que le registre des traitements annonce la suppression de toutes les données
 - Le WAF NE DOIT PAS logger les query parameters en clair dans les logs `info` et `warn` (déjà couvert en FR-09 mais formalisé)
 - Le WAF DOIT documenter dans le README quelles données personnelles sont traitées et pour quelle durée (registre de traitement)
 - En mode anonymisation, les fingerprints sont toujours hashés (comportement inchangé — privacy by design)
+- L'`ip_hash` (clé du store, des cookies et tokens de challenge, champ des journaux) DOIT être un **HMAC-SHA256 à clé** du client (FR-02), tronqué à 16 caractères hex — jamais un SHA-256 sans clé : celui d'une IPv4 se renversait en parcourant les 2³² adresses, et l'`ip_hash` n'était pas la pseudonymisation annoncée par le registre des traitements. La clé DOIT dériver de `challenge.secret_key` (HMAC du secret et de l'étiquette `waf/ip-hash/v1`), pour être la même sur les instances qui partagent un store et survivre aux redémarrages ; sans secret, une clé aléatoire par processus s'applique (avertissement au démarrage avec le backend Redis). Changer de secret rend inaccessibles les états indexés par l'ancienne clé
 
 ## FR-29 — Alerting & Webhooks
 

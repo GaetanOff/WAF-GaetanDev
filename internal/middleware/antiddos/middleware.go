@@ -193,12 +193,14 @@ func (r *statusRecorder) Unwrap() http.ResponseWriter {
 	return r.ResponseWriter
 }
 
-// reasonPressureThrottle et reasonRiskThrottle sont posés par le middleware
-// ratelimit sur les 429 imputables au seul resserrement de pression globale
-// (FR-08) ou au débit réduit d'un visiteur classé THROTTLE (FR-34).
+// Ces raisons sont posées par le middleware ratelimit sur les 429 imputables au
+// seul resserrement de pression globale (FR-08), au débit réduit d'un visiteur
+// classé THROTTLE (FR-34) ou au plafond THROTTLE d'une requête non-navigateur
+// sous attaque (FR-39).
 const (
-	reasonPressureThrottle = "rate_limit_pressure"
-	reasonRiskThrottle     = "rate_limit_risk_throttle"
+	reasonPressureThrottle    = "rate_limit_pressure"
+	reasonRiskThrottle        = "rate_limit_risk_throttle"
+	reasonUnderAttackThrottle = "rate_limit_under_attack"
 )
 
 func isNeutralThrottle(recorder *statusRecorder) bool {
@@ -206,7 +208,7 @@ func isNeutralThrottle(recorder *statusRecorder) bool {
 		return false
 	}
 	reason := recorder.Header().Get(wafheader.Reason)
-	return reason == reasonPressureThrottle || reason == reasonRiskThrottle
+	return reason == reasonPressureThrottle || reason == reasonRiskThrottle || reason == reasonUnderAttackThrottle
 }
 
 // isViolation ne retient que le rate limit du WAF (X-WAF-Action: RATE_LIMIT),

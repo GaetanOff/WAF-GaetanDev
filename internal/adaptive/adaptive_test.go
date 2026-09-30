@@ -84,7 +84,11 @@ func TestControllerRaisesDifficultyUnderAttackThenDecays(t *testing.T) {
 	controller := NewController(16, 24, 5*time.Minute)
 	controller.now = func() time.Time { return now }
 
-	// Établit une baseline basse.
+	// Établit une baseline basse : une requête par seconde pendant 20 s.
+	for range 20 {
+		controller.Observe()
+		now = now.Add(time.Second)
+	}
 	controller.Observe()
 	if d := controller.Difficulty(); d != 16 {
 		t.Fatalf("baseline difficulty = %d, want 16", d)
@@ -164,5 +168,124 @@ func BenchmarkObserve(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		controller.Observe()
+	}
+}
+
+// wiredRequest reproduit l'ordre des appels du pipeline (cmd/waf) : le
+// middleware anti-DDoS publie la pression (ObservePressure), le détecteur
+// adaptatif compte la requête (Observe), puis le challenge lit la difficulté
+// quand il sert une page (Difficulty).
+func wiredRequest(controller *Controller, pressure string, servesChallenge bool) int {
+	controller.ObservePressure(pressure)
+	difficulty := controller.Observe()
+	if servesChallenge {
+		difficulty = controller.Difficulty()
+	}
+	return difficulty
+}
+
+// FR-14 : après l'attaque, la difficulté revient à la base par décroissance
+// exponentielle, même si chaque requête publie la pression. ObservePressure
+// remettait lastDecay à zéro à chaque requête : 24 bits après 30 min de trafic
+// normal, alors que les tests du contrôleur seul passaient.
+func TestWiredDifficultyDecaysAfterAttack(t *testing.T) {
+	now := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
+	controller := NewController(16, 24, 5*time.Minute)
+	controller.now = func() time.Time { return now }
+
+	for range 60 {
+		wiredRequest(controller, "critical", true)
+		now = now.Add(100 * time.Millisecond)
+	}
+	if d := controller.Snapshot(); d != 24 {
+		t.Fatalf("difficulty under critical pressure = %d, want 24", d)
+	}
+
+	// 30 min de trafic normal, 2 req/s, un challenge servi toutes les 10 s.
+	for i := range 3600 {
+		wiredRequest(controller, "normal", i%20 == 0)
+		now = now.Add(500 * time.Millisecond)
+	}
+	if d := controller.Difficulty(); d != 16 {
+		t.Fatalf("difficulty after 30 min of normal traffic = %d, want 16", d)
+	}
+}
+
+// Sans challenge servi pendant la décroissance, la difficulté du premier
+// challenge suivant a tout de même décru.
+func TestWiredDifficultyDecaysWithoutChallengesServed(t *testing.T) {
+	now := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
+	controller := NewController(16, 24, 5*time.Minute)
+	controller.now = func() time.Time { return now }
+	wiredRequest(controller, "critical", true)
+
+	for range 1800 {
+		wiredRequest(controller, "normal", false)
+		now = now.Add(time.Second)
+	}
+	if d := controller.Difficulty(); d != 16 {
+		t.Fatalf("difficulty = %d, want 16", d)
+	}
+}
+
+// La baseline suit le temps écoulé, pas le nombre de challenges servis : un
+// flood soutenu reste une attaque pendant des minutes. Mise à jour à chaque
+// challenge (α = 0,05), elle rejoignait 500 req/s en une dizaine de secondes.
+func TestBaselineDoesNotAbsorbASustainedFlood(t *testing.T) {
+	now := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
+	controller := NewController(16, 24, 5*time.Minute)
+	controller.now = func() time.Time { return now }
+
+	// 1 h de trafic normal à 10 req/s.
+	for range 3600 * 10 {
+		wiredRequest(controller, "normal", false)
+		now = now.Add(100 * time.Millisecond)
+	}
+	if d := controller.Difficulty(); d != 16 {
+		t.Fatalf("difficulty at nominal traffic = %d, want 16", d)
+	}
+
+	// Flood à 500 req/s, chaque requête reçoit un challenge, pendant 5 min.
+	for range 300 * 500 {
+		wiredRequest(controller, "normal", true)
+		now = now.Add(2 * time.Millisecond)
+	}
+	if d := controller.Difficulty(); d != 24 {
+		t.Fatalf("difficulty after 5 min of flood = %d, want 24 (baseline %.1f req/s)", d, controller.baseline)
+	}
+}
+
+// Une période sans trafic fait décroître la baseline : le premier pic qui suit
+// n'est pas mesuré contre le débit d'avant le silence.
+func TestBaselineDecaysOverIdleSeconds(t *testing.T) {
+	now := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
+	controller := NewController(16, 24, 5*time.Minute)
+	controller.now = func() time.Time { return now }
+	for range 3600 * 10 {
+		controller.Observe()
+		now = now.Add(100 * time.Millisecond)
+	}
+	before := controller.baseline
+
+	now = now.Add(time.Hour)
+	controller.Observe()
+	now = now.Add(time.Second)
+	controller.Observe()
+	if after := controller.baseline; after > before*0.4 || after < before*0.3 {
+		t.Fatalf("baseline after 1 h idle = %.2f, want ~%.2f (e^-1 of %.2f)", after, before*0.368, before)
+	}
+}
+
+// Au démarrage, la baseline n'a pas d'historique : le premier trafic n'est pas
+// pris pour une attaque.
+func TestNoAdaptiveRiseBeforeBaselineWarmup(t *testing.T) {
+	now := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
+	controller := NewController(16, 24, 5*time.Minute)
+	controller.now = func() time.Time { return now }
+	for range 50 {
+		wiredRequest(controller, "normal", true)
+	}
+	if d := controller.Difficulty(); d != 16 {
+		t.Fatalf("startup difficulty = %d, want 16", d)
 	}
 }

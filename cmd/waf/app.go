@@ -35,6 +35,7 @@ import (
 	"github.com/gaetandev/waf/internal/proxy"
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/rules"
+	"github.com/gaetandev/waf/internal/signing"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	redisstore "github.com/gaetandev/waf/internal/storage/redis"
@@ -151,15 +152,18 @@ type app struct {
 	startedAt time.Time
 	stop      cleanup
 
-	origin              http.Handler
-	accessRules         *access.RuleSet
-	metrics             *wafmetrics.Metrics
-	store               storage.Store
-	scoreManager        *trust.ScoreManager
-	antiDDoS            antiddos.Middleware
-	rateLimiter         *ratelimit.Middleware
-	antiBot             antibot.Middleware
-	riskMiddleware      *risk.Middleware
+	origin         http.Handler
+	accessRules    *access.RuleSet
+	metrics        *wafmetrics.Metrics
+	store          storage.Store
+	scoreManager   *trust.ScoreManager
+	antiDDoS       antiddos.Middleware
+	rateLimiter    *ratelimit.Middleware
+	antiBot        antibot.Middleware
+	riskMiddleware *risk.Middleware
+	// erasers effacent l'état d'un visiteur tenu hors du store de visiteurs
+	// (POST /waf/admin/gdpr/erase, FR-28).
+	erasers             []func(ipHash string)
 	detectors           []func(http.Handler) http.Handler
 	adaptiveController  *adaptive.Controller
 	challengeMiddleware challenge.Middleware
@@ -171,6 +175,7 @@ type app struct {
 
 func (a *app) build() error {
 	steps := []func() error{
+		a.configureIPHash,
 		a.buildOrigin,
 		a.buildState,
 		a.buildProtection,
@@ -184,6 +189,25 @@ func (a *app) build() error {
 		if err := step(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// ipHashKeyPurpose dérive de challenge.secret_key la clé HMAC des ip_hash.
+const ipHashKeyPurpose = "waf/ip-hash/v1"
+
+// configureIPHash fixe la clé des ip_hash (FR-28) avant tout calcul : dérivée
+// du secret de challenge, elle est la même sur toutes les instances qui
+// partagent la configuration, et survit aux redémarrages. Sans secret, la clé
+// aléatoire du processus s'applique : l'état persisté dans Redis ne se
+// retrouve alors ni après un redémarrage, ni d'une instance à l'autre.
+func (a *app) configureIPHash() error {
+	if secret := a.cfg.Challenge.SecretKey; secret != "" {
+		trust.SetHashKey(signing.Derive([]byte(secret), ipHashKeyPurpose))
+		return nil
+	}
+	if a.cfg.Storage.Backend == "redis" {
+		slog.Warn("challenge.secret_key is empty: ip_hash uses a per-process random key, so the Redis state is lost on restart and not shared across instances; set WAF_CHALLENGE_SECRET_KEY")
 	}
 	return nil
 }
@@ -314,6 +338,7 @@ func (a *app) buildProtection() error {
 		return err
 	}
 	a.riskMiddleware.WithThrottle(a.rateLimiter.Throttle)
+	a.erasers = append(a.erasers, a.rateLimiter.Forget)
 	a.stop.add(a.riskMiddleware.Close)
 	return nil
 }
@@ -335,6 +360,7 @@ func (a *app) buildDetectors() error {
 		behavioralTracker := behavioral.New(cfg.Behavioral.MaxRecords, cfg.Trust.MaxVisitors)
 		a.stop.add(behavioralTracker.Close)
 		a.detectors = append(a.detectors, behavioralTracker.Handler)
+		a.erasers = append(a.erasers, behavioralTracker.Forget)
 	}
 	if cfg.ThreatIntel.Enabled {
 		if err := a.addThreatIntelDetector(); err != nil {
@@ -345,7 +371,9 @@ func (a *app) buildDetectors() error {
 		a.detectors = append(a.detectors, geo.NewRules(cfg.Geo).Handler)
 	}
 	if cfg.TLSFingerprint.Enabled {
-		a.detectors = append(a.detectors, tlsfp.NewMiddleware(cfg.TLSFingerprint, cfg.Trust.MaxVisitors).Handler)
+		fingerprints := tlsfp.NewMiddleware(cfg.TLSFingerprint, cfg.Trust.MaxVisitors)
+		a.detectors = append(a.detectors, fingerprints.Handler)
+		a.erasers = append(a.erasers, fingerprints.Forget)
 	}
 	if cfg.Rules.Enabled {
 		ruleSet := rules.NewRuleSet()
@@ -416,6 +444,9 @@ func (a *app) buildChallenge() error {
 	if a.cfg.RiskEngine.Enabled {
 		challengeMiddleware = challengeMiddleware.WithHumanCredit(a.riskMiddleware.GrantChallengePass)
 	}
+	// Construit moteur de risque actif ou non, le vérificateur reverse-DNS
+	// décide aussi de l'exemption whitelist_user_agents (FR-36, FR-39).
+	challengeMiddleware = challengeMiddleware.WithCrawlerCheck(a.riskMiddleware.CrawlerStatus)
 	a.challengeMiddleware = challengeMiddleware
 	return nil
 }
@@ -458,6 +489,7 @@ func (a *app) buildLogging() error {
 	a.securityLogger = waflogger.New(a.cfg.Logging)
 	a.stop.add(func() { _ = a.securityLogger.Close() })   // vide le writer async à l'arrêt
 	a.securityLogger.AnonymizeIP = a.cfg.GDPR.AnonymizeIP // RGPD (FR-28)
+	a.metrics.WithLogDrops(a.securityLogger.Dropped)
 	if a.cfg.Alerting.Enabled {
 		if err := a.buildAlerting(); err != nil {
 			return err
@@ -523,6 +555,7 @@ func (a *app) buildAdmin() error {
 		return err
 	}
 	a.securityLogger.Recorder = adminServer.EventRecorder()
+	adminServer.WithErasers(a.erasers...)
 	if a.syncer != nil {
 		adminServer.WithBlacklistObserver(a.syncer.PublishBlacklistAdd)
 		a.syncer.WithBlacklistApplier(adminServer.ApplyClusterBlacklist)
@@ -556,6 +589,7 @@ func (a *app) serve(timeouts serverTimeouts) error {
 		// FR-23 : borne le coût de parsing d'une requête portant des milliers de
 		// lignes d'en-tête, en amont de tout middleware.
 		MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
+		MaxHeaderBytes:      cfg.Server.MaxHeaderBytes,
 	}
 	acmeManager, tlsManager, err := a.configureTLS(server)
 	if err != nil {
@@ -643,6 +677,7 @@ func (a *app) newSideServer(addr string, handler http.Handler, headerTimeout tim
 		Handler:             handler,
 		ReadHeaderTimeout:   headerTimeout,
 		MaxHeaderValueCount: a.cfg.Server.MaxHeaderValueCount,
+		MaxHeaderBytes:      a.cfg.Server.MaxHeaderBytes,
 	}
 }
 

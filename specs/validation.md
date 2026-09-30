@@ -295,6 +295,24 @@ last-reviewed: 2026-09-30
 | 2026-09-24 | `ttlcache` sous contention | Benchmark `Get` parallèle (non versionné), 1/4/8/16 cœurs | mesure | 37 / 91 / 85 / 108 ns/op : ~10 M lectures/s par cache, sharding non justifié |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `Example.com:8080` compté sous `domain="example.com"` ; `attack-1.test`, `attack-2.test` sous `_undeclared` ; `GET /waf/admin/config` masque les secrets |
 
+| 2026-09-30 | Sprint 24 (audit 9) | `go test ./...` | pass | 865 tests et sous-tests, 49 paquets |
+| 2026-09-30 | Sprint 24 (audit 9) | `make gates` (spectral, vet/build, conformance, behavior, govulncheck) | pass | spectral 0 erreur ; 0 vulnérabilité atteignable |
+| 2026-09-30 | Sprint 24 (audit 9) | `go test -race ./...` | pass | |
+| 2026-09-30 | Sprint 24 (audit 9) | `golangci-lint` v2.14.0 `run ./...` | pass | 0 issue |
+| 2026-09-30 | Token rejoué comme cookie | `TestMiddlewareRejectsChallengeTokenReplayedAsCookie`, `TestDeriveSeparatesPurposes` | pass | token accepté comme clearance sur l'ancien code |
+| 2026-09-30 | Annulation client / pool | `TestPoolKeepsMemberHealthyWhenClientCancels`, `TestPoolMarksMemberUnhealthyOnConnectionError` | pass | membre retiré sur l'ancien code |
+| 2026-09-30 | UA whitelisté sous attaque | `TestWhitelistedUserAgentExemption` (6 cas), `TestBotVerifierVerifiesSlurpAndBaiduspider`, `TestMiddlewareCrawlerStatus` | pass | |
+| 2026-09-30 | Non-navigateurs sous attaque | `TestUnderAttackMarksNonBrowserRequestsForThrottle`, `TestUnderAttackChallengesNonBrowserWhenConfigured`, `TestUnderAttackThrottleCapsNonBrowserRequests` | pass | |
+| 2026-09-30 | IPv6 /64 | `TestSubject`, `TestHashIPAggregatesIPv6Per64`, `TestLimiterCountsIPv6Per64`, `TestRateLimitCountsIPv6Per64` | pass | |
+| 2026-09-30 | Décroissance PoW (câblage) | `TestWiredDifficultyDecaysAfterAttack`, `TestWiredDifficultyDecaysWithoutChallengesServed` | pass | 24 bits après 30 min sur l'ancien code |
+| 2026-09-30 | Baseline AII | `TestBaselineDoesNotAbsorbASustainedFlood`, `TestBaselineDecaysOverIdleSeconds`, `TestNoAdaptiveRiseBeforeBaselineWarmup` | pass | baseline à 495,7 req/s après 5 min de flood sur l'ancien code |
+| 2026-09-30 | Écritures atomiques | `TestApplyIsAtomicUnderConcurrency`, `TestUpdateVisitorRecomputesOnConcurrentWrite` | pass | score 24 au lieu de 10 sur l'ancien code |
+| 2026-09-30 | Secrets par l'environnement | `TestLoadAppliesThreatIntelAndWebhookEnvOverrides`, `TestValidateRequiresWebhookURL` | pass | |
+| 2026-09-30 | Durée du challenge | `TestMiddlewareVerifyRejectsTimingErrors`, `TestMiddlewareVerifyMeasuresElapsedServerSide` | pass | |
+| 2026-09-30 | Taille des en-têtes | `TestValidateServerMaxHeaderBytes`, `TestAdminServerEnforcesMaxHeaderBytes` | pass | |
+| 2026-09-30 | Effacement RGPD / ip_hash | `TestGDPREraseRunsErasers`, `TestDeleteVisitorRunsErasers`, `TestForgetErasesTheVisitorBuckets`, `TestHashIPIsKeyed`, `TestConfigureIPHashDerivesTheKeyFromTheChallengeSecret` | pass | |
+| 2026-09-30 | Binaire | Exécution réelle sur `configs/config.example.yaml` | pass | `/waf/health` 200 ; en-têtes de 100 Ko → 431 ; admin sur `127.0.0.1:9090` ; `waf_log_events_dropped_total` exposé |
+| 2026-09-30 | Image Docker | `docker build` | **non exécuté** | daemon arrêté sur le poste ; digests résolus par `docker buildx imagetools inspect` |
 | 2026-09-30 | Sprint 23 (audit 8) | `go test ./...` | pass | 816 tests et sous-tests, 48 paquets |
 | 2026-09-30 | Sprint 23 (audit 8) | `go vet ./...` + `go build ./...` | pass | |
 | 2026-09-30 | Sprint 23 (audit 8) | `spectral lint` admin + public | pass | 0 erreur |
@@ -363,6 +381,24 @@ last-reviewed: 2026-09-30
 | 2026-09-24 | Pool d'upstreams | `BenchmarkPoolPick`, `TestPoolPickDoesNotAllocate` | pass | 1 alloc (48 B/op) avant, 0 après, 4 stratégies |
 | 2026-09-24 | Verrous visiteurs / DDoS | Benchmarks parallèles (non versionnés), 1 et 8 cœurs | mesure | `observe` 93 / 131 ns/op ; `Record` 60 / 117 ; `Observe` 98 / 284 : verrous occupés < 1 % à 20 000 req/s |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` + `strict_host` | pass | Host non déclaré : 400, `BLOCK host_not_declared` journalisé, `waf_blocked_total{domain="_undeclared"}` ; `/waf/metrics` par IP 400 ; `/waf/health` 200 |
+
+### Sprint 24 — neuvième audit du 2026-09-30 : ce qui était exact, ce qui ne l'était pas
+
+- **Exact et corrigé** : 1.1 à 1.5, 2.1, 2.2, 3.1 à 3.6, 3.8, 3.9, 4.1 à 4.4.
+  Chaque défaut de code a un test en échec sur l'ancien code.
+- **Exact, plus grave que décrit** : 1.4 — FR-39 exigeait déjà le plafond
+  `THROTTLE` des clients non-navigateurs ; il n'était pas câblé, donc aucune
+  mitigation. 1.3 — même Googlebot `pending` échappait au challenge sous
+  attaque. 3.1 — le breaker, la preuve humaine et la synchronisation cluster
+  avaient le même défaut que le trust score. 3.8 — l'effacement laissait aussi
+  le profil comportemental (chemins visités) et le dernier JA3.
+- **Exact, correction partielle** : 1.4 — le plafond reste par IP ; seul
+  `challenge_non_browser` (opt-in) ferme le contournement face à un flood
+  distribué. 3.5 — `WriteTimeout` reste un réglage (documenté) ; il ne coupe
+  pas les WebSockets.
+- **Différé** : 3.7 (performance Redis, à mesurer d'abord).
+- **Non retenu** : 3.10 (couverture, constat), 3.11 (ADR-019, mitigation
+  d'exploitation), 4.5 (`cluster.channel`, exception documentée).
 
 ### Sprint 23 — huitième audit du 2026-09-28 : ce qui était exact, ce qui ne l'était pas
 

@@ -199,6 +199,12 @@ func TestMiddlewareCountsTarpitOnlyWhenServed(t *testing.T) {
 	}
 }
 
+// FR-09 : les événements de log abandonnés sont comptés.
+func TestLogDropsMetric(t *testing.T) {
+	metrics := New().WithLogDrops(func() int64 { return 7 })
+	assertMetricContains(t, scrape(t, metrics), `waf_log_events_dropped_total 7`)
+}
+
 // FR-29 : métriques d'alertes webhook.
 func TestAlertMetrics(t *testing.T) {
 	metrics := New().WithAlertsPending(func() int { return 3 })

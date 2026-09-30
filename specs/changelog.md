@@ -6,6 +6,62 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — neuvième audit du 2026-09-30 (phase 24)
+
+- Le token de challenge et le cookie de clearance sont signés avec des clés
+  dérivées distinctes : le token, remis à tout visiteur dans la page, posé tel
+  quel dans `waf_session`, franchissait le challenge sans PoW, mode « sous
+  attaque » compris (FR-06).
+- Sous attaque, `whitelist_user_agents` n'exempte du challenge qu'un crawler
+  vérifié par reverse-DNS ; hors attaque, un crawler démasqué n'en bénéficie
+  plus. Slurp et Baiduspider deviennent vérifiables (FR-36, FR-39).
+- Sous attaque, une requête non-navigateur sans clearance est plafonnée à
+  `THROTTLE` (429 neutre `rate_limit_under_attack`), comme FR-39 l'exigeait ;
+  `antiddos.under_attack.challenge_non_browser` (opt-in) la challenge (FR-39).
+- Les contrôles par IP comptent une IPv6 par son préfixe /64 (rate limit,
+  score, circuit-breaker, slowloris, auto-protection, `ip_hash`) (FR-02).
+- `ip_hash` est un HMAC-SHA256 à clé dérivée de `challenge.secret_key`, et non
+  plus un SHA-256 sans clé, renversable sur IPv4 (FR-28).
+- L'API admin écoute par défaut sur `127.0.0.1:9090` (NFR-03).
+- En-têtes de requête bornés à 64 Kio (`server.max_header_bytes`, FR-23).
+- Actions GitHub épinglées par SHA, golangci-lint en v2.14.0, images Docker par
+  digest ; Dependabot entretient les épinglages.
+
+### Fixed — neuvième audit du 2026-09-30
+
+- Une annulation par le client ne retire plus le membre du pool d'upstreams
+  (FR-25).
+- La difficulté PoW adaptative redescend dans le câblage réel ; la baseline de
+  l'AII suit le temps écoulé (constante 1 h) et n'absorbe plus un flood en une
+  dizaine de secondes (FR-14).
+- Les écritures de l'état d'un visiteur sont atomiques (compare-and-set sur
+  Redis) : une pénalité concurrente n'est plus écrasée (FR-05).
+- La durée du challenge est mesurée par le serveur ; `elapsed_ms` du client
+  devient indicatif (FR-06).
+- L'effacement RGPD supprime aussi les buckets de rate limit, la mesure
+  `THROTTLE`, le profil comportemental et le dernier JA3 (FR-28).
+
+### Added — neuvième audit du 2026-09-30
+
+- Variables `WAF_ABUSEIPDB_KEY` (documentée mais absente du code) et
+  `WAF_ALERTING_WEBHOOKS_<i>_URL` ; un webhook actif sans URL est refusé au
+  démarrage (NFR-03).
+- Métrique `waf_log_events_dropped_total` (FR-09).
+
+### Changed — neuvième audit du 2026-09-30
+
+- **Au déploiement** : les cookies de clearance en cours sont invalidés (une
+  PoW à refaire), et, les `ip_hash` changeant, l'état persisté (visiteurs,
+  buckets dans Redis) repart de zéro. Toutes les instances d'un cluster
+  doivent être déployées ensemble et partager `challenge.secret_key`.
+- Un déploiement qui joignait l'API admin depuis un autre hôte grâce au défaut
+  `:9090` doit fixer `server.admin_listen`.
+- Contrats : config.schema.json (`under_attack.challenge_non_browser`,
+  `server.max_header_bytes`, défaut `admin_listen`, crawlers par défaut,
+  description d'`ip_hash`) ; requirements.md 2.6.5, requirements-ops.md 3.10.4,
+  requirements-detection.md 1.6.0, requirements-advanced.md 2.7.0,
+  architecture.md 1.4.7 ; ADR-018 amendé (clients non-navigateurs).
+
 ### Security — huitième audit du 2026-09-28 (phase 23)
 
 - Un token de challenge n'est accepté qu'une fois par `POST /waf/verify` :

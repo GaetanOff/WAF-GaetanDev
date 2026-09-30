@@ -26,7 +26,7 @@
         "admin_listen": {
           "type": "string",
           "description": "Adresse d'écoute de l'API admin (port séparé)",
-          "default": ":9090",
+          "default": "127.0.0.1:9090",
           "example": "127.0.0.1:9090"
         },
         "read_timeout": {
@@ -46,6 +46,13 @@
         "graceful_shutdown_timeout": {
           "type": "string",
           "default": "15s"
+        },
+        "max_header_bytes": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 1048576,
+          "default": 65536,
+          "description": "FR-23 — taille maximale des en-têtes d'une requête, en octets (Server.MaxHeaderBytes). 0 = défaut Go (1 Mio) ; sinon entre 4096 et 1048576."
         },
         "max_header_value_count": {
           "type": "integer",
@@ -275,6 +282,11 @@
               "default": false,
               "description": "true = calcule et journalise under_attack sans forcer le challenge (calibration, FR-38)"
             },
+            "challenge_non_browser": {
+              "type": "boolean",
+              "default": false,
+              "description": "true = sous attaque, les requêtes non-navigateur sans clearance (méthode non GET/HEAD, Accept: application/json) sont challengées aussi ; false = plafonnées à THROTTLE (débit de recharge réduit de moitié). À activer pour un domaine sans client API légitime"
+            },
             "max_tracked_domains": {
               "type": "integer",
               "default": 1024,
@@ -400,7 +412,7 @@
             "crawlers": {
               "type": "array",
               "items": { "type": "string" },
-              "default": ["googlebot", "bingbot", "duckduckbot", "applebot"]
+              "default": ["googlebot", "bingbot", "duckduckbot", "applebot", "slurp", "baiduspider"]
             }
           }
         }

@@ -17,14 +17,17 @@ const Prefix = "X-Waf-"
 
 // Décision et coordination du pipeline.
 const (
-	Action                 = "X-Waf-Action"
-	Reason                 = "X-Waf-Reason"
-	Score                  = "X-Waf-Score"
-	ScoreDelta             = "X-Waf-Score-Delta"
-	State                  = "X-Waf-State"
-	GlobalPressure         = "X-Waf-Global-Pressure"
-	UnderAttack            = "X-Waf-Under-Attack"
-	UnderAttackEnforce     = "X-Waf-Under-Attack-Enforce"
+	Action             = "X-Waf-Action"
+	Reason             = "X-Waf-Reason"
+	Score              = "X-Waf-Score"
+	ScoreDelta         = "X-Waf-Score-Delta"
+	State              = "X-Waf-State"
+	GlobalPressure     = "X-Waf-Global-Pressure"
+	UnderAttack        = "X-Waf-Under-Attack"
+	UnderAttackEnforce = "X-Waf-Under-Attack-Enforce"
+	// UnderAttackThrottle marque une requête non-navigateur sans clearance sous
+	// attaque : le rate limit la plafonne à THROTTLE (FR-39).
+	UnderAttackThrottle    = "X-Waf-Under-Attack-Throttle"
 	DeterministicTrigger   = "X-Waf-Deterministic-Trigger"
 	FingerprintHash        = "X-Waf-Fingerprint-Hash"
 	OriginToken            = "X-Waf-Origin-Token"

@@ -152,11 +152,43 @@ Feature: Protection Anti-DDoS
     Then la requête n'est pas challengée
     And la requête est transmise à l'upstream
 
+  Scenario: Sous attaque — User-Agent whitelisté non vérifié challengé
+    # Le User-Agent se forge : "Twitterbot" ou "Slurp" passaient le mode sous
+    # attaque sans PoW.
+    Given le domaine "status.gaetandev.fr" est en mode sous attaque
+    And whitelist_user_agents contient "Twitterbot" et "Slurp"
+    When un client sans cookie envoie "GET /" avec "User-Agent: Twitterbot/1.0"
+    Then la requête reçoit un challenge JS "CHALLENGE"
+    When un client dont l'IP n'est pas vérifiée par reverse-DNS envoie "GET /" avec "User-Agent: Yahoo! Slurp"
+    Then la requête reçoit un challenge JS "CHALLENGE"
+
+  Scenario: Hors attaque — crawler démasqué non exempté
+    Given un client envoie "User-Agent: Googlebot" depuis une IP dont le reverse-DNS n'est pas googlebot.com
+    And la vérification reverse-DNS l'a classé "spoofed"
+    When il envoie "GET /" sans cookie
+    Then la requête reçoit un challenge JS "CHALLENGE"
+
   Scenario: Sous attaque — client API non-navigateur non challengé
     Given le domaine "api.gaetandev.fr" est en mode sous attaque
     When un client sans cookie envoie une requête avec l'en-tête "Accept: application/json"
     Then la requête ne reçoit pas de page de challenge JS
     And la requête reste soumise au rate limiting par IP et au moteur de risque
+
+  Scenario: Sous attaque — client non-navigateur plafonné à THROTTLE
+    Given le domaine "api.gaetandev.fr" est en mode sous attaque
+    And rate_limit.requests_per_second = 10 et rate_limit.burst = 1
+    When un client sans cookie envoie "POST /v1/orders" avec "Accept: application/json" à 5 req/s soutenues
+    Then son débit de recharge est réduit de moitié (THROTTLE, FR-34)
+    And les requêtes au-delà reçoivent HTTP 429 avec reason = "rate_limit_under_attack"
+    And ces 429 ne pénalisent ni son score ni le circuit-breaker
+
+  Scenario: Sous attaque — challenge_non_browser ferme le contournement par en-tête
+    Given antiddos.under_attack.challenge_non_browser = true
+    And le domaine "status.gaetandev.fr" est en mode sous attaque
+    When un client sans cookie envoie "GET /" avec "Accept: application/json"
+    Then la requête reçoit un challenge JS "CHALLENGE"
+    When un client sans cookie envoie "POST /"
+    Then la requête reçoit un challenge JS "CHALLENGE"
 
   Scenario: Sous attaque — portée par domaine
     Given antiddos.under_attack.scope = "per_domain"

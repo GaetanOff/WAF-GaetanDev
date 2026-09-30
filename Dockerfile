@@ -1,7 +1,9 @@
 # syntax=docker/dockerfile:1
 
 # --- Build stage -----------------------------------------------------------
-FROM golang:1.27-alpine AS builder
+# Base images are pinned by digest (the tag documents the version, Dependabot
+# bumps both): a moved tag must not change what the release is built from.
+FROM golang:1.27-alpine@sha256:8a5910f31396cd4d89662f56c68b3ae31d374308270a1c3bd96672ee5ed43414 AS builder
 
 WORKDIR /src
 
@@ -21,7 +23,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # --- Runtime stage ---------------------------------------------------------
 # distroless/static: ~2 MB, ships CA certificates + tzdata, runs as nonroot.
 # Debian 13: debian12 still ships tzdata 2026b (DLA-4792-1, fixed in 2026c).
-FROM gcr.io/distroless/static-debian13:nonroot
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
 
 WORKDIR /app
 

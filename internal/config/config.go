@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"slices"
@@ -19,6 +20,14 @@ const (
 	envChallengeSecretKey = "WAF_CHALLENGE_SECRET_KEY"
 	envRedisPassword      = "WAF_REDIS_PASSWORD"
 	envOriginSecret       = "WAF_ORIGIN_SECRET"
+	envAbuseIPDBKey       = "WAF_ABUSEIPDB_KEY"
+	// minHeaderBytes est le plus petit server.max_header_bytes accepté : sous
+	// 4 Kio, des en-têtes de navigateur ordinaires (cookies) seraient refusés.
+	minHeaderBytes = 4 << 10
+	// envWebhookURLFormat nomme la variable qui remplace
+	// alerting.webhooks[i].url : l'URL d'un webhook Slack ou Discord porte son
+	// jeton d'accès (WAF_ALERTING_WEBHOOKS_0_URL pour le premier).
+	envWebhookURLFormat = "WAF_ALERTING_WEBHOOKS_%d_URL"
 )
 
 // Config mirrors specs/schemas/config.schema.json.
@@ -73,6 +82,9 @@ type ServerConfig struct {
 	// requête (FR-23, http.Server.MaxHeaderValueCount — Go 1.27+). 0 laisse le
 	// défaut Go (http.DefaultMaxHeaderValueCount, 500).
 	MaxHeaderValueCount int `yaml:"max_header_value_count"`
+	// MaxHeaderBytes borne la taille des en-têtes d'une requête (FR-23,
+	// http.Server.MaxHeaderBytes). 0 laisse le défaut Go (1 Mio).
+	MaxHeaderBytes int `yaml:"max_header_bytes"`
 	// StrictHost refuse en 400 un Host qui ne correspond à aucune entrée
 	// domains[] (ADR-020 option 1C). Opt-in : activé par défaut, il casserait
 	// l'accès par IP et tout déploiement sans domains[].
@@ -152,6 +164,11 @@ type UnderAttack struct {
 	Cooldown          string `yaml:"cooldown"`         // durée sous exit_pressure avant sortie
 	Shadow            bool   `yaml:"shadow"`           // calcule/journalise sans forcer (FR-38)
 	MaxTrackedDomains int    `yaml:"max_tracked_domains"`
+	// ChallengeNonBrowser étend le challenge forcé aux requêtes non-navigateur
+	// (méthode non GET/HEAD, Accept: application/json). Désactivé, elles sont
+	// plafonnées à THROTTLE : un simple en-tête Accept soustrayait un flood au
+	// challenge. À activer pour un domaine sans client API légitime.
+	ChallengeNonBrowser bool `yaml:"challenge_non_browser"`
 }
 
 type PressureLevels struct {
@@ -478,12 +495,18 @@ func Load(path string) (*Config, error) {
 func Default() Config {
 	return Config{
 		Server: ServerConfig{
-			AdminListen:             ":9090",
+			// Boucle locale : l'API admin, servie en HTTP clair, n'est jamais
+			// exposée par défaut (NFR-03). ":9090" écoutait sur toutes les
+			// interfaces. Un déploiement conteneurisé la déclare explicitement.
+			AdminListen:             "127.0.0.1:9090",
 			ReadTimeout:             "30s",
 			WriteTimeout:            "30s",
 			IdleTimeout:             "60s",
 			GracefulShutdownTimeout: "15s",
 			MaxHeaderValueCount:     100,
+			// 64 Kio : au-delà de ce qu'accepte Cloudflare ou OpenResty par
+			// défaut ; le défaut Go (1 Mio) laissait parser 1 Mio par requête.
+			MaxHeaderBytes: 64 << 10,
 			TLS: ServerTLS{
 				Enabled:      false, // opt-in : terminaison TLS par domaine (FR-40)
 				Listen:       ":443",
@@ -525,6 +548,8 @@ func Default() Config {
 				Cooldown:          "30s",
 				Shadow:            false,
 				MaxTrackedDomains: 1024,
+				// Un client API ne peut pas résoudre un challenge JS (FR-39).
+				ChallengeNonBrowser: false,
 			},
 		},
 		Trust: Trust{
@@ -571,7 +596,7 @@ func Default() Config {
 				Enabled:         true,
 				SuccessCacheTTL: "12h",
 				FailureCacheTTL: "10m",
-				Crawlers:        []string{"googlebot", "bingbot", "duckduckbot", "applebot"},
+				Crawlers:        []string{"googlebot", "bingbot", "duckduckbot", "applebot", "slurp", "baiduspider"},
 			},
 		},
 		Integrity: Integrity{
@@ -751,6 +776,9 @@ func (c *Config) Validate() error {
 	if c.Server.MaxHeaderValueCount < 0 || c.Server.MaxHeaderValueCount > 10000 {
 		fields = append(fields, "server.max_header_value_count must be between 0 and 10000")
 	}
+	if c.Server.MaxHeaderBytes != 0 && (c.Server.MaxHeaderBytes < minHeaderBytes || c.Server.MaxHeaderBytes > http.DefaultMaxHeaderBytes) {
+		fields = append(fields, fmt.Sprintf("server.max_header_bytes must be 0 or between %d and %d", minHeaderBytes, http.DefaultMaxHeaderBytes))
+	}
 	if c.Server.StrictHost && len(c.Domains) == 0 {
 		// Sans domains[], strict_host refuserait tout sauf /waf/health.
 		fields = append(fields, "server.strict_host requires at least one domains[] entry")
@@ -845,6 +873,13 @@ func (c *Config) Validate() error {
 		validateDuration(&fields, "alerting.cooldown", c.Alerting.Cooldown)
 		if len(c.Alerting.Webhooks) == 0 {
 			fields = append(fields, "alerting.webhooks must not be empty when enabled")
+		}
+		for i, webhook := range c.Alerting.Webhooks {
+			name := fmt.Sprintf("alerting.webhooks[%d].url", i)
+			if strings.TrimSpace(webhook.URL) == "" {
+				fields = append(fields, fmt.Sprintf("%s is required; set %s", name, fmt.Sprintf(envWebhookURLFormat, i)))
+			}
+			validateURL(&fields, name, webhook.URL)
 		}
 	}
 	if c.ACME.Enabled && len(c.ACME.Domains) == 0 {
@@ -1174,6 +1209,16 @@ func (c *Config) applyEnvOverrides() {
 			c.Storage.Redis = &RedisConfig{}
 		}
 		c.Storage.Redis.Password = value
+	}
+	if value := os.Getenv(envAbuseIPDBKey); value != "" {
+		c.ThreatIntel.AbuseIPDB.APIKey = value
+	}
+	// Une variable ne crée pas de webhook : elle remplace l'URL d'une entrée
+	// déclarée (et typée) dans le fichier.
+	for i := range c.Alerting.Webhooks {
+		if value := os.Getenv(fmt.Sprintf(envWebhookURLFormat, i)); value != "" {
+			c.Alerting.Webhooks[i].URL = value
+		}
 	}
 }
 

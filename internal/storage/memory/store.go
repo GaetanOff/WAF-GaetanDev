@@ -105,6 +105,36 @@ func (s *Store) SetVisitor(key string, visitor storage.VisitorState) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
+	s.setVisitorLocked(key, visitor)
+}
+
+// UpdateVisitor lit, calcule et écrit sous s.mu, le verrou de toute écriture
+// de visiteur : aucune écriture concurrente ne s'intercale.
+func (s *Store) UpdateVisitor(key string, update func(current *storage.VisitorState) (storage.VisitorState, bool)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	if next, write := update(s.loadVisitorLocked(key)); write {
+		s.setVisitorLocked(key, next)
+	}
+}
+
+// loadVisitorLocked est GetVisitor sous s.mu : l'expiration y supprime
+// l'entrée sans reprendre le verrou.
+func (s *Store) loadVisitorLocked(key string) *storage.VisitorState {
+	value, ok := s.visitors.Load(key)
+	if !ok {
+		return nil
+	}
+	visitor, ok := value.(storage.VisitorState)
+	if !ok || isExpired(s.now(), visitor.ExpiresAt) {
+		s.deleteVisitorLocked(key)
+		return nil
+	}
+	return cloneVisitor(visitor)
+}
+
+func (s *Store) setVisitorLocked(key string, visitor storage.VisitorState) {
 	if _, exists := s.visitors.Load(key); !exists {
 		s.count++
 	}
@@ -163,6 +193,10 @@ func (s *Store) GetBucket(key string) (*storage.RateBucket, bool) {
 
 func (s *Store) SetBucket(key string, bucket storage.RateBucket) {
 	s.buckets.Store(key, bucket)
+}
+
+func (s *Store) DeleteBucket(key string) {
+	s.buckets.Delete(key)
 }
 
 // UpdateBuckets verrouille le groupe de clés le temps de lire, calculer et

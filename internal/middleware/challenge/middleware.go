@@ -53,7 +53,10 @@ type Middleware struct {
 	minElapsedMS int
 	maxElapsedMS int
 	humanCredit  func(ip string, domain string, fpHash string)
-	usedTokens   *usedTokens
+	crawlerCheck func(ip string, userAgent string) (verified bool, spoofed bool)
+	// challengeNonBrowser : antiddos.under_attack.challenge_non_browser (FR-39).
+	challengeNonBrowser bool
+	usedTokens          *usedTokens
 }
 
 // WithHumanCredit branche l'enregistrement de la preuve humaine (FR-37) sur un
@@ -62,6 +65,30 @@ type Middleware struct {
 func (m Middleware) WithHumanCredit(fn func(ip string, domain string, fpHash string)) Middleware {
 	m.humanCredit = fn
 	return m
+}
+
+// WithCrawlerCheck branche la vérification reverse-DNS des crawlers (FR-36) sur
+// l'exemption whitelist_user_agents. check rend l'état du crawler déclaré par
+// le User-Agent : vérifié, ou démasqué (spoofed).
+func (m Middleware) WithCrawlerCheck(check func(ip string, userAgent string) (verified bool, spoofed bool)) Middleware {
+	m.crawlerCheck = check
+	return m
+}
+
+// exemptsCrawler décide si un User-Agent de whitelist_user_agents échappe au
+// challenge proactif. Un User-Agent se forge : sous attaque (FR-39), seul un
+// crawler vérifié par reverse-DNS a une clearance — Slurp, Twitterbot et les
+// autres UA non vérifiables passaient le mode sous attaque sans PoW. Hors
+// attaque, l'exemption tient sauf pour un crawler déjà démasqué.
+func (m Middleware) exemptsCrawler(r *http.Request, underAttack bool) bool {
+	if m.crawlerCheck == nil {
+		return !underAttack
+	}
+	verified, spoofed := m.crawlerCheck(cloudflare.RealIP(r), r.UserAgent())
+	if underAttack {
+		return verified
+	}
+	return !spoofed
 }
 
 // WithDifficultyProvider branche un fournisseur de difficulté adaptative
@@ -145,16 +172,17 @@ func NewMiddlewareFromTemplate(cfg config.Config, scores *trust.ScoreManager, pa
 		return Middleware{}, fmt.Errorf("parse challenge.cookie_ttl: %w", err)
 	}
 	middleware := Middleware{
-		tokenIssuer:  NewTokenIssuer(cfg.Challenge.SecretKey, tokenTTL),
-		cookieIssuer: NewCookieIssuer(cfg.Challenge.CookieName, cfg.Challenge.SecretKey),
-		scores:       scores,
-		template:     pageTemplate,
-		domains:      newDomainGate(cfg),
-		cookieTTL:    cookieTTL,
-		difficulty:   new(atomic.Int64),
-		minElapsedMS: cfg.Challenge.MinElapsedMS,
-		maxElapsedMS: cfg.Challenge.MaxElapsedMS,
-		usedTokens:   newUsedTokens(maxUsedTokens),
+		tokenIssuer:         NewTokenIssuer(cfg.Challenge.SecretKey, tokenTTL),
+		cookieIssuer:        NewCookieIssuer(cfg.Challenge.CookieName, cfg.Challenge.SecretKey),
+		scores:              scores,
+		template:            pageTemplate,
+		domains:             newDomainGate(cfg),
+		cookieTTL:           cookieTTL,
+		difficulty:          new(atomic.Int64),
+		minElapsedMS:        cfg.Challenge.MinElapsedMS,
+		challengeNonBrowser: cfg.AntiDDoS.UnderAttack.ChallengeNonBrowser,
+		maxElapsedMS:        cfg.Challenge.MaxElapsedMS,
+		usedTokens:          newUsedTokens(maxUsedTokens),
 	}
 	middleware.difficulty.Store(int64(cfg.Challenge.PowDifficulty))
 	return middleware, nil
@@ -185,10 +213,11 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		underAttack := r.Header.Get(wafheader.UnderAttackEnforce) == "true"
 		// whitelist_user_agents exempte du seul challenge proactif : un crawler
 		// n'exécute pas le JS. Une décision CHALLENGE du moteur de risque (faux
 		// crawler démasqué par reverse-DNS) reste appliquée par l'Enforcer.
-		if r.Header.Get(access.HeaderUserAgentWhitelisted) == "true" {
+		if r.Header.Get(access.HeaderUserAgentWhitelisted) == "true" && m.exemptsCrawler(r, underAttack) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -196,8 +225,11 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		// HTML de premier niveau). Les appels API/XHR (fetch, axios, mobile…) ne
 		// peuvent pas exécuter le JS : on ne les challenge pas, sinon ils cassent.
 		// Ils restent couverts par le reste de la chaîne (rate-limit, risk engine…).
-		underAttack := r.Header.Get(wafheader.UnderAttackEnforce) == "true"
-		if !shouldChallenge(r, underAttack) {
+		// Sous attaque, sans clearance, le rate limit les plafonne à THROTTLE.
+		if !m.shouldChallenge(r, underAttack) {
+			if underAttack {
+				r.Header.Set(wafheader.UnderAttackThrottle, "true")
+			}
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -225,7 +257,7 @@ func (m Middleware) Enforcer(next http.Handler) http.Handler {
 			return
 		}
 		underAttack := r.Header.Get(wafheader.UnderAttackEnforce) == "true"
-		if !shouldChallenge(r, underAttack) {
+		if !m.shouldChallenge(r, underAttack) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -271,12 +303,16 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 		rejectSubmission(w, "invalid_pow")
 		return
 	}
-	if submission.ElapsedMS < m.minElapsedMS {
+	// Durée mesurée par le serveur depuis l'émission signée du token :
+	// l'elapsed_ms du client, qu'il choisit librement, rendait le plancher
+	// challenge_too_fast décoratif.
+	elapsedMS := m.tokenIssuer.now().UnixMilli() - payload.IssuedAtMS
+	if elapsedMS < int64(m.minElapsedMS) {
 		m.scores.Apply(ip, host, trust.DeltaChallengeFailed)
 		rejectSubmission(w, "challenge_too_fast")
 		return
 	}
-	if submission.ElapsedMS > m.maxElapsedMS {
+	if elapsedMS > int64(m.maxElapsedMS) {
 		rejectSubmission(w, "challenge_timeout")
 		return
 	}
@@ -374,10 +410,11 @@ func sameOriginPath(target string) string {
 // shouldChallenge décide si une requête sans clearance doit recevoir un challenge.
 // En mode normal, seul un chargement de page navigateur est challengé. Sous attaque
 // (FR-39), l'heuristique de navigation est relâchée pour délester un flood L7 dont
-// les requêtes brutes n'envoient pas toujours "Accept: text/html".
-func shouldChallenge(r *http.Request, underAttack bool) bool {
+// les requêtes brutes n'envoient pas toujours "Accept: text/html" ; avec
+// challenge_non_browser, toute requête l'est.
+func (m Middleware) shouldChallenge(r *http.Request, underAttack bool) bool {
 	if underAttack {
-		return isChallengeableUnderAttack(r)
+		return m.challengeNonBrowser || isChallengeableUnderAttack(r)
 	}
 	return isBrowserNavigation(r)
 }

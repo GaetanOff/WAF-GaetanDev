@@ -37,10 +37,19 @@ type RateBucket struct {
 type Store interface {
 	GetVisitor(key string) (*VisitorState, bool)
 	SetVisitor(key string, visitor VisitorState)
+	// UpdateVisitor lit le visiteur de key (nil si absent ou expiré), laisse
+	// update calculer son nouvel état et l'écrit si update le demande (second
+	// retour), atomiquement vis-à-vis de toute autre écriture de ce visiteur,
+	// y compris depuis une autre instance pour un backend partagé. update peut
+	// être rappelée (conflit) : elle ne doit dépendre que de current. Un GET
+	// suivi d'un SetVisitor perdait les écritures concurrentes : une pénalité
+	// de score était écrasée par la requête voisine.
+	UpdateVisitor(key string, update func(current *VisitorState) (VisitorState, bool))
 	DeleteVisitor(key string)
 	ListVisitors() []VisitorState
 	GetBucket(key string) (*RateBucket, bool)
 	SetBucket(key string, bucket RateBucket)
+	DeleteBucket(key string)
 	// UpdateBuckets lit les buckets de keys (nil si absent ou expiré), laisse
 	// update calculer leur nouvel état — même ordre, même longueur — et
 	// l'écrit, atomiquement vis-à-vis de toute autre mise à jour de ces clés,

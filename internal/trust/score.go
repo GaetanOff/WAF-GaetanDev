@@ -1,6 +1,9 @@
 package trust
 
 import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"hash/maphash"
@@ -12,6 +15,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/hostname"
+	"github.com/gaetandev/waf/internal/ipkey"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/wafheader"
@@ -112,24 +116,56 @@ func (m *ScoreManager) SetThresholds(challengeThreshold int, blockThreshold int)
 
 // Get retourne l'état du visiteur, en le créant s'il est inconnu ou expiré, et
 // fait glisser son TTL. La réécriture du TTL n'a lieu qu'une fois par
-// touchInterval : les lectures suivantes ne coûtent qu'un GetVisitor.
+// touchInterval : les lectures suivantes ne coûtent qu'un GetVisitor. Création
+// et glissement passent par UpdateVisitor : réécrire l'état lu plus tôt
+// effaçait une pénalité appliquée entre-temps par une requête concurrente.
 func (m *ScoreManager) Get(ip string, domain string) storage.VisitorState {
 	now := m.now()
 	ipHash := HashIP(ip)
-	if visitor, ok := m.store.GetVisitor(ipHash); ok {
-		if isExpired(*visitor, now) {
-			m.store.DeleteVisitor(ipHash)
-			return m.create(ipHash, domain, now)
-		}
-		if now.Sub(visitor.LastSeen) >= m.touchInterval {
-			visitor.LastSeen = now
-			visitor.ExpiresAt = now.Add(m.scoreTTL)
-			m.store.SetVisitor(ipHash, *visitor)
-		}
+	if visitor, ok := m.store.GetVisitor(ipHash); ok && !isExpired(*visitor, now) && now.Sub(visitor.LastSeen) < m.touchInterval {
 		return *visitor
 	}
+	var result storage.VisitorState
+	m.store.UpdateVisitor(ipHash, func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		if m.isAbsent(current, now) {
+			result = m.initialVisitor(ipHash, domain, now)
+			return result, true
+		}
+		result = *current
+		if now.Sub(result.LastSeen) < m.touchInterval {
+			return result, false
+		}
+		result.LastSeen = now
+		result.ExpiresAt = now.Add(m.scoreTTL)
+		return result, true
+	})
+	return result
+}
 
-	return m.create(ipHash, domain, now)
+// isAbsent : pas de visiteur, ou un visiteur expiré selon l'horloge du manager.
+func (m *ScoreManager) isAbsent(current *storage.VisitorState, now time.Time) bool {
+	return current == nil || isExpired(*current, now)
+}
+
+// update applique change à l'état courant du visiteur (créé s'il est absent)
+// et l'écrit atomiquement ; il retourne le score d'avant et l'état écrit.
+func (m *ScoreManager) update(ip string, domain string, change func(visitor *storage.VisitorState, now time.Time) bool) (int, storage.VisitorState) {
+	now := m.now()
+	ipHash := HashIP(ip)
+	var before int
+	var result storage.VisitorState
+	m.store.UpdateVisitor(ipHash, func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		created := m.isAbsent(current, now)
+		if created {
+			result = m.initialVisitor(ipHash, domain, now)
+		} else {
+			result = *current
+		}
+		before = result.Score
+		changed := change(&result, now)
+		return result, changed || created
+	})
+	return before, result
 }
 
 // Peek retourne l'état du visiteur SANS rien écrire : ni création, ni
@@ -148,12 +184,6 @@ func (m *ScoreManager) Peek(ip string, domain string) storage.VisitorState {
 
 func isExpired(visitor storage.VisitorState, now time.Time) bool {
 	return !visitor.ExpiresAt.IsZero() && !visitor.ExpiresAt.After(now)
-}
-
-func (m *ScoreManager) create(ipHash string, domain string, now time.Time) storage.VisitorState {
-	visitor := m.initialVisitor(ipHash, domain, now)
-	m.store.SetVisitor(ipHash, visitor)
-	return visitor
 }
 
 func (m *ScoreManager) initialVisitor(ipHash string, domain string, now time.Time) storage.VisitorState {
@@ -187,13 +217,15 @@ func (m *ScoreManager) Set(ip string, domain string, score int) storage.VisitorS
 	return visitor
 }
 
+// Apply ajoute delta au score, atomiquement : deux pénalités concurrentes
+// comptent toutes les deux.
 func (m *ScoreManager) Apply(ip string, domain string, delta int) storage.VisitorState {
-	visitor := m.Get(ip, domain)
-	before := visitor.Score
-	visitor.Score = clamp(visitor.Score+delta, 0, 100)
-	visitor.LastSeen = m.now()
-	visitor.ExpiresAt = visitor.LastSeen.Add(m.scoreTTL)
-	m.store.SetVisitor(visitor.IPHash, visitor)
+	before, visitor := m.update(ip, domain, func(visitor *storage.VisitorState, now time.Time) bool {
+		visitor.Score = clamp(visitor.Score+delta, 0, 100)
+		visitor.LastSeen = now
+		visitor.ExpiresAt = now.Add(m.scoreTTL)
+		return true
+	})
 	m.notifyCritical(before, visitor)
 	return visitor
 }
@@ -202,17 +234,16 @@ func (m *ScoreManager) Apply(ip string, domain string, delta int) storage.Visito
 // RateLimitPenaltyWindow (FR-05). Les refus supplémentaires dans la fenêtre
 // retournent l'état courant sans nouvelle pénalité.
 func (m *ScoreManager) PenalizeRateLimit(ip string, domain string) storage.VisitorState {
-	visitor := m.Get(ip, domain)
-	now := m.now()
-	if visitor.LastRateLimitPenalty != nil && now.Sub(*visitor.LastRateLimitPenalty) < RateLimitPenaltyWindow {
-		return visitor
-	}
-	before := visitor.Score
-	visitor.Score = clamp(visitor.Score+DeltaRateLimit, 0, 100)
-	visitor.LastSeen = now
-	visitor.ExpiresAt = now.Add(m.scoreTTL)
-	visitor.LastRateLimitPenalty = &now
-	m.store.SetVisitor(visitor.IPHash, visitor)
+	before, visitor := m.update(ip, domain, func(visitor *storage.VisitorState, now time.Time) bool {
+		if visitor.LastRateLimitPenalty != nil && now.Sub(*visitor.LastRateLimitPenalty) < RateLimitPenaltyWindow {
+			return false
+		}
+		visitor.Score = clamp(visitor.Score+DeltaRateLimit, 0, 100)
+		visitor.LastSeen = now
+		visitor.ExpiresAt = now.Add(m.scoreTTL)
+		visitor.LastRateLimitPenalty = &now
+		return true
+	})
 	m.notifyCritical(before, visitor)
 	return visitor
 }
@@ -284,41 +315,74 @@ func blockDeterministic(w http.ResponseWriter, r *http.Request, trigger string) 
 	http.Error(w, "forbidden", http.StatusForbidden)
 }
 
-// ipHashBytes est la part du SHA-256 conservée : 8 octets, 16 caractères hex.
+// ipHashBytes est la part du HMAC-SHA256 conservée : 8 octets, 16 caractères
+// hex.
 const ipHashBytes = 8
+
+// hashKeyBytes est la taille de la clé aléatoire de repli de HashIP.
+const hashKeyBytes = 32
 
 // hashCacheSlots est la taille du cache de HashIP (puissance de deux).
 const hashCacheSlots = 1 << 14
 
-// ipHash est une entrée du cache de HashIP.
+// ipHash est une entrée du cache de HashIP. key désigne la clé qui l'a
+// calculée : une entrée d'une clé précédente n'est jamais rendue.
 type ipHash struct {
 	ip   string
 	hash string
+	key  *[]byte
 }
 
 var (
 	hashCache [hashCacheSlots]atomic.Pointer[ipHash]
 	hashSeed  = maphash.MakeSeed()
+	// hashKey est la clé HMAC de HashIP. Un SHA-256 sans clé d'une IPv4 se
+	// renversait en parcourant les 2³² adresses : l'ip_hash des journaux et du
+	// store n'était pas la pseudonymisation promise (FR-28). Aléatoire par
+	// processus tant que SetHashKey n'a pas été appelé.
+	hashKey atomic.Pointer[[]byte]
 )
 
+func init() {
+	key := make([]byte, hashKeyBytes)
+	if _, err := rand.Read(key); err != nil {
+		panic("trust: random ip hash key: " + err.Error())
+	}
+	hashKey.Store(&key)
+}
+
+// SetHashKey fixe la clé HMAC de HashIP. Toutes les instances qui partagent un
+// store doivent recevoir la même clé ; en changer rend inaccessibles les états
+// indexés par l'ancienne (visiteurs, buckets, cookies de clearance). Appelée au
+// démarrage, avant le premier HashIP.
+func SetHashKey(key []byte) {
+	cloned := bytes.Clone(key)
+	hashKey.Store(&cloned)
+}
+
 // HashIP est appelé six à dix fois par requête pour la même IP (rate limit,
-// trust, journal, métriques, moteur de risque, détecteurs) : un SHA-256 et une
-// allocation à chaque fois. Un cache à correspondance directe, sans verrou,
+// trust, journal, métriques, moteur de risque, détecteurs) : un HMAC-SHA256 et
+// une allocation à chaque fois. Un cache à correspondance directe, sans verrou,
 // retient le dernier hash calculé par emplacement : le premier appel d'une
 // requête le calcule, les suivants le relisent. Deux IP qui se disputent un
 // emplacement se l'arrachent sans erreur possible — l'IP est comparée avant de
 // rendre le hash. N'encoder que les octets conservés, au lieu des 64
 // caractères tronqués ensuite, produit la même clé.
 func HashIP(ip string) string {
+	key := hashKey.Load()
 	slot := &hashCache[maphash.String(hashSeed, ip)&(hashCacheSlots-1)]
-	if cached := slot.Load(); cached != nil && cached.ip == ip {
+	if cached := slot.Load(); cached != nil && cached.ip == ip && cached.key == key {
 		return cached.hash
 	}
-	sum := sha256.Sum256([]byte(ip))
-	hash := hex.EncodeToString(sum[:ipHashBytes])
+	// Une IPv6 est hachée par son /64 (ipkey.Subject) : toute la chaîne
+	// indexée par ce hash (rate limit, score, breaker, détecteurs) compte alors
+	// un abonné IPv6 comme un seul client.
+	mac := hmac.New(sha256.New, *key)
+	_, _ = mac.Write([]byte(ipkey.Subject(ip)))
+	hash := hex.EncodeToString(mac.Sum(nil)[:ipHashBytes])
 	// Clone : ip peut être une sous-chaîne d'un en-tête ou de RemoteAddr, que
 	// l'entrée retiendrait sinon en mémoire.
-	slot.Store(&ipHash{ip: strings.Clone(ip), hash: hash})
+	slot.Store(&ipHash{ip: strings.Clone(ip), hash: hash, key: key})
 	return hash
 }
 

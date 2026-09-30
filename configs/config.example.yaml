@@ -89,6 +89,7 @@ antiddos:
     cooldown: "30s"                  # durée sous exit_pressure avant de quitter le mode
     shadow: false                    # true = calcule/journalise sans forcer (calibration, FR-38)
     max_tracked_domains: 1024        # plafond LRU des compteurs par domaine
+    challenge_non_browser: false     # true = challenge aussi les clients API (sites sans API)
 
 # Système de confiance et challenge
 trust:

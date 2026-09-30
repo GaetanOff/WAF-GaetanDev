@@ -57,6 +57,14 @@ Feature: Rate Limiting par IP (FR-03)
     Then aucune requête n'est refusée pour dépassement de fenêtre minute ou heure
     And seule la fenêtre seconde continue de s'appliquer
 
+  Scenario: Adresses IPv6 d'un même /64 — un seul client
+    # Un abonné IPv6 dispose d'un /64 : changer d'adresse dans son préfixe ne
+    # doit pas donner un nouveau bucket plein ni un score initial.
+    Given rate_limit.requests_per_second = 10 et rate_limit.burst = 20
+    When 20 requêtes arrivent de "2001:db8:1:2::1" puis une de "2001:db8:1:2::ffff"
+    Then la 21e requête reçoit HTTP 429
+    And une requête de "2001:db8:1:3::1" (autre /64) est admise
+
   Scenario: IP en whitelist — exemptée des trois fenêtres
     Given l'IP "10.0.0.5" est en whitelist
     When elle envoie 10000 requêtes en 1 minute

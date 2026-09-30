@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/gaetandev/waf/internal/ipkey"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/ttlcache"
 	"github.com/gaetandev/waf/internal/wafheader"
@@ -74,7 +75,8 @@ func PathGuard(path string, window *Window) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.URL.Path == path {
-				ip := cloudflare.RealIP(r)
+				// Compté par client : une IPv6 par son /64 (ipkey).
+				ip := ipkey.Subject(cloudflare.RealIP(r))
 				if window.Record(ip) > window.max {
 					w.Header().Set("Retry-After", "10")
 					w.Header().Set(wafheader.Action, wafheader.ActionRateLimit)

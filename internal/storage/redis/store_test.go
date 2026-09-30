@@ -123,7 +123,7 @@ func (f *fakeRedis) Scan(_ context.Context, _ uint64, match string, _ int64) *go
 	return goredis.NewScanCmdResult(keys, 0, nil)
 }
 
-// Eval émule bucketCASScript, seul script du Store : compare-and-set des
+// Eval émule casScript, seul script du Store : compare-and-set des
 // clés. beforeEval, s'il est défini, s'exécute avant la comparaison — il simule
 // l'écriture d'un autre nœud entre le MGET et l'EVAL.
 func (f *fakeRedis) Eval(_ context.Context, script string, keys []string, args ...any) *goredis.Cmd {
@@ -137,7 +137,7 @@ func (f *fakeRedis) Eval(_ context.Context, script string, keys []string, args .
 	if f.record("eval") {
 		return goredis.NewCmdResult(nil, errFakeDown)
 	}
-	if script != bucketCASScript {
+	if script != casScript {
 		return goredis.NewCmdResult(nil, fmt.Errorf("unexpected script"))
 	}
 	n := len(keys)
@@ -787,5 +787,89 @@ func TestUpdateBucketsFallsBackToLocalWhenRedisFails(t *testing.T) {
 	}
 	if bucket, ok := store.local.GetBucket("d0d0cafe"); !ok || bucket.Tokens != 7 {
 		t.Fatalf("local bucket = %+v, want the computed state kept locally", bucket)
+	}
+}
+
+// Race inter-nœuds sur un visiteur : un autre nœud pénalise le score entre la
+// lecture et l'écriture. Le calcul est rejoué sur l'état frais — un GET suivi
+// d'un SET effaçait la pénalité.
+func TestUpdateVisitorRecomputesOnConcurrentWrite(t *testing.T) {
+	store, fake, observer, clock := newTestStore(t, 100)
+	expiresAt := clock.Now().Add(time.Hour)
+	initial, _ := json.Marshal(visitorFixture(expiresAt))
+	fake.put(visitorKeyPrefix+"d0d0cafe", string(initial))
+	fake.beforeEval = func() {
+		penalized := visitorFixture(expiresAt)
+		penalized.Score -= 20 // l'autre nœud a appliqué une pénalité
+		payload, _ := json.Marshal(penalized)
+		fake.put(visitorKeyPrefix+"d0d0cafe", string(payload))
+	}
+
+	attempts := 0
+	store.UpdateVisitor("d0d0cafe", func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		attempts++
+		next := *current
+		next.Score -= 10
+		return next, true
+	})
+
+	if attempts != 2 {
+		t.Fatalf("update attempts = %d, want 2 (conflict then retry)", attempts)
+	}
+	if visitor, _ := store.GetVisitor("d0d0cafe"); visitor.Score != 12 {
+		t.Fatalf("score = %d, want 12: both penalties must count", visitor.Score)
+	}
+	if observer.errorCount("update_visitor_conflict") != 1 {
+		t.Fatalf("conflicts = %d, want 1", observer.errorCount("update_visitor_conflict"))
+	}
+	if _, ttl, _ := fake.rawValue(visitorKeyPrefix + "d0d0cafe"); ttl != time.Hour {
+		t.Fatalf("ttl = %s, want 1h", ttl)
+	}
+}
+
+// Une mise à jour qui ne demande pas d'écriture ne coûte qu'un GET.
+func TestUpdateVisitorSkipsTheWriteWhenNotRequested(t *testing.T) {
+	store, fake, _, _ := newTestStore(t, 100)
+	calls := 0
+	store.UpdateVisitor("d0d0cafe", func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		calls++
+		if current != nil {
+			t.Fatalf("current = %+v, want nil for an absent visitor", current)
+		}
+		return storage.VisitorState{}, false
+	})
+	if calls != 1 || fake.callCount("eval") != 0 || fake.callCount("set") != 0 {
+		t.Fatalf("calls = %d, eval = %d, set = %d; want one read and no write", calls, fake.callCount("eval"), fake.callCount("set"))
+	}
+}
+
+func TestUpdateVisitorFallsBackToLocalWhenRedisFails(t *testing.T) {
+	store, fake, observer, clock := newTestStore(t, 100)
+	fake.setFailing(true)
+	expiresAt := clock.Now().Add(time.Hour)
+
+	store.UpdateVisitor("d0d0cafe", func(*storage.VisitorState) (storage.VisitorState, bool) {
+		return visitorFixture(expiresAt), true
+	})
+
+	if observer.errorCount("update_visitor") != 1 {
+		t.Fatalf("update_visitor errors = %d, want 1", observer.errorCount("update_visitor"))
+	}
+	if visitor, ok := store.local.GetVisitor("d0d0cafe"); !ok || visitor.Score != 42 {
+		t.Fatalf("local visitor = %+v, want the computed state kept locally", visitor)
+	}
+}
+
+func TestDeleteBucketRemovesRedisAndLocalState(t *testing.T) {
+	store, fake, _, clock := newTestStore(t, 100)
+	store.SetBucket("d0d0cafe:m", bucketFixture(3, clock.Now().Add(time.Hour)))
+
+	store.DeleteBucket("d0d0cafe:m")
+
+	if _, _, ok := fake.rawValue(bucketKeyPrefix + "d0d0cafe:m"); ok {
+		t.Fatal("the Redis bucket must be deleted")
+	}
+	if _, ok := store.local.GetBucket("d0d0cafe:m"); ok {
+		t.Fatal("the local bucket must be deleted")
 	}
 }

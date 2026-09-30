@@ -23,7 +23,7 @@
     },
     "ip_hash": {
       "type": "string",
-      "description": "SHA-256(ip)[:16] — pour corrélation sans exposer l'IP dans les métriques"
+      "description": "HMAC-SHA256(clé, client)[:16] — clé dérivée de challenge.secret_key (FR-28), client = l'IPv4, ou le préfixe /64 d'une IPv6 (FR-02) ; corrélation sans exposer l'IP dans les métriques"
     },
     "domain": {
       "type": "string"

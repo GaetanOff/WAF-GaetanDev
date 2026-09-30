@@ -49,27 +49,30 @@ func NewHumanTrustManager(store storage.Store, cfg HumanCreditConfig) *HumanTrus
 func (m *HumanTrustManager) GrantChallengePass(ip string, domain string, fpHash string) storage.VisitorState {
 	now := m.now()
 	ipHash := trust.HashIP(ip)
-	visitor, ok := m.store.GetVisitor(ipHash)
-	if !ok {
-		visitor = &storage.VisitorState{
-			IPHash:    ipHash,
-			Domain:    domain,
-			FirstSeen: now,
-			ExpiresAt: now.Add(m.cfg.StickyTrustTTL),
+	var result storage.VisitorState
+	m.store.UpdateVisitor(ipHash, func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		if current != nil {
+			result = *current
+		} else {
+			result = storage.VisitorState{
+				IPHash:    ipHash,
+				Domain:    domain,
+				FirstSeen: now,
+				ExpiresAt: now.Add(m.cfg.StickyTrustTTL),
+			}
 		}
-	}
-
-	stickyTrustUntil := now.Add(m.cfg.StickyTrustTTL)
-	visitor.Domain = domain
-	visitor.LastSeen = now
-	visitor.ChallengePassed = true
-	visitor.FPHash = &fpHash
-	visitor.StickyTrustUntil = &stickyTrustUntil
-	if visitor.ExpiresAt.Before(stickyTrustUntil) {
-		visitor.ExpiresAt = stickyTrustUntil
-	}
-	m.store.SetVisitor(ipHash, *visitor)
-	return *visitor
+		stickyTrustUntil := now.Add(m.cfg.StickyTrustTTL)
+		result.Domain = domain
+		result.LastSeen = now
+		result.ChallengePassed = true
+		result.FPHash = &fpHash
+		result.StickyTrustUntil = &stickyTrustUntil
+		if result.ExpiresAt.Before(stickyTrustUntil) {
+			result.ExpiresAt = stickyTrustUntil
+		}
+		return result, true
+	})
+	return result
 }
 
 func (m *HumanTrustManager) Proof(ip string, fpHash string) HumanProof {
@@ -89,14 +92,15 @@ func (m *HumanTrustManager) Proof(ip string, fpHash string) HumanProof {
 }
 
 func (m *HumanTrustManager) Revoke(ip string) {
-	ipHash := trust.HashIP(ip)
-	visitor, ok := m.store.GetVisitor(ipHash)
-	if !ok {
-		return
-	}
-	visitor.StickyTrustUntil = nil
-	visitor.ChallengePassed = false
-	m.store.SetVisitor(ipHash, *visitor)
+	m.store.UpdateVisitor(trust.HashIP(ip), func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		if current == nil {
+			return storage.VisitorState{}, false
+		}
+		revoked := *current
+		revoked.StickyTrustUntil = nil
+		revoked.ChallengePassed = false
+		return revoked, true
+	})
 }
 
 func HumanCreditContribution(proof HumanProof, cfg HumanCreditConfig) Contribution {

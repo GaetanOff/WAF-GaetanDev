@@ -399,3 +399,79 @@ func TestAdminRemovalRestoresEntryWhenRulesSyncFails(t *testing.T) {
 		t.Fatalf("blacklist = %v, want the entry restored", entries)
 	}
 }
+
+// FR-23 — server.max_header_bytes est transmis au http.Server : des en-têtes
+// au-delà de la borne sont refusés (431) sans atteindre le handler.
+func TestAdminServerEnforcesMaxHeaderBytes(t *testing.T) {
+	server := newTestServerWith(t, func(cfg *config.Config) {
+		cfg.Server.MaxHeaderBytes = 4096
+	})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() { _ = server.httpServer.Serve(listener) }()
+	url := fmt.Sprintf("http://%s/waf/admin/blacklist", listener.Addr().String())
+
+	for _, tc := range []struct {
+		size int
+		want int
+	}{{1024, http.StatusUnauthorized}, {64 << 10, http.StatusRequestHeaderFieldsTooLarge}} {
+		request, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			t.Fatalf("http.NewRequest() error = %v", err)
+		}
+		request.Header.Set("X-Filler", strings.Repeat("x", tc.size))
+		response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
+		if err != nil {
+			t.Fatalf("header of %d bytes: %v", tc.size, err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != tc.want {
+			t.Fatalf("header of %d bytes: status = %d, want %d", tc.size, response.StatusCode, tc.want)
+		}
+	}
+}
+
+// FR-28 : POST /waf/admin/gdpr/erase efface aussi l'état tenu hors du store de
+// visiteurs (buckets de rate limit, profil comportemental, JA3), par les
+// effaceurs branchés.
+func TestGDPREraseRunsErasers(t *testing.T) {
+	server := newTestServer(t)
+	visitor := server.scores.Set("1.2.3.4", "example.test", 60)
+	var erased []string
+	server.WithErasers(func(ipHash string) { erased = append(erased, ipHash) }, func(ipHash string) { erased = append(erased, ipHash) })
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, requestWithAuth(http.MethodPost, "/waf/admin/gdpr/erase", `{"ip":"1.2.3.4"}`))
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200", response.Code)
+	}
+	if len(erased) != 2 || erased[0] != visitor.IPHash || erased[1] != visitor.IPHash {
+		t.Fatalf("erasers called with %v, want the visitor hash twice", erased)
+	}
+	if _, ok := server.store.GetVisitor(visitor.IPHash); ok {
+		t.Fatal("the visitor must be erased")
+	}
+}
+
+// FR-28 : DELETE /waf/admin/visitors/{ip_hash} est aussi un droit à
+// l'effacement (gdpr-compliance.feature) : les effaceurs s'exécutent.
+func TestDeleteVisitorRunsErasers(t *testing.T) {
+	server := newTestServer(t)
+	visitor := server.scores.Set("1.2.3.4", "example.test", 60)
+	var erased []string
+	server.WithErasers(func(ipHash string) { erased = append(erased, ipHash) })
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, requestWithAuth(http.MethodDelete, "/waf/admin/visitors/"+visitor.IPHash, ""))
+
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", response.Code)
+	}
+	if len(erased) != 1 || erased[0] != visitor.IPHash {
+		t.Fatalf("erasers called with %v, want [%s]", erased, visitor.IPHash)
+	}
+}

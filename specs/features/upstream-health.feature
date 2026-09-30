@@ -37,6 +37,12 @@ Feature: Upstream Health Checks & Load Balancing
     And upstream-A est retiré du service sans attendre unhealthy_threshold
     And les sondes le remettront en service après healthy_threshold succès
 
+  Scenario: Client parti pendant le proxying — le membre reste en service
+    Given upstream-A est le seul membre sain du pool
+    And un client annule sa requête pendant que upstream-A la traite
+    Then upstream-A reste en service
+    And le visiteur suivant est routé vers upstream-A (pas de "no healthy upstream")
+
   Scenario: Upstream qui revient après être tombé
     Given upstream-A était hors service
     When 2 health checks consécutifs réussissent (healthy_threshold)

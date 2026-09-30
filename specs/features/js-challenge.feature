@@ -154,6 +154,15 @@ Feature: Challenge JavaScript
     And la requête est transmise à l'upstream sans interruption
     And la latence ajoutée est < 5 ms
 
+  Scenario: Token de challenge rejoué comme cookie — refusé
+    # Le token est remis à tout visiteur dans la page. Signé avec la même clé et
+    # au même format que le cookie, il franchissait le challenge sans PoW.
+    Given un visiteur a reçu la page de challenge et son token
+    When il envoie GET "/" avec le cookie waf_session = ce token
+    Then le cookie est refusé (clé de signature distincte)
+    And la page de challenge est servie
+    And il en va de même en mode « sous attaque » (FR-39)
+
   Scenario: Token de challenge expiré (> 30s)
     Given un visiteur a reçu la page de challenge il y a 45 secondes
     When il soumet POST /waf/verify avec le token expiré
@@ -176,17 +185,24 @@ Feature: Challenge JavaScript
 
   Scenario: Résolution rapide acceptée (plancher désactivé par défaut)
     Given challenge.min_elapsed_ms = 0 (défaut)
-    And un visiteur soumet POST /waf/verify avec elapsed_ms = 30 et une PoW valide
+    And un visiteur soumet POST /waf/verify 30 ms après l'émission du token, avec une PoW valide
     Then le WAF retourne HTTP 200 et émet le cookie de session
     # Une PoW se résout en quelques dizaines de ms sur un client rapide : la
     # rejeter comme "trop rapide" créait des faux positifs et une boucle.
 
   Scenario: Plancher "trop rapide" actif uniquement s'il est configuré (>0)
     Given challenge.min_elapsed_ms = 500 (plancher réactivé par l'opérateur)
-    And un visiteur soumet POST /waf/verify avec elapsed_ms = 50
+    And un visiteur soumet POST /waf/verify 50 ms après l'émission du token
+    And la soumission annonce elapsed_ms = 1200
     Then le WAF retourne HTTP 400
     And la réponse contient {"error": "challenge_too_fast"}
     And le score du visiteur est décrémenté de 20
+
+  Scenario: Durée mesurée par le serveur — l'elapsed_ms du client n'est pas cru
+    Given challenge.min_elapsed_ms = 500
+    And un visiteur soumet POST /waf/verify 800 ms après l'émission du token
+    And la soumission annonce elapsed_ms = 10
+    Then le WAF retourne HTTP 200 et émet le cookie de session
 
   Scenario: Corps JSON avec un nom de membre dupliqué — rejeté
     # Différentiel de parseur : encoding/json v1 appliquait « le dernier gagne »

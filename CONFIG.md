@@ -19,6 +19,14 @@ Ne mettez **jamais** de secrets dans `config.yaml`. Fournissez-les via l'environ
 | `WAF_ADMIN_TOKEN` | `admin.token` | 32 caractères |
 | `WAF_REDIS_PASSWORD` | `storage.redis.password` | — |
 | `WAF_ORIGIN_SECRET` | `origin_protection.secret` | 16 caractères |
+| `WAF_ABUSEIPDB_KEY` | `threat_intel.abuseipdb.api_key` | — |
+| `WAF_ALERTING_WEBHOOKS_<i>_URL` | `alerting.webhooks[i].url` (index à partir de 0) | — |
+
+L'URL d'un webhook Slack ou Discord **porte son jeton d'accès** : c'est un secret.
+Déclarez l'entrée (et son `type`) dans le fichier, sans `url`, et fournissez l'URL
+par `WAF_ALERTING_WEBHOOKS_<i>_URL`. Une variable ne crée pas d'entrée : elle
+remplace l'URL de l'entrée `i` déclarée. Alertes actives, une entrée sans URL est
+refusée au démarrage.
 
 ---
 
@@ -42,16 +50,18 @@ server:
   write_timeout: "30s"
   idle_timeout: "60s"
   graceful_shutdown_timeout: "15s"
+  max_header_bytes: 65536
   strict_host: false
 ```
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `listen` | string | — | Adresse d'écoute du port public (trafic entrant depuis Cloudflare). Ex : `":8080"`, `"0.0.0.0:443"`. **Obligatoire.** |
-| `admin_listen` | string | `":9090"` | Adresse d'écoute de l'API d'administration. **Ne jamais exposer publiquement.** Restreignez à `127.0.0.1` ou à un réseau interne. |
+| `admin_listen` | string | `"127.0.0.1:9090"` | Adresse d'écoute de l'API d'administration (HTTP clair, jeton `Bearer`). **Ne jamais exposer publiquement.** Boucle locale par défaut ; dans un conteneur, la lier explicitement à l'interface du réseau interne (ex. `0.0.0.0:9090` sans publier le port). |
 | `read_timeout` | durée | `"30s"` | Délai max pour lire la requête entière (headers + body). Protège contre les connexions lentes (Slowloris). |
-| `write_timeout` | durée | `"30s"` | Délai max pour envoyer la réponse complète au client. |
+| `write_timeout` | durée | `"30s"` | Délai max pour envoyer la réponse complète au client, **streaming compris** : un téléchargement ou un flux (SSE, long polling) plus long que ce délai est coupé. L'augmenter pour une origine qui sert de tels contenus. Les WebSockets n'y sont pas soumis (l'échéance est levée à l'upgrade). |
 | `idle_timeout` | durée | `"60s"` | Délai max d'inactivité sur une connexion keep-alive avant fermeture. |
+| `max_header_bytes` | int | `65536` | Taille maximale des en-têtes d'une requête (64 Kio). Au-delà : `431`, avant tout middleware. `0` = défaut Go (1 Mio) ; sinon entre `4096` et `1048576`. |
 | `graceful_shutdown_timeout` | durée | `"15s"` | Délai accordé aux connexions en cours pour se terminer proprement lors d'un arrêt (SIGTERM). |
 | `strict_host` | bool | `false` | Répond `400` (`X-WAF-Reason: host_not_declared`) à toute requête dont le `Host` ne correspond à aucune entrée [`domains`](#domains--configuration-par-domaine), `/waf/health` excepté ([ADR-020](specs/decisions/ADR-020-host-header-routing-trust.md)). Exige au moins une entrée `domains[]`. `/waf/metrics` n'est **pas** exempté : un scraper Prometheus doit alors présenter un `Host` déclaré. **Opt-in** : activé, il coupe l'accès par IP. |
 
@@ -218,6 +228,7 @@ antiddos:
     cooldown: "30s"
     shadow: false
     max_tracked_domains: 1024
+    challenge_non_browser: false
 ```
 
 Compteur global (toutes IPs confondues) utilisé pour calculer un **niveau de pression adaptative**. La pression globale ne bloque pas le trafic à elle seule : elle sert de signal pour renforcer les mitigations réversibles (challenge, throttling, difficulté PoW) et pour alimenter le moteur de risque.
@@ -257,9 +268,13 @@ mitigation **réversible** : elle ne produit jamais de blocage dur à elle seule
 Une requête est **avec clearance** (donc épargnée) si elle présente : un cookie
 `waf_session` valide, un bot vérifié par reverse-DNS forward-confirm (FR-36), une IP
 whitelistée (FR-04), ou un trust persistant « sticky » après challenge réussi
-(FR-37). Les clients **non-navigateurs** (`Accept: application/json`, méthode non
-GET/HEAD) ne reçoivent jamais de page JS insoluble : ils restent soumis au rate
-limiting par IP et au moteur de risque.
+(FR-37). Un User-Agent de `whitelist_user_agents` n'est **pas** une clearance. Les
+clients **non-navigateurs** (`Accept: application/json`, méthode non GET/HEAD) ne
+reçoivent pas de page JS insoluble : ils sont plafonnés à `THROTTLE` (débit de
+recharge du rate limit réduit de moitié, 429 neutre `rate_limit_under_attack`) et
+restent soumis au moteur de risque. Ce plafond est **par IP** : un flood distribué
+qui envoie `Accept: application/json` y échappe. Sur un domaine sans client API,
+activer `challenge_non_browser` pour challenger aussi ces requêtes.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
@@ -270,6 +285,7 @@ limiting par IP et au moteur de risque.
 | `cooldown` | durée | `"30s"` | Durée pendant laquelle la pression doit rester sous `exit_pressure` avant de quitter le mode (anti-battement). |
 | `shadow` | bool | `false` | `true` = calcule et journalise `under_attack` **sans** forcer le challenge (calibration, FR-38). |
 | `max_tracked_domains` | int | `1024` | Plafond LRU du nombre de domaines suivis (scope `per_domain`). |
+| `challenge_non_browser` | bool | `false` | `true` = challenge aussi les requêtes non-navigateur sans clearance (méthode non GET/HEAD, `Accept: application/json`). Casse les clients API pendant l'attaque : à réserver aux déploiements sans API. |
 
 > **Réglage.** `trigger_pressure` se calcule à partir de `global_requests_per_second`
 > et des `pressure_levels`. Pour une petite infra, abaisser `global_requests_per_second`
@@ -410,7 +426,7 @@ Vérifie que les bots déclarant être Googlebot, Bingbot, etc. le sont vraiment
 | `enabled` | bool | `true` | Active la vérification des bots légitimes. |
 | `success_cache_ttl` | durée | `"12h"` | Durée de mise en cache d'une vérification réussie (évite de re-vérifier à chaque requête). |
 | `failure_cache_ttl` | durée | `"10m"` | Durée de mise en cache d'un échec de vérification. |
-| `crawlers` | liste | `["googlebot", ...]` | Liste de sous-chaînes de user-agents à vérifier. La comparaison est insensible à la casse. |
+| `crawlers` | liste | `["googlebot", "bingbot", "duckduckbot", "applebot", "slurp", "baiduspider"]` | Liste de sous-chaînes de user-agents à vérifier. La comparaison est insensible à la casse. Seuls ces six crawlers ont un domaine reverse-DNS connu ; un autre nom reste `spoofed`. |
 
 ---
 
@@ -788,8 +804,7 @@ alerting:
   webhooks:
     - type: "slack"
       url: "https://hooks.slack.com/services/..."
-    - type: "discord"
-      url: "https://discord.com/api/webhooks/..."
+    - type: "discord"      # url fournie par WAF_ALERTING_WEBHOOKS_1_URL
 ```
 
 Envoie des notifications vers Slack, Discord ou tout endpoint HTTP générique lors d'événements de sécurité critiques (pression globale critique, IP bloquée, circuit-breaker, honeypot, etc.).
@@ -800,7 +815,7 @@ Envoie des notifications vers Slack, Discord ou tout endpoint HTTP générique l
 | `cooldown` | durée | `"5m"` | Délai minimum entre deux alertes identiques (même trigger + même domaine). Évite le flood de notifications. |
 | `max_retries` | int | `3` | Nombre de tentatives en cas d'échec d'envoi du webhook. |
 | `webhooks[].type` | string | — | Type de webhook : `"slack"`, `"discord"`, ou `"generic"` (POST JSON brut). |
-| `webhooks[].url` | string | — | URL du webhook. |
+| `webhooks[].url` | string | — | URL absolue du webhook, requise quand `enabled`. Elle porte le jeton d'accès : **préférer `WAF_ALERTING_WEBHOOKS_<i>_URL`**. |
 
 ---
 
@@ -994,6 +1009,8 @@ whitelist_user_agents:
 ```
 
 User-agents de bots légitimes **exemptés du challenge JS proactif** (un crawler n'exécute pas le JS) **et des heuristiques anti-bot « client non navigateur »** (en-têtes `Accept-Language`/`Accept-Encoding` absents, UA d'outil type `curl/`) : un crawler n'envoie pas les en-têtes d'un navigateur. Honeypots, UA d'automation (Selenium, Puppeteer) et navigateurs headless restent pénalisés. Chaque entrée est une **expression régulière** (syntaxe RE2) recherchée dans le header `User-Agent`, **sensible à la casse** — préfixer par `(?i)` pour l'ignorer.
+
+L'exemption consulte `risk_engine.verified_bots` : un crawler démasqué (reverse-DNS non conforme) n'en bénéficie pas, et **en mode sous attaque** (`antiddos.under_attack`) seul un crawler **vérifié** par reverse-DNS en bénéficie — un User-Agent non vérifiable (facebookexternalhit, LinkedInBot, Twitterbot…) reçoit alors le challenge.
 
 Ce n'est **pas** un bypass : un `User-Agent` se forge. La blacklist, l'anti-DDoS, le rate limiting et le moteur de risque s'appliquent. Un faux crawler démasqué par `risk_engine.verified_bots` (reverse-DNS) voit sa réputation dégradée et reçoit le challenge ou le blocage que décide le moteur ; un crawler vérifié est autorisé (`ALLOW`). Pour un bypass total, utiliser `whitelist` (IP ou CIDR).
 

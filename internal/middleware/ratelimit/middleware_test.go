@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -611,5 +612,87 @@ func BenchmarkHandlerAllowed(b *testing.B) {
 	b.ReportAllocs()
 	for b.Loop() {
 		handler.ServeHTTP(response, request)
+	}
+}
+
+// FR-39 : sous attaque, une requête non-navigateur sans clearance (marquée par
+// le challenge) est plafonnée à THROTTLE — débit de recharge réduit de moitié,
+// 429 neutre sous sa propre raison.
+func TestUnderAttackThrottleCapsNonBrowserRequests(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	middleware := newTestMiddleware(t, store, 10, 1)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+	marked := func() *http.Request {
+		request := requestFrom("9.9.9.9:1234")
+		request.Header.Set("X-WAF-Under-Attack-Throttle", "true")
+		return request
+	}
+
+	handler.ServeHTTP(httptest.NewRecorder(), marked())
+	now = now.Add(150 * time.Millisecond)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, marked())
+
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", response.Code)
+	}
+	if got := response.Header().Get("X-WAF-Reason"); got != ReasonUnderAttackThrottle {
+		t.Fatalf("X-WAF-Reason = %q, want %s", got, ReasonUnderAttackThrottle)
+	}
+	if visitor, ok := store.GetVisitor(trust.HashIP("9.9.9.9")); ok && visitor.Score != 50 {
+		t.Fatalf("score = %d, want 50 (no penalty for a throttle-only 429)", visitor.Score)
+	}
+}
+
+// FR-02 : les adresses d'un même /64 IPv6 partagent leur bucket.
+func TestRateLimitCountsIPv6Per64(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	middleware := newTestMiddleware(t, store, 10, 20)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+
+	for i := range 20 {
+		handler.ServeHTTP(httptest.NewRecorder(), requestFrom(fmt.Sprintf("[2001:db8:1:2::%x]:1234", i+1)))
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestFrom("[2001:db8:1:2::ffff]:1234"))
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("same /64 status = %d, want 429", response.Code)
+	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, requestFrom("[2001:db8:1:3::1]:1234"))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("other /64 status = %d, want 204", response.Code)
+	}
+}
+
+// FR-28 : l'effacement retire les buckets des trois fenêtres et la mesure
+// THROTTLE du visiteur.
+func TestForgetErasesTheVisitorBuckets(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	middleware := newTestMiddleware(t, store, 10, 5)
+	handler := middleware.Handler(countingHandler())
+	handler.ServeHTTP(httptest.NewRecorder(), requestFrom("9.9.9.9:1234"))
+	middleware.Throttle("9.9.9.9")
+	ipHash := trust.HashIP("9.9.9.9")
+	if _, ok := store.GetBucket(ipHash); !ok {
+		t.Fatal("setup: the request must have created a bucket")
+	}
+
+	middleware.Forget(ipHash)
+
+	for _, key := range []string{ipHash, ipHash + minuteKeySuffix, ipHash + hourKeySuffix} {
+		if _, ok := store.GetBucket(key); ok {
+			t.Fatalf("bucket %s survived the erasure", key)
+		}
+	}
+	if _, throttled := middleware.throttled.Get(ipHash); throttled {
+		t.Fatal("the THROTTLE measure survived the erasure")
 	}
 }

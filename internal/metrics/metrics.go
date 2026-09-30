@@ -265,6 +265,17 @@ func (m *Metrics) WithAlertsPending(pending func() int) *Metrics {
 	return m
 }
 
+// WithLogDrops publie waf_log_events_dropped_total, le nombre d'événements de
+// sécurité abandonnés faute de place dans le tampon du journal (FR-09), lu à
+// chaque scrape. Sans lui, des logs se perdaient sous flood sans trace.
+func (m *Metrics) WithLogDrops(dropped func() int64) *Metrics {
+	m.registry.MustRegister(prometheus.NewCounterFunc(prometheus.CounterOpts{
+		Name: "waf_log_events_dropped_total",
+		Help: "Security log events dropped because the async log buffer was full (FR-09).",
+	}, func() float64 { return float64(dropped()) }))
+	return m
+}
+
 // IncClusterSync compte un événement de synchronisation cluster appliqué (FR-20).
 func (m *Metrics) IncClusterSync(eventType string) {
 	m.clusterEvents.WithLabelValues(eventType).Inc()
