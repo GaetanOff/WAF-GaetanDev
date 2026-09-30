@@ -32,6 +32,12 @@ Feature: Gestion Whitelist / Blacklist
     When une requête provient de "198.51.100.150"
     Then la requête reçoit HTTP 403
 
+  Scenario: IPv4 mappée en IPv6 — même verdict que l'IPv4
+    Given le CIDR "198.51.100.0/24" est ajouté en blacklist
+    When une requête provient de "::ffff:198.51.100.150"
+    Then la requête reçoit HTTP 403
+    And le log indique action="BLOCK" reason="blacklist_cidr"
+
   Scenario: IP dans whitelist ET blacklist — whitelist prioritaire
     Given "172.16.0.1" est dans la whitelist
     And "172.16.0.1" est dans la blacklist
