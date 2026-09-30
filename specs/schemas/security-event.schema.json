@@ -26,7 +26,8 @@
       "description": "HMAC-SHA256(clé, client)[:16] — clé dérivée de challenge.secret_key (FR-28), client = l'IPv4, ou le préfixe /64 d'une IPv6 (FR-02) ; corrélation sans exposer l'IP dans les métriques"
     },
     "domain": {
-      "type": "string"
+      "type": "string",
+      "description": "Hôte de la requête sous forme normalisée, comme le domain du VisitorState (minuscules, sans port : \"Example.com:443\" est journalisé \"example.com\")"
     },
     "method": {
       "type": "string",

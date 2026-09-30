@@ -10,6 +10,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/alert"
 	"github.com/gaetandev/waf/internal/gdpr"
+	"github.com/gaetandev/waf/internal/hostname"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/upstreamtime"
@@ -113,7 +114,7 @@ func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores 
 		RequestID:      requestID,
 		IP:             loggedIP,
 		IPHash:         trust.HashIP(ip),
-		Domain:         r.Host,
+		Domain:         hostname.Normalize(r.Host),
 		Method:         r.Method,
 		Path:           r.URL.Path,
 		UserAgent:      r.UserAgent(),
