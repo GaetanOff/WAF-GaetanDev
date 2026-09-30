@@ -96,6 +96,7 @@ Feature: API d'administration (FR-10)
     When GET /waf/admin/config
     Then challenge.secret_key, admin.token et storage.redis.password valent "***"
     And origin_protection.secret, threat_intel.abuseipdb.api_key et alerting.webhooks[].url valent "***"
+    And metrics.auth_token vaut "***" (le Bearer de /waf/metrics, servi sur le listener public)
     And la configuration active garde ses secrets (seule la réponse est masquée)
 
   Scenario: Modification à chaud de la configuration
