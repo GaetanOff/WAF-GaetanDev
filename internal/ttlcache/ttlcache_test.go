@@ -103,3 +103,22 @@ func BenchmarkCacheGetParallel(b *testing.B) {
 		}
 	})
 }
+
+func TestCacheDeleteRemovesOnlyTheKey(t *testing.T) {
+	cache := New[string, int](10, 0)
+	cache.Set("a", 1)
+	cache.Set("b", 2)
+
+	cache.Delete("a")
+	cache.Delete("missing") // sans effet
+
+	if _, ok := cache.Get("a"); ok {
+		t.Fatal(`"a" should have been deleted`)
+	}
+	if value, ok := cache.Get("b"); !ok || value != 2 {
+		t.Fatalf(`Get("b") = %d, %v, want 2, true`, value, ok)
+	}
+	if cache.Len() != 1 {
+		t.Fatalf("Len() = %d, want 1", cache.Len())
+	}
+}

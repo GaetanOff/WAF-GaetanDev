@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/gaetandev/waf/internal/config"
+	"github.com/gaetandev/waf/internal/trust"
 )
 
 func TestJA3StringAndHash(t *testing.T) {
@@ -86,5 +87,22 @@ func TestLastJA3IsBounded(t *testing.T) {
 	}
 	if got := m.lastJA3.Len(); got != 10 {
 		t.Fatalf("tracked IPs = %d, want 10", got)
+	}
+}
+
+// FR-28 : l'effacement oublie le dernier JA3 retenu ; un JA3 différent observé
+// ensuite n'est plus pris pour un changement d'empreinte.
+func TestForgetErasesTheLastJA3(t *testing.T) {
+	m := NewMiddleware(config.TLSFingerprint{Enabled: true}, 10)
+	m.detectSwap("1.2.3.4", "ja3-a")
+	m.detectSwap("5.6.7.8", "ja3-a")
+
+	m.Forget(trust.HashIP("1.2.3.4"))
+
+	if m.detectSwap("1.2.3.4", "ja3-b") {
+		t.Fatal("the erased visitor's JA3 is still held")
+	}
+	if !m.detectSwap("5.6.7.8", "ja3-b") {
+		t.Fatal("another visitor's JA3 must be kept")
 	}
 }
