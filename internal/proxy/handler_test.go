@@ -59,6 +59,36 @@ func TestHandlerProxiesRequestAndAddsHeaders(t *testing.T) {
 
 // Seuls X-WAF-Score et X-WAF-Origin-Token parviennent à l'upstream : les
 // en-têtes de coordination du pipeline restent internes au WAF.
+// FR-01 : un X-WAF-* posé par l'upstream sur sa réponse ne parvient pas au
+// pipeline, qui le lirait comme une décision du WAF (violation FR-08,
+// action et raison FR-09).
+func TestHandlerStripsInternalHeadersFromUpstreamResponses(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-WAF-Action", "RATE_LIMIT")
+		w.Header().Set("X-WAF-Reason", "reflected-by-the-origin")
+		w.Header().Set("X-WAF-Score", "0")
+		w.Header().Set("X-Application", "kept")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	t.Cleanup(upstream.Close)
+	handler := newTestHandler(t, upstream.URL, nil)
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://example.test/", nil))
+
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want the upstream 429", response.Code)
+	}
+	for _, internal := range []string{"X-WAF-Action", "X-WAF-Reason", "X-WAF-Score"} {
+		if value := response.Header().Get(internal); value != "" {
+			t.Errorf("upstream response header %s = %q reached the pipeline", internal, value)
+		}
+	}
+	if response.Header().Get("X-Application") != "kept" {
+		t.Fatal("an application header of the upstream response was dropped")
+	}
+}
+
 func TestHandlerStripsInternalCoordinationHeaders(t *testing.T) {
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		assertHeader(t, r, "X-WAF-Score", "70")
