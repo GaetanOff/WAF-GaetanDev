@@ -2,6 +2,9 @@
 // pour les ressources statiques (FR-24). Sans ce bypass, le CSS/JS chargé par la
 // page de challenge elle-même serait challengé → deadlock de bootstrap.
 //
+// Seuls GET et HEAD sont éligibles : le PASS court-circuite aussi intégrité,
+// règles, géo, threat intel et anti-DDoS, et « POST /login.css » y échappait.
+//
 // Le bypass pose X-WAF-Action=PASS avec X-WAF-Reason=static_asset (honoré par
 // challenge/trust/antibot/risk). La blacklist (middleware access) reste
 // appliquée : un asset depuis une IP blacklistée est toujours bloqué. Le rate
@@ -51,7 +54,7 @@ func (b Bypass) WithCounter(onAsset func(host string)) Bypass {
 
 func (b Bypass) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if b.enabled && b.isAsset(r.URL.Path) {
+		if b.enabled && isReadMethod(r.Method) && b.isAsset(r.URL.Path) {
 			r.Header.Set(wafheader.Action, wafheader.ActionPass)
 			r.Header.Set(wafheader.Reason, Reason)
 			if b.onAsset != nil {
@@ -60,6 +63,12 @@ func (b Bypass) Handler(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// isReadMethod : une écriture (POST, PUT, PATCH, DELETE) n'est jamais une
+// lecture d'asset, quel que soit son chemin (FR-24).
+func isReadMethod(method string) bool {
+	return method == http.MethodGet || method == http.MethodHead
 }
 
 // isAsset : l'extension est comparée sans tenir compte de la casse, comme
