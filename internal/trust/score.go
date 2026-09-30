@@ -345,9 +345,9 @@ var (
 
 func init() {
 	key := make([]byte, hashKeyBytes)
-	if _, err := rand.Read(key); err != nil {
-		panic("trust: random ip hash key: " + err.Error())
-	}
+	// crypto/rand.Read ne rend jamais d'erreur (Go ≥ 1.24 : il interrompt le
+	// processus si le système ne fournit pas d'aléa) ; la branche panic était morte.
+	_, _ = rand.Read(key)
 	hashKey.Store(&key)
 }
 

@@ -162,7 +162,11 @@ threat_intel:
 # Difficulte de PoW adaptative (FR-14) : monte sous attaque, redescend (decay)
 adaptive:
   enabled: true
-  max_difficulty: 16         # plafond de bits sous attaque critique
+  # Plafond de bits sous attaque critique. Défaut du code : 24. Ici égal à
+  # challenge.pow_difficulty (16) : la difficulté adaptative ne monte PAS —
+  # choix de déploiement (24 bits = 3-5 s de CPU sur mobile). Relever pour
+  # que la PoW durcisse sous attaque (FR-14).
+  max_difficulty: 16
   decay_tau: "5m"            # constante de temps de retour au niveau normal
 
 # Regles geographiques (FR-16) : base sur CF-IPCountry (ignore si absent)
@@ -283,7 +287,10 @@ maintenance:
 challenge:
   enabled: true
   # secret_key: "change-me-in-production-min-32-chars" # Préférer env var
-  token_ttl: "90s"           # Durée de validité du nonce
+  # Durée de validité du token de challenge. Défaut du code et de FR-06 : 30s.
+  # 90s ici : pages lentes et réseaux mobiles expiraient en token_expired
+  # (boucle de challenge). Élargit d'autant la fenêtre du garde anti-rejeu.
+  token_ttl: "90s"
   cookie_ttl: "24h"          # Durée du cookie de session
   cookie_name: "waf_session"
   pow_difficulty: 16         # 16 bits ≈ 500ms sur CPU standard
