@@ -684,13 +684,13 @@ slowloris:
   header_timeout: "10s"
 ```
 
-Protège contre les attaques qui ouvrent de nombreuses connexions HTTP lentes pour épuiser les ressources serveur.
+Protège contre les attaques qui ouvrent de nombreuses connexions HTTP lentes pour épuiser les ressources serveur (FR-23). Le corps lent (Slow POST) est borné par [`server.read_timeout`](#server--serveur-http), la connexion inactive par `server.idle_timeout`.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
-| `enabled` | bool | `true` | Active la protection Slowloris. |
-| `max_connections_per_ip` | int | `50` | Nombre maximum de connexions simultanées acceptées par IP. Au-delà, les nouvelles connexions sont refusées immédiatement. |
-| `header_timeout` | durée | `"10s"` | Délai maximum pour recevoir les headers HTTP complets. Une connexion qui n'envoie pas ses headers dans ce délai est fermée. |
+| `enabled` | bool | `true` | Active la borne de requêtes simultanées par IP. |
+| `max_connections_per_ip` | int | `50` | Nombre maximum de **requêtes en cours** par IP réelle du visiteur (une IPv6 par son /64) — derrière Cloudflare, les connexions TCP viennent des points de présence. Au-delà : `429` (`Retry-After: 10`, `X-WAF-Reason: too_many_connections_per_ip`). S'applique à tout chemin sauf `/waf/health`, IP whitelistées comprises. |
+| `header_timeout` | durée | `"10s"` | Délai maximum pour recevoir l'ensemble des en-têtes HTTP. Au-delà, la connexion est fermée **sans réponse** (pas de `408`). Le délai de `10s` s'applique aussi quand `enabled` est faux. |
 
 ---
 
@@ -923,7 +923,7 @@ admin:
 | `enabled` | bool | `true` | Active l'API d'administration sur `server.admin_listen`. |
 | `token` | string | — | Token Bearer pour authentifier les appels API (≥ 32 caractères). **Utiliser `WAF_ADMIN_TOKEN`.** |
 
-L'API expose : `GET /waf/health`, `GET /waf/metrics`, et les endpoints CRUD pour la whitelist, blacklist, visiteurs, stats, events, audit, RGPD.
+L'API expose : `GET /waf/health`, `GET /waf/stats`, et les endpoints CRUD pour la whitelist, blacklist, visiteurs, stats, events, audit, RGPD.
 
 ---
 
