@@ -40,8 +40,9 @@ func (m *Manager) TLSConfig() *tls.Config {
 	return cfg
 }
 
-// HTTPHandler sert le challenge HTTP-01 d'ACME et redirige le reste vers HTTPS
-// (si fallback est nil, autocert applique une redirection 302 vers https).
+// HTTPHandler sert le challenge HTTP-01 d'ACME et passe le reste à fallback.
+// Un fallback nil est à proscrire : autocert redirige alors en 302 vers
+// https://<Host> sans valider le Host (open-redirect, FR-31).
 func (m *Manager) HTTPHandler(fallback http.Handler) http.Handler {
 	return m.mgr.HTTPHandler(fallback)
 }

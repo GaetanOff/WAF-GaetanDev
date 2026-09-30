@@ -178,13 +178,16 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 }
 
 // redirectToHTTPS renvoie un handler de redirection HTTP→HTTPS qui valide le
-// Host entrant contre les domaines configurés avant de rediriger. Un Host non
-// reconnu reçoit un 400 : sans cette garde, un attaquant peut injecter un Host
-// arbitraire et forcer une redirection vers un domaine tiers (open-redirect).
-func redirectToHTTPS(domains []config.DomainConfig) http.HandlerFunc {
-	allowed := make([]string, len(domains))
-	for i, d := range domains {
-		allowed[i] = strings.ToLower(d.Host)
+// Host entrant contre hosts (exacts ou wildcards) avant de rediriger. Un Host
+// non reconnu reçoit un 400 : sans cette garde, un attaquant peut injecter un
+// Host arbitraire et forcer une redirection vers un domaine tiers
+// (open-redirect). Sert la redirection FR-40 (domains[]) et le listener
+// HTTP-01 d'ACME (acme.domains, FR-31), dont la redirection par défaut
+// d'autocert suivait n'importe quel Host.
+func redirectToHTTPS(hosts []string) http.HandlerFunc {
+	allowed := make([]string, len(hosts))
+	for i, host := range hosts {
+		allowed[i] = strings.ToLower(host)
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Même normalisation que le routage : "Example.com" et "[::1]:8080"

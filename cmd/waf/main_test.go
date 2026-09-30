@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gaetandev/waf/internal/acme"
 	"github.com/gaetandev/waf/internal/config"
 	waflogger "github.com/gaetandev/waf/internal/logger"
 	wafmetrics "github.com/gaetandev/waf/internal/metrics"
@@ -1068,7 +1069,7 @@ func TestGeoChallengeInertWithoutRiskEngine(t *testing.T) {
 }
 
 func TestRedirectToHTTPSNormalizesTheHost(t *testing.T) {
-	handler := redirectToHTTPS([]config.DomainConfig{{Host: "Example.com"}, {Host: "*.boxaria.fr"}})
+	handler := redirectToHTTPS(domainHosts([]config.DomainConfig{{Host: "Example.com"}, {Host: "*.boxaria.fr"}}))
 	cases := []struct {
 		host     string
 		wantCode int
@@ -1094,6 +1095,33 @@ func TestRedirectToHTTPSNormalizesTheHost(t *testing.T) {
 		}
 		if got := response.Header().Get("Location"); got != tc.wantURL {
 			t.Fatalf("%s: Location = %q, want %q", tc.host, got, tc.wantURL)
+		}
+	}
+}
+
+// FR-31 : le listener HTTP-01 d'ACME redirige un Host de acme.domains et
+// refuse les autres. La redirection par défaut d'autocert (fallback nil)
+// envoyait « Host: evil.test » vers https://evil.test/.
+func TestACMEChallengeListenerRedirectsOnlyDeclaredHosts(t *testing.T) {
+	manager := acme.NewManager(config.ACME{Domains: []string{"example.com"}, CacheDir: t.TempDir()})
+	handler := manager.HTTPHandler(redirectToHTTPS([]string{"example.com"}))
+	cases := []struct {
+		host     string
+		wantCode int
+		wantURL  string
+	}{
+		{host: "example.com", wantCode: http.StatusMovedPermanently, wantURL: "https://example.com/page?q=1"},
+		{host: "evil.test", wantCode: http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		request := httptest.NewRequest(http.MethodGet, "http://placeholder/page?q=1", nil)
+		request.Host = tc.host
+		response := httptest.NewRecorder()
+
+		handler.ServeHTTP(response, request)
+
+		if response.Code != tc.wantCode || response.Header().Get("Location") != tc.wantURL {
+			t.Fatalf("%s: status = %d Location = %q, want %d %q", tc.host, response.Code, response.Header().Get("Location"), tc.wantCode, tc.wantURL)
 		}
 	}
 }
