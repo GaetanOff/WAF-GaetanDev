@@ -275,6 +275,18 @@ func (m *Metrics) WithLogDrops(dropped func() int64) *Metrics {
 	return m
 }
 
+// WithClusterRejected publie waf_cluster_rejected_events_total, le nombre de
+// messages du bus cluster ignorés (signature absente ou invalide, JSON
+// malformé, type inconnu — FR-20), lu à chaque scrape. Un secret différent
+// d'un nœud à l'autre se lit ici.
+func (m *Metrics) WithClusterRejected(rejected func() int64) *Metrics {
+	m.registry.MustRegister(prometheus.NewCounterFunc(prometheus.CounterOpts{
+		Name: "waf_cluster_rejected_events_total",
+		Help: "Cluster bus messages ignored: unsigned, bad signature, malformed or unknown type (FR-20).",
+	}, func() float64 { return float64(rejected()) }))
+	return m
+}
+
 // IncClusterSync compte un événement de synchronisation cluster appliqué (FR-20).
 func (m *Metrics) IncClusterSync(eventType string) {
 	m.clusterEvents.WithLabelValues(eventType).Inc()

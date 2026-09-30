@@ -13,7 +13,7 @@ info:
     (défaut :80), hors de la chaîne de protection : il sert le challenge
     HTTP-01 (/.well-known/acme-challenge/{token}) et redirige toute autre
     requête GET/HEAD vers HTTPS (302 ; 400 pour les autres méthodes).
-  version: 1.5.1
+  version: 1.6.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -28,6 +28,12 @@ servers:
 security: []
 
 components:
+  securitySchemes:
+    MetricsBearer:
+      type: http
+      scheme: bearer
+      description: metrics.auth_token (opt-in), exigé par GET /waf/metrics quand il est configuré
+
   schemas:
     ChallengeSubmission:
       $ref: "../schemas/challenge-submission.schema.json"
@@ -294,12 +300,31 @@ paths:
       summary: Métriques Prometheus
       description: |
         Exposition Prometheus des métriques du WAF (RED, décisions, pression,
-        stockage, cluster). Non authentifié : à restreindre au réseau de
-        supervision en amont.
+        stockage, cluster). Servi sur tous les domaines : derrière Cloudflare,
+        un pare-feu réseau ne le restreint pas. Avec metrics.auth_token
+        (WAF_METRICS_AUTH_TOKEN), le scraper présente
+        `Authorization: Bearer <token>` ; sans, l'endpoint est public.
       tags: [Observability]
+      security:
+        - {}
+        - MetricsBearer: []
       responses:
         "200":
           description: Métriques au format d'exposition texte Prometheus
+          content:
+            text/plain:
+              schema:
+                type: string
+        "401":
+          description: >-
+            metrics.auth_token est configuré et l'en-tête Authorization est
+            absent ou ne porte pas ce token.
+          headers:
+            WWW-Authenticate:
+              description: Schéma d'authentification attendu
+              schema:
+                type: string
+                const: "Bearer"
           content:
             text/plain:
               schema:

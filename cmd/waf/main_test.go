@@ -1116,3 +1116,33 @@ func TestPoolShadowedDomains(t *testing.T) {
 		t.Fatalf("got %v, want [api.example.com]", got)
 	}
 }
+
+// ADR-020 : un domaine qui active le challenge, sans strict_host et sur
+// l'origine d'un Host non déclaré, est signalé au démarrage.
+func TestBypassableChallengedDomains(t *testing.T) {
+	enabled := true
+	cfg := config.Default()
+	cfg.Challenge.Enabled = false
+	cfg.Upstream.Address = "http://10.0.0.1"
+	cfg.Domains = []config.DomainConfig{
+		{Host: "shop.example.com", Upstream: "http://10.0.0.1", ChallengeEnabled: &enabled},
+		{Host: "api.example.com", Upstream: "http://10.0.0.2", ChallengeEnabled: &enabled},
+		{Host: "www.example.com", Upstream: "http://10.0.0.1"},
+	}
+	if got := bypassableChallengedDomains(cfg); len(got) != 1 || got[0] != "shop.example.com" {
+		t.Fatalf("got %v, want [shop.example.com]", got)
+	}
+	cfg.UpstreamPool.Enabled = true
+	if got := bypassableChallengedDomains(cfg); len(got) != 2 {
+		t.Fatalf("pool serves every host: got %v, want both challenged domains", got)
+	}
+	cfg.Server.StrictHost = true
+	if got := bypassableChallengedDomains(cfg); got != nil {
+		t.Fatalf("strict_host: got %v, want none", got)
+	}
+	cfg.Server.StrictHost = false
+	cfg.Challenge.Enabled = true
+	if got := bypassableChallengedDomains(cfg); got != nil {
+		t.Fatalf("challenge enabled globally: got %v, want none", got)
+	}
+}

@@ -8,7 +8,7 @@ info:
     Ne jamais exposer ce port publiquement.
     Tout corps de requête est borné à 64 Kio : au-delà, le décodage échoue et
     l'opération répond son 400.
-  version: 1.4.0
+  version: 1.4.1
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -323,7 +323,7 @@ paths:
     get:
       operationId: getHealth
       summary: Health check
-      description: Retourne l'état de santé du WAF et sa version. Endpoint non authentifié, utilisé par les sondes de disponibilité. `status` vaut `degraded` quand le stockage partagé (`storage.backend = redis`) est en mode dégradé et que le nœud sert son seul état local (ADR-021, jauge `waf_storage_degraded`) ; le WAF reste opérationnel, la réponse reste 200.
+      description: Retourne l'état de santé du WAF et la version du schéma de sa configuration. Endpoint non authentifié, utilisé par les sondes de disponibilité. `status` vaut `degraded` quand le stockage partagé (`storage.backend = redis`) est en mode dégradé et que le nœud sert son seul état local (ADR-021, jauge `waf_storage_degraded`) ; le WAF reste opérationnel, la réponse reste 200.
       security: []
       tags: [System]
       responses:
@@ -341,6 +341,11 @@ paths:
                     enum: [ok, degraded]
                   version:
                     type: string
+                    description: >-
+                      Clé `version` de la configuration chargée (version du
+                      schéma de configuration, ex. `1.0`), pas la version du
+                      binaire : celui-ci n'en embarque aucune.
+                    examples: ["1.0"]
                   uptime_seconds:
                     type: integer
 

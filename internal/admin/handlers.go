@@ -1,7 +1,6 @@
 package admin
 
 import (
-	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
 	"net"
@@ -13,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/jsonstrict"
+	"github.com/gaetandev/waf/internal/signing"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -175,8 +175,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusTooManyRequests, errorResponse{Error: "locked", Message: "Too many failed attempts"})
 			return
 		}
-		expected := "Bearer " + s.cfg.Admin.Token
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte(expected)) != 1 {
+		if !bearerMatches(r.Header.Get("Authorization"), s.cfg.Admin.Token) {
 			if s.brute != nil {
 				s.brute.Record(ip)
 			}
@@ -185,6 +184,12 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// bearerMatches compare l'en-tête Authorization au token attendu, en temps
+// constant longueur comprise.
+func bearerMatches(header string, token string) bool {
+	return signing.EqualSecret(header, "Bearer "+token)
 }
 
 func clientIP(r *http.Request) string {

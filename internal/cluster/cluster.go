@@ -8,7 +8,6 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
-	"encoding/json"
 	"sync"
 	"time"
 
@@ -101,7 +100,7 @@ func (s *Syncer) Start(ctx context.Context) error {
 }
 
 // Apply mute l'état local selon l'événement reçu. Idempotent. Retourne false
-// pour un événement ignoré (émis par ce nœud).
+// pour un événement ignoré (émis par ce nœud, ou de type inconnu).
 func (s *Syncer) Apply(event Event) bool {
 	if event.Node != "" && event.Node == s.node {
 		return false
@@ -115,6 +114,8 @@ func (s *Syncer) Apply(event Event) bool {
 		s.applyScoreCritical(event)
 	case EventCircuitOpen:
 		s.applyCircuitOpen(event)
+	default:
+		return false
 	}
 	s.mu.Lock()
 	s.applied++
@@ -264,12 +265,3 @@ func (b *LocalBus) Subscribe(_ context.Context, handler func(Event)) error {
 }
 
 func (b *LocalBus) Close() error { return nil }
-
-// encode/decode exposés pour le transport Redis.
-func encode(event Event) ([]byte, error) { return json.Marshal(event) }
-
-func decode(data []byte) (Event, error) {
-	var event Event
-	err := json.Unmarshal(data, &event)
-	return event, err
-}

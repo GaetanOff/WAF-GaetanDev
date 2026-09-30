@@ -234,3 +234,49 @@ func TestVerifyResponseHeadersAreDocumented(t *testing.T) {
 		}
 	}
 }
+
+// waf-self-protection.feature, « /waf/metrics protégé par token (opt-in) » :
+// sans le token, 401 conforme au contrat ; avec, les métriques.
+func TestMetricsRequireTheConfiguredBearerToken(t *testing.T) {
+	contract := loadPublicContract(t)
+	const token = "prometheus-scrape-token-0123456789"
+	cfg := config.Default()
+	cfg.Metrics.AuthToken = token
+	handler := publicTestHandler(t, cfg)
+	probe := contractProbe{http.MethodGet, "/waf/metrics", ""}
+
+	for name, authorization := range map[string]string{
+		"missing":      "",
+		"other token":  "Bearer prometheus-scrape-token-XXXXXXXXXX",
+		"token alone":  token,
+		"basic scheme": "Basic " + token,
+	} {
+		t.Run(name, func(t *testing.T) {
+			response := serveAuthorizedProbe(handler, probe, authorization)
+			if response.Code != http.StatusUnauthorized {
+				t.Fatalf("status = %d, want 401", response.Code)
+			}
+			if got := response.Header().Get("WWW-Authenticate"); got != "Bearer" {
+				t.Fatalf("WWW-Authenticate = %q, want Bearer", got)
+			}
+			contract.assertConforms(t, probe, response)
+		})
+	}
+
+	response := serveAuthorizedProbe(handler, probe, "Bearer "+token)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), "waf_") {
+		t.Fatalf("status = %d with the token, want 200 and the metrics", response.Code)
+	}
+	contract.assertConforms(t, probe, response)
+}
+
+func serveAuthorizedProbe(handler http.Handler, probe contractProbe, authorization string) *httptest.ResponseRecorder {
+	request := httptest.NewRequest(probe.method, "http://example.test"+probe.path, strings.NewReader(probe.body))
+	request.RemoteAddr = "198.51.100.10:443"
+	if authorization != "" {
+		request.Header.Set("Authorization", authorization)
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	return response
+}

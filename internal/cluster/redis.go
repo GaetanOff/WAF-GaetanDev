@@ -3,6 +3,7 @@ package cluster
 import (
 	"context"
 	"crypto/tls"
+	"sync/atomic"
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/redis/go-redis/v9"
@@ -11,13 +12,17 @@ import (
 // RedisBus implémente Bus via Redis Pub/Sub (FR-20). En cas d'erreur de
 // connexion, les publications échouent silencieusement côté appelant (fallback
 // autonome) et la boucle d'abonnement s'arrête proprement à l'annulation du
-// contexte.
+// contexte. Chaque message est signé par une clé partagée par les nœuds : tout
+// client capable de publier sur le canal pouvait sinon propager une blacklist,
+// un score ou un circuit à tout le cluster.
 type RedisBus struct {
-	client  *redis.Client
-	channel string
+	client   *redis.Client
+	channel  string
+	key      []byte
+	rejected atomic.Int64
 }
 
-func NewRedisBus(cfg config.RedisConfig, channel string) *RedisBus {
+func NewRedisBus(cfg config.RedisConfig, channel string, key []byte) *RedisBus {
 	options := &redis.Options{
 		Addr:     cfg.Address,
 		Password: cfg.Password,
@@ -26,11 +31,11 @@ func NewRedisBus(cfg config.RedisConfig, channel string) *RedisBus {
 	if cfg.TLS {
 		options.TLSConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}
-	return &RedisBus{client: redis.NewClient(options), channel: channel}
+	return &RedisBus{client: redis.NewClient(options), channel: channel, key: key}
 }
 
 func (b *RedisBus) Publish(ctx context.Context, event Event) error {
-	payload, err := encode(event)
+	payload, err := seal(b.key, event)
 	if err != nil {
 		return err
 	}
@@ -50,13 +55,28 @@ func (b *RedisBus) Subscribe(ctx context.Context, handler func(Event)) error {
 				if !ok {
 					return
 				}
-				if event, err := decode([]byte(msg.Payload)); err == nil {
-					handler(event)
-				}
+				b.deliver(msg.Payload, handler)
 			}
 		}
 	}()
 	return nil
+}
+
+// deliver transmet au handler un message dont la signature est valide ; les
+// autres sont comptés, jamais appliqués.
+func (b *RedisBus) deliver(message string, handler func(Event)) {
+	event, err := open(b.key, message)
+	if err != nil {
+		b.rejected.Add(1)
+		return
+	}
+	handler(event)
+}
+
+// Rejected retourne le nombre de messages ignorés (signature absente ou
+// invalide, JSON malformé, type inconnu) : waf_cluster_rejected_events_total.
+func (b *RedisBus) Rejected() int64 {
+	return b.rejected.Load()
 }
 
 func (b *RedisBus) Close() error {

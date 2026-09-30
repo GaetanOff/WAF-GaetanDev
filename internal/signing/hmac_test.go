@@ -44,3 +44,25 @@ func TestDeriveSeparatesPurposes(t *testing.T) {
 		t.Fatal("derivation must be deterministic")
 	}
 }
+
+func TestEqualSecret(t *testing.T) {
+	const secret = "Bearer 0123456789abcdef0123456789abcdef"
+	tests := []struct {
+		name string
+		got  string
+		want bool
+	}{
+		{"same", secret, true},
+		{"empty", "", false},
+		{"prefix", secret[:len(secret)-1], false},
+		{"longer", secret + "x", false},
+		{"same length, other value", "Bearer 0123456789abcdef0123456789abcdeX", false},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := EqualSecret(tc.got, secret); got != tc.want {
+				t.Fatalf("EqualSecret(%q) = %v, want %v", tc.got, got, tc.want)
+			}
+		})
+	}
+}

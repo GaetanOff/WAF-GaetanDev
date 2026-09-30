@@ -17,6 +17,7 @@ import (
 	"github.com/gaetandev/waf/internal/proxy"
 	"github.com/gaetandev/waf/internal/secheaders"
 	"github.com/gaetandev/waf/internal/selfprotect"
+	"github.com/gaetandev/waf/internal/signing"
 	"github.com/gaetandev/waf/internal/slowloris"
 	"github.com/gaetandev/waf/internal/staticassets"
 )
@@ -31,7 +32,7 @@ func (a *app) routes() http.Handler {
 	guard := envelopeGuard(cfg)
 	mux := http.NewServeMux()
 	mux.Handle("/waf/health", allowGet(http.HandlerFunc(healthHandler)))
-	mux.Handle("/waf/metrics", guard(allowGet(a.metrics.Handler())))
+	mux.Handle("/waf/metrics", guard(allowGet(requireBearer(cfg.Metrics.AuthToken, a.metrics.Handler()))))
 	if cfg.OriginProtection.Enabled {
 		// Protection de l'origine (FR-19) : endpoint de vérification + injection
 		// du token signé vers l'upstream (le proxy transmet le header).
@@ -146,6 +147,24 @@ func allowGet(next http.Handler) http.Handler {
 		if r.Method != http.MethodGet && r.Method != http.MethodHead {
 			w.Header().Set("Allow", "GET, HEAD")
 			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// requireBearer exige « Authorization: Bearer <token> » (FR-30,
+// metrics.auth_token) ; un token vide laisse l'endpoint public. Derrière
+// Cloudflare, /waf/metrics répond sur tous les domaines : un pare-feu réseau
+// ne le protège pas.
+func requireBearer(token string, next http.Handler) http.Handler {
+	if token == "" {
+		return next
+	}
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if !signing.EqualSecret(r.Header.Get("Authorization"), "Bearer "+token) {
+			w.Header().Set("WWW-Authenticate", "Bearer")
+			http.Error(w, "unauthorized", http.StatusUnauthorized)
 			return
 		}
 		next.ServeHTTP(w, r)

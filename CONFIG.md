@@ -17,6 +17,7 @@ Ne mettez **jamais** de secrets dans `config.yaml`. Fournissez-les via l'environ
 |---|---|---|
 | `WAF_CHALLENGE_SECRET_KEY` | `challenge.secret_key` | 32 caractères |
 | `WAF_ADMIN_TOKEN` | `admin.token` | 32 caractères |
+| `WAF_METRICS_AUTH_TOKEN` | `metrics.auth_token` | 32 caractères |
 | `WAF_REDIS_PASSWORD` | `storage.redis.password` | — |
 | `WAF_ORIGIN_SECRET` | `origin_protection.secret` | 16 caractères |
 | `WAF_ABUSEIPDB_KEY` | `threat_intel.abuseipdb.api_key` | — |
@@ -633,11 +634,13 @@ cluster:
   channel: "waf:events"
 ```
 
-Synchronise les décisions (scores, blacklists dynamiques) entre plusieurs instances WAF via Redis Pub/Sub. Nécessite `storage.backend: "redis"`.
+Synchronise les décisions (blacklist, ouverture de circuit, score critique) entre plusieurs instances WAF via Redis Pub/Sub, sur la connexion `storage.redis` (quel que soit `storage.backend`).
+
+Chaque événement est signé (HMAC-SHA256, clé dérivée de `challenge.secret_key`) : un message non signé, mal signé ou de type inconnu est ignoré et compté dans `waf_cluster_rejected_events_total`. Tous les nœuds doivent donc partager le même `challenge.secret_key` (`WAF_CHALLENGE_SECRET_KEY`). La signature n'empêche pas le rejeu d'un message capturé : garder Redis sur un réseau privé, avec mot de passe, TLS et une ACL qui réserve `PUBLISH`/`SUBSCRIBE` sur le canal aux nœuds WAF.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
-| `enabled` | bool | `false` | Active la synchronisation cluster. **Opt-in.** Requiert un Redis configuré. |
+| `enabled` | bool | `false` | Active la synchronisation cluster. **Opt-in.** Requiert `storage.redis.address` et `challenge.secret_key` (≥ 32 caractères, identique sur tous les nœuds). |
 | `channel` | string | `"waf:events"` | Nom du canal Pub/Sub Redis utilisé pour diffuser les événements entre nœuds. |
 
 ---
@@ -684,13 +687,13 @@ slowloris:
   header_timeout: "10s"
 ```
 
-Protège contre les attaques qui ouvrent de nombreuses connexions HTTP lentes pour épuiser les ressources serveur.
+Protège contre les attaques qui ouvrent de nombreuses connexions HTTP lentes pour épuiser les ressources serveur (FR-23). Le corps lent (Slow POST) est borné par [`server.read_timeout`](#server--serveur-http), la connexion inactive par `server.idle_timeout`.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
-| `enabled` | bool | `true` | Active la protection Slowloris. |
-| `max_connections_per_ip` | int | `50` | Nombre maximum de connexions simultanées acceptées par IP. Au-delà, les nouvelles connexions sont refusées immédiatement. |
-| `header_timeout` | durée | `"10s"` | Délai maximum pour recevoir les headers HTTP complets. Une connexion qui n'envoie pas ses headers dans ce délai est fermée. |
+| `enabled` | bool | `true` | Active la borne de requêtes simultanées par IP. |
+| `max_connections_per_ip` | int | `50` | Nombre maximum de **requêtes en cours** par IP réelle du visiteur (une IPv6 par son /64) — derrière Cloudflare, les connexions TCP viennent des points de présence. Au-delà : `429` (`Retry-After: 10`, `X-WAF-Reason: too_many_connections_per_ip`). S'applique à tout chemin sauf `/waf/health`, IP whitelistées comprises. |
+| `header_timeout` | durée | `"10s"` | Délai maximum pour recevoir l'ensemble des en-têtes HTTP. Au-delà, la connexion est fermée **sans réponse** (pas de `408`). Le délai de `10s` s'applique aussi quand `enabled` est faux. |
 
 ---
 
@@ -910,6 +913,32 @@ Le challenge JavaScript consiste en un Proof-of-Work SHA-256 (via `SubtleCrypto`
 
 ---
 
+## `metrics` — Endpoint Prometheus
+
+```yaml
+metrics:
+  auth_token: ""   # préférer WAF_METRICS_AUTH_TOKEN
+```
+
+`/waf/metrics` est servi par le listener public, **sur tous les domaines** : derrière Cloudflare, `https://<votre-domaine>/waf/metrics` est joignable depuis Internet et un pare-feu réseau ne le restreint pas. Il révèle les domaines, les décisions, la pression et l'état du stockage.
+
+| Clé | Type | Défaut | Description |
+|---|---|---|---|
+| `auth_token` | string | `""` | **Opt-in.** Token Bearer (≥ 32 caractères) exigé par `GET /waf/metrics` : sans `Authorization: Bearer <token>`, réponse `401`. Vide : endpoint public. **Utiliser `WAF_METRICS_AUTH_TOKEN`.** Recommandé en production. |
+
+Côté Prometheus :
+
+```yaml
+scrape_configs:
+  - job_name: waf
+    metrics_path: /waf/metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/waf-metrics-token
+```
+
+---
+
 ## `admin` — API d'administration
 
 ```yaml
@@ -923,7 +952,7 @@ admin:
 | `enabled` | bool | `true` | Active l'API d'administration sur `server.admin_listen`. |
 | `token` | string | — | Token Bearer pour authentifier les appels API (≥ 32 caractères). **Utiliser `WAF_ADMIN_TOKEN`.** |
 
-L'API expose : `GET /waf/health`, `GET /waf/metrics`, et les endpoints CRUD pour la whitelist, blacklist, visiteurs, stats, events, audit, RGPD.
+L'API expose : `GET /waf/health`, `GET /waf/stats`, et les endpoints CRUD pour la whitelist, blacklist, visiteurs, stats, events, audit, RGPD.
 
 ---
 
@@ -1067,7 +1096,7 @@ La correspondance d'hôte est insensible à la casse et ignore le port : `Host: 
 |---|---|---|
 | `host` | string | Nom de domaine à matcher (exact ou wildcard `*.`). |
 | `upstream` | string | URL de l'upstream pour ce domaine (surcharge `upstream.address`). |
-| `challenge_enabled` | bool | Surcharge `challenge.enabled` pour ce domaine. ⚠ Sans [`server.strict_host`](#server--serveur-http), un `Host` non listé hérite de la politique **globale** et de `upstream.address` : si cet upstream est la même origine, durcir un domaine ne protège rien — il suffit de changer l'en-tête `Host` (ADR-020). **Clé absente = hérite du global** (un domaine déclaré pour son seul `upstream` ou son certificat ne perd pas le challenge). `false` = jamais de challenge JS sur ce domaine, **y compris en mode sous attaque** ([FR-39](#antiddosunder_attack--mode--sous-attaque--fr-39-adr-018)). `true` = challenge servi même si `challenge.enabled` est `false` globalement. |
+| `challenge_enabled` | bool | Surcharge `challenge.enabled` pour ce domaine. ⚠ Sans [`server.strict_host`](#server--serveur-http), un `Host` non listé hérite de la politique **globale** et de `upstream.address` : si cet upstream est la même origine, durcir un domaine ne protège rien — il suffit de changer l'en-tête `Host` (ADR-020). Le WAF signale ce cas au démarrage (avertissement `challenge_enabled is bypassable`). **Clé absente = hérite du global** (un domaine déclaré pour son seul `upstream` ou son certificat ne perd pas le challenge). `false` = jamais de challenge JS sur ce domaine, **y compris en mode sous attaque** ([FR-39](#antiddosunder_attack--mode--sous-attaque--fr-39-adr-018)). `true` = challenge servi même si `challenge.enabled` est `false` globalement. |
 | `tls.cert_file` | string | Chemin du certificat PEM (chaîne complète) présenté pour ce domaine quand `server.tls.enabled: true` (sélection par SNI). |
 | `tls.key_file` | string | Chemin de la clé privée PEM correspondante. |
 

@@ -217,6 +217,10 @@ func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout 
 			pr.Out.Header.Set(wafheader.Score, defaultWAFScore)
 		}
 	}
+	proxy.ModifyResponse = func(response *http.Response) error {
+		stripUpstreamWAFHeaders(response.Header)
+		return nil
+	}
 	proxy.Transport = &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
@@ -258,6 +262,19 @@ var forwardedInternalHeaders = map[string]bool{
 func stripInternalHeaders(header http.Header) {
 	for name := range header {
 		if strings.HasPrefix(name, wafheader.Prefix) && !forwardedInternalHeaders[name] {
+			delete(header, name)
+		}
+	}
+}
+
+// stripUpstreamWAFHeaders retire de la réponse de l'upstream tout X-WAF-* : le
+// pipeline lit ces en-têtes sur la réponse comme sa propre décision (FR-01).
+// Un X-WAF-Action: RATE_LIMIT de l'origine comptait comme une violation du
+// circuit-breaker (FR-08), un X-WAF-Reason quelconque devenait une série du
+// label reason (FR-09). Les clés sont canoniques (réponse parsée par Go).
+func stripUpstreamWAFHeaders(header http.Header) {
+	for name := range header {
+		if strings.HasPrefix(name, wafheader.Prefix) {
 			delete(header, name)
 		}
 	}

@@ -108,6 +108,7 @@ variables d'environnement et surchargent le fichier :
 |---|---|
 | `WAF_CHALLENGE_SECRET_KEY` | Clé HMAC du challenge et des cookies (≥ 32 caractères) |
 | `WAF_ADMIN_TOKEN` | Jeton Bearer de l'API d'administration (≥ 32 caractères) |
+| `WAF_METRICS_AUTH_TOKEN` | Jeton Bearer exigé par `/waf/metrics` (≥ 32 caractères, opt-in, recommandé : l'endpoint répond sur tous les domaines publics) |
 | `WAF_REDIS_PASSWORD` | Mot de passe Redis (si backend `redis`) |
 
 ### Réglages clés
@@ -178,15 +179,18 @@ curl -H "Authorization: Bearer $WAF_ADMIN_TOKEN" \
 
 ```bash
 make test            # go test ./...
-make lint            # go vet ./...
-go test ./... -race -coverprofile=coverage.out   # comme en CI
+make lint            # golangci-lint run ./...
+make behavior        # go test -race + couverture >= 80 %, comme en CI
+make gates           # G1 à G5 : spec-lint, typecheck, lint, conformance, behavior, security
 ```
 
 Les **portes qualité** (gates) sont décrites dans
 [`specs/validation.md`](specs/validation.md) et exécutées en CI
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) :
-lint, tests `-race` + couverture, build statique Linux, et `spectral`
-sur le contrat OpenAPI.
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) par les mêmes
+cibles `make` : golangci-lint, `go vet` + `go build ./...`, tests `-race`
+avec couverture minimale de 80 %, build statique Linux, `govulncheck` et
+`spectral` sur les contrats OpenAPI. Semgrep et Trivy (bloquant sur une
+vulnérabilité HIGH/CRITICAL corrigeable) ont leurs propres workflows.
 
 Les comportements sont spécifiés en Gherkin dans
 [`specs/features/`](specs/features/) et couverts par des tests de conformance.

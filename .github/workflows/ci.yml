@@ -36,16 +36,19 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: go test
-        run: go test ./... -race -coverprofile=coverage.out -covermode=atomic
+      # G4 : même commande que `make behavior` — tests -race, puis échec si la
+      # couverture totale passe sous COVERAGE_MIN (Makefile).
+      - name: go test (race + coverage gate)
+        run: make behavior
       - name: Upload coverage
+        if: always()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: coverage
           path: coverage.out
 
   build:
-    name: Build (static linux binary)
+    name: Build (typecheck + static linux binary)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -53,6 +56,10 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
+      # G2 : `make typecheck` vérifie et compile tous les paquets ; le binaire
+      # seul laissait passer un paquet internal/ cassé que rien n'importe.
+      - name: go vet + go build ./...
+        run: make typecheck
       - name: go build
         env:
           CGO_ENABLED: "0"
@@ -82,5 +89,6 @@ jobs:
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: "24"
+      # G1 : même commande (et même version épinglée) que `make spec-lint`.
       - name: spectral lint
-        run: npx --yes @stoplight/spectral-cli@6 lint specs/api/admin.openapi.yaml specs/api/public.openapi.yaml --ruleset .spectral.yaml
+        run: make spec-lint

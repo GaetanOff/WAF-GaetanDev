@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"slices"
+	"strings"
 	"testing"
 	"time"
 
@@ -78,12 +79,22 @@ func TestPublishedEventsMatchClusterEventSchema(t *testing.T) {
 	}
 }
 
+// capturingBus retient le JSON de chaque message tel que RedisBus le
+// publierait, signature retirée après vérification.
 type capturingBus struct{ payloads [][]byte }
 
 func (b *capturingBus) Publish(_ context.Context, event Event) error {
-	payload, err := encode(event)
-	b.payloads = append(b.payloads, payload)
-	return err
+	key := EventKey(testSecret)
+	message, err := seal(key, event)
+	if err != nil {
+		return err
+	}
+	if _, err := open(key, string(message)); err != nil {
+		return err
+	}
+	_, payload, _ := strings.Cut(string(message), ".")
+	b.payloads = append(b.payloads, []byte(payload))
+	return nil
 }
 
 func (b *capturingBus) Subscribe(context.Context, func(Event)) error { return nil }

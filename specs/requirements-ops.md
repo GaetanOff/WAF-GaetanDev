@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.12.0
-last-reviewed: 2026-09-30
+version: 3.13.0
+last-reviewed: 2026-10-01
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-27/FR-28 : réalignés sur le code — audit.max_entries 1 000 par défaut ; anonymisation gdpr.anonymize_ip (défaut true) limitée aux journaux ; conservation = trust.score_ttl (visiteurs), 24 h (events), audit.max_entries ; rétentions configurables et rapport privacy différés. Précédent (3.11.0) — FR-21/FR-22 : réalignés sur le contrat implémenté (config.schema.json) — X-Frame-Options DENY par défaut, Permissions-Policy opt-in, HSTS quel que soit le transport ; réglages par domaine, X-XSS-Protection, X-WAF-Protected et sanitize_errors différés. Précédent (3.10.5) — FR-25 : la sonde de santé ne suit pas les redirections (3xx = succès) et applique upstream.tls_verify. Précédent (3.10.4) — FR-28 : ip_hash = HMAC-SHA256 à clé (dérivée de challenge.secret_key) au lieu d'un SHA-256 sans clé renversable sur IPv4. Précédent (3.10.3) — FR-28 : l'effacement supprime aussi buckets de rate limit, mesure THROTTLE, profil comportemental et dernier JA3. Précédent (3.10.2) — FR-23 : taille des en-têtes bornée (server.max_header_bytes, 64 Kio par défaut). Précédent (3.10.1) — FR-25 : l'annulation d'une requête par le client ne retire plus le membre du pool. Précédent (3.10.0) — FR-30 : détection de rejeu des tokens de challenge (`token_already_used`) implémentée. Précédent (3.9.5) — FR-40 : la redirection HTTPS accepte l'apex d'un domaine wildcard. Précédent (3.9.4) — FR-40 : deux serveurs démarrés sur la même adresse d'écoute sont refusés à la validation. Précédent (3.9.3) — FR-32 : la page brandée qui remplace un corps d'erreur retire les en-têtes décrivant le corps d'origine (`Content-Encoding`, `Content-Range`, `ETag`, `Last-Modified`). Précédent (3.9.2) — FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+change: "FR-30 : /waf/metrics protégé par un token Bearer opt-in (metrics.auth_token, WAF_METRICS_AUTH_TOKEN) — 401 sans. Précédent (3.12.1) — FR-23 / NFR-11 : réalignés sur le code — header_timeout ferme la connexion sans réponse (pas de 408), slow POST borné par server.read_timeout, borne par IP sur les requêtes en cours (429 too_many_connections_per_ip) ; 408, body_min_rate, RST, exemption whitelist et métriques dédiées différés. Précédent (3.12.0) — FR-27/FR-28 : réalignés sur le code — audit.max_entries 1 000 par défaut ; anonymisation gdpr.anonymize_ip (défaut true) limitée aux journaux ; conservation = trust.score_ttl (visiteurs), 24 h (events), audit.max_entries ; rétentions configurables et rapport privacy différés. Précédent (3.11.0) — FR-21/FR-22 : réalignés sur le contrat implémenté (config.schema.json) — X-Frame-Options DENY par défaut, Permissions-Policy opt-in, HSTS quel que soit le transport ; réglages par domaine, X-XSS-Protection, X-WAF-Protected et sanitize_errors différés. Précédent (3.10.5) — FR-25 : la sonde de santé ne suit pas les redirections (3xx = succès) et applique upstream.tls_verify. Précédent (3.10.4) — FR-28 : ip_hash = HMAC-SHA256 à clé (dérivée de challenge.secret_key) au lieu d'un SHA-256 sans clé renversable sur IPv4. Précédent (3.10.3) — FR-28 : l'effacement supprime aussi buckets de rate limit, mesure THROTTLE, profil comportemental et dernier JA3. Précédent (3.10.2) — FR-23 : taille des en-têtes bornée (server.max_header_bytes, 64 Kio par défaut). Précédent (3.10.1) — FR-25 : l'annulation d'une requête par le client ne retire plus le membre du pool. Précédent (3.10.0) — FR-30 : détection de rejeu des tokens de challenge (`token_already_used`) implémentée. Précédent (3.9.5) — FR-40 : la redirection HTTPS accepte l'apex d'un domaine wildcard. Précédent (3.9.4) — FR-40 : deux serveurs démarrés sur la même adresse d'écoute sont refusés à la validation. Précédent (3.9.3) — FR-32 : la page brandée qui remplace un corps d'erreur retire les en-têtes décrivant le corps d'origine (`Content-Encoding`, `Content-Range`, `ETag`, `Last-Modified`). Précédent (3.9.2) — FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -56,17 +56,35 @@ change: "FR-27/FR-28 : réalignés sur le code — audit.max_entries 1 000 par d
 
 ## FR-23 — Protection Slowloris & Slow HTTP
 
-- Le WAF DOIT implémenter une protection contre les attaques **Slowloris** (slow headers) :
-  - Timeout sur la réception complète des headers HTTP : configurable (défaut `headers_timeout: 10s`)
-  - Si les headers ne sont pas complets dans ce délai → fermer la connexion avec HTTP 408
-- Le WAF DOIT implémenter une protection contre les attaques **Slow POST** (slow body) :
-  - Timeout sur la réception du body avec un débit minimum configurable (défaut: 100 bytes/seconde)
-  - Si le body arrive plus lentement que le seuil minimum → HTTP 408
-- Le WAF DOIT limiter le nombre de connexions simultanées par IP :
-  - `max_connections_per_ip`: configurable (défaut: 50)
-  - Au-delà → TCP RST ou HTTP 429 selon config
-- Le WAF DOIT détecter les connexions qui consomment le pool sans envoyer de données :
-  - Connexions ouvertes > `idle_read_timeout` sans byte reçu → fermer
+- Contrat de configuration : bloc `slowloris` et clés `server.read_timeout`,
+  `server.idle_timeout`, `server.max_header_bytes`, `server.max_header_value_count`
+  de `config.schema.json`
+- Le WAF DOIT borner la réception des en-têtes HTTP (**Slowloris**) :
+  - `slowloris.header_timeout` (défaut `10s`), délai de lecture de l'ensemble des
+    en-têtes (pas de chaque ligne) — `http.Server.ReadHeaderTimeout`
+  - Délai dépassé → le serveur HTTP ferme la connexion **sans réponse** : aucun
+    middleware ne s'est exécuté, rien n'est journalisé
+  - Le délai de `10s` s'applique aussi quand `slowloris.enabled` est faux
+- Le WAF DOIT borner la lecture du corps (**Slow POST**) par `server.read_timeout`
+  (défaut `30s`) : durée totale de lecture de la requête, en-têtes et corps
+  compris. Au-delà, la lecture du corps échoue et la connexion est fermée
+- Le WAF DOIT fermer une connexion keep-alive inactive au-delà de
+  `server.idle_timeout` (défaut `60s`)
+- Le WAF DOIT borner le nombre de **requêtes en cours** par IP client :
+  - `slowloris.max_connections_per_ip` (défaut: 50), compté par IP réelle (FR-02,
+    une IPv6 par son /64) : derrière Cloudflare, les connexions TCP viennent des
+    points de présence, seule une borne par requête suit le visiteur
+  - Au-delà → `429` avec `Retry-After: 10`, `X-WAF-Action: RATE_LIMIT`,
+    `X-WAF-Reason: too_many_connections_per_ip`, journalisé et compté dans
+    `waf_requests_total` (FR-09)
+  - Appliquée dans l'enveloppe, à tout chemin sauf `/waf/health`, avant la
+    whitelist : une IP whitelistée y est soumise
+- **Différé** (`slowloris-protection.feature`, scénarios `@deferred`) : réponse
+  `408` et event `slowloris_headers_timeout` à l'expiration des en-têtes, débit
+  minimal du corps (`body_min_rate`, event `slow_body_rate`), rejet par TCP RST,
+  exemption de la whitelist, métriques dédiées (`waf_slowloris_blocked_total`,
+  `waf_slow_post_blocked_total`, `waf_connections_per_ip_max`,
+  `waf_active_connections`)
 - Le WAF DOIT borner la **taille des en-têtes** d'une requête, sur le listener public,
   l'API admin et les serveurs annexes :
   - `max_header_bytes`: configurable (défaut: 65536 ; `0` = défaut Go, 1 Mio)
@@ -329,12 +347,20 @@ change: "FR-27/FR-28 : réalignés sur le code — audit.max_entries 1 000 par d
   échecs d'authentification (défaut: 5) : `429 {"error": "locked"}` pendant la
   fenêtre `self_protection.admin_lockout` (défaut: `5m`), token valide compris.
   Seuls les échecs sont comptés
+- Le token Bearer DOIT être comparé en temps constant, longueur comprise
 - **Différé** : blacklist 24 h sur le port admin, event d'audit
   `ADMIN_AUTH_FLOOD` et webhook associé, `admin.allowed_ips`
 
 ### Protection de l'endpoint /waf/metrics
-- `/waf/metrics` est public (Prometheus). Restreindre l'accès par firewall réseau
-- **Différé** : protection par token (`metrics.auth_token`)
+- `/waf/metrics` est servi par le listener public, sur tous les domaines :
+  derrière Cloudflare, un firewall réseau ne le restreint pas. Il expose les
+  domaines, les décisions, la pression et l'état du stockage
+- Avec `metrics.auth_token` (opt-in, ≥ 32 caractères, `WAF_METRICS_AUTH_TOKEN`),
+  `GET /waf/metrics` DOIT exiger `Authorization: Bearer <token>` : sinon `401`
+  avec `WWW-Authenticate: Bearer`. La comparaison DOIT être en temps constant,
+  longueur comprise. Sans token configuré, l'endpoint reste public
+- Les refus d'enveloppe (`strict_host`, slowloris) et le `405` précèdent la
+  vérification du token
 
 ### Parsing JSON des entrées non fiables
 - Tout corps JSON provenant d'un client (`POST /waf/verify`, API admin) DOIT être
@@ -440,9 +466,10 @@ change: "FR-27/FR-28 : réalignés sur le code — audit.max_entries 1 000 par d
 ## Non-Functional Requirements additionnels (v3)
 
 ### NFR-11 — Connexions & Slowloris
-- Timeout sur headers HTTP : `10s` par défaut (configurable `1s-60s`)
-- Débit minimum du body : `100 B/s` par défaut (configurable)
-- Max connexions simultanées par IP : `50` par défaut
+- Timeout sur headers HTTP : `10s` par défaut (`slowloris.header_timeout`)
+- Lecture complète de la requête : `30s` par défaut (`server.read_timeout`) ;
+  un débit minimum du body est différé (FR-23)
+- Max requêtes simultanées par IP : `50` par défaut
 
 ### NFR-12 — Webhooks Performance
 - Envoi webhook : entièrement asynchrone, jamais bloquant pour la requête

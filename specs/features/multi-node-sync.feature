@@ -11,6 +11,7 @@ Feature: Synchronisation Multi-Nœuds (Cluster Mode)
 
   Background:
     Given le WAF est configuré avec cluster.enabled = true
+    And les 3 instances partagent le même challenge.secret_key (clé de signature des événements)
     And storage.redis pointe vers "redis:6379" (la connexion du bus Pub/Sub)
     And 3 instances WAF sont actives: WAF-1, WAF-2, WAF-3
 
@@ -30,6 +31,25 @@ Feature: Synchronisation Multi-Nœuds (Cluster Mode)
     Given WAF-1 publie un événement "blacklist_add"
     When Redis Pub/Sub le lui renvoie
     Then WAF-1 ne l'applique pas une seconde fois (l'événement porte l'identifiant du nœud émetteur)
+
+  Scenario: Événement non signé ou mal signé — ignoré
+    Given un client Redis publie sur cluster.channel un "blacklist_add" de "0.0.0.0/0" sans signature valide
+    When WAF-2 reçoit le message
+    Then WAF-2 ne l'applique pas
+    And waf_cluster_rejected_events_total est incrémenté sur WAF-2
+
+  Scenario: Événement de type inconnu — ignoré
+    Given WAF-1 publie un événement correctement signé de type "reboot"
+    When WAF-2 le reçoit
+    Then WAF-2 ne l'applique pas
+    And waf_cluster_sync_events_total ne crée aucune série pour ce type
+    And waf_cluster_rejected_events_total est incrémenté sur WAF-2
+
+  Scenario: Mode cluster sans secret partagé — refusé au démarrage
+    Given cluster.enabled = true
+    And challenge.secret_key est vide
+    When le WAF charge sa configuration
+    Then le démarrage échoue : les événements ne peuvent pas être signés
 
   Scenario: Publication non bloquante
     Given Redis est lent ou indisponible
