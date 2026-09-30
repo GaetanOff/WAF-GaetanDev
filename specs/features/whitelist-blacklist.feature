@@ -64,6 +64,15 @@ Feature: Gestion Whitelist / Blacklist
     And la vérification reverse-DNS (risk_engine.verified_bots) la classe "spoofed"
     # Régression : la whitelist UA posait X-WAF-Action=PASS et contournait toute la chaîne.
 
+  Scenario: User-Agent whitelisté non vérifiable faute de place — challengé
+    Given le pattern "Googlebot" est dans la whitelist_user_agents
+    And le challenge est actif sur le domaine
+    And la file de vérification reverse-DNS est pleine
+    When une IP non planifiée envoie GET "/" avec User-Agent "Googlebot" et Accept "text/html"
+    Then l'état de vérification est "unverified"
+    And elle reçoit la page de challenge comme tout visiteur sans clearance
+    # Régression : seul « spoofed » retirait l'exemption ; saturer la file la rendait inconditionnelle.
+
   Scenario: User-Agent whitelisté — pas de pénalité d'en-têtes navigateur
     Given le pattern "Googlebot" est dans la whitelist_user_agents
     And le score initial du visiteur est 50
