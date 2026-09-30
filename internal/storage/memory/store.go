@@ -195,6 +195,10 @@ func (s *Store) SetBucket(key string, bucket storage.RateBucket) {
 	s.buckets.Store(key, bucket)
 }
 
+func (s *Store) DeleteBucket(key string) {
+	s.buckets.Delete(key)
+}
+
 // UpdateBuckets verrouille le groupe de clés le temps de lire, calculer et
 // écrire. Le verrou est choisi par la première clé : les clés d'un même appel
 // sont celles d'une même IP (fenêtres seconde, minute, heure), et tout appel

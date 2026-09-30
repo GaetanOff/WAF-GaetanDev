@@ -35,7 +35,7 @@ type TokenPayload struct {
 	// IssuedAtMS date l'émission à la milliseconde : /waf/verify en déduit la
 	// durée du challenge, au lieu de croire l'elapsed_ms du client.
 	IssuedAtMS int64 `json:"issued_at_ms"`
-	ExpiresAt   int64  `json:"expires_at"`
+	ExpiresAt  int64 `json:"expires_at"`
 }
 
 // tokenKeyPurpose et clearanceKeyPurpose séparent les clés du token de

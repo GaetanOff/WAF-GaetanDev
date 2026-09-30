@@ -1,6 +1,6 @@
 ---
 status: approved
-last-reviewed: 2026-06-08
+last-reviewed: 2026-09-30
 ---
 
 # Registre des traitements — WAF Anti-DDoS / Anti-Bot (FR-28, ADR-013)
@@ -27,8 +27,11 @@ caractère personnel.
   applicative collectée par le WAF.
 - **Conservation limitée** : purge automatique des visiteurs au-delà du TTL
   (goroutine du store).
-- **Droit à l'effacement** : `POST /waf/admin/gdpr/erase {"ip": "..."}` supprime
-  immédiatement toutes les données d'un visiteur (par hash IP).
+- **Droit à l'effacement** : `POST /waf/admin/gdpr/erase {"ip": "..."}` (ou
+  `DELETE /waf/admin/visitors/{ip_hash}`) supprime immédiatement toutes les
+  données d'un visiteur (par hash IP) : état de confiance, buckets de rate limit,
+  profil comportemental, dernier JA3. Les événements de sécurité passés restent
+  soumis à leur rétention.
 - **Pas de secret en clair** : secrets via variables d'environnement ; audit
   trail masque les secrets.
 

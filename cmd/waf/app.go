@@ -151,15 +151,18 @@ type app struct {
 	startedAt time.Time
 	stop      cleanup
 
-	origin              http.Handler
-	accessRules         *access.RuleSet
-	metrics             *wafmetrics.Metrics
-	store               storage.Store
-	scoreManager        *trust.ScoreManager
-	antiDDoS            antiddos.Middleware
-	rateLimiter         *ratelimit.Middleware
-	antiBot             antibot.Middleware
-	riskMiddleware      *risk.Middleware
+	origin         http.Handler
+	accessRules    *access.RuleSet
+	metrics        *wafmetrics.Metrics
+	store          storage.Store
+	scoreManager   *trust.ScoreManager
+	antiDDoS       antiddos.Middleware
+	rateLimiter    *ratelimit.Middleware
+	antiBot        antibot.Middleware
+	riskMiddleware *risk.Middleware
+	// erasers effacent l'état d'un visiteur tenu hors du store de visiteurs
+	// (POST /waf/admin/gdpr/erase, FR-28).
+	erasers             []func(ipHash string)
 	detectors           []func(http.Handler) http.Handler
 	adaptiveController  *adaptive.Controller
 	challengeMiddleware challenge.Middleware
@@ -314,6 +317,7 @@ func (a *app) buildProtection() error {
 		return err
 	}
 	a.riskMiddleware.WithThrottle(a.rateLimiter.Throttle)
+	a.erasers = append(a.erasers, a.rateLimiter.Forget)
 	a.stop.add(a.riskMiddleware.Close)
 	return nil
 }
@@ -335,6 +339,7 @@ func (a *app) buildDetectors() error {
 		behavioralTracker := behavioral.New(cfg.Behavioral.MaxRecords, cfg.Trust.MaxVisitors)
 		a.stop.add(behavioralTracker.Close)
 		a.detectors = append(a.detectors, behavioralTracker.Handler)
+		a.erasers = append(a.erasers, behavioralTracker.Forget)
 	}
 	if cfg.ThreatIntel.Enabled {
 		if err := a.addThreatIntelDetector(); err != nil {
@@ -345,7 +350,9 @@ func (a *app) buildDetectors() error {
 		a.detectors = append(a.detectors, geo.NewRules(cfg.Geo).Handler)
 	}
 	if cfg.TLSFingerprint.Enabled {
-		a.detectors = append(a.detectors, tlsfp.NewMiddleware(cfg.TLSFingerprint, cfg.Trust.MaxVisitors).Handler)
+		fingerprints := tlsfp.NewMiddleware(cfg.TLSFingerprint, cfg.Trust.MaxVisitors)
+		a.detectors = append(a.detectors, fingerprints.Handler)
+		a.erasers = append(a.erasers, fingerprints.Forget)
 	}
 	if cfg.Rules.Enabled {
 		ruleSet := rules.NewRuleSet()
@@ -527,6 +534,7 @@ func (a *app) buildAdmin() error {
 		return err
 	}
 	a.securityLogger.Recorder = adminServer.EventRecorder()
+	adminServer.WithErasers(a.erasers...)
 	if a.syncer != nil {
 		adminServer.WithBlacklistObserver(a.syncer.PublishBlacklistAdd)
 		a.syncer.WithBlacklistApplier(adminServer.ApplyClusterBlacklist)

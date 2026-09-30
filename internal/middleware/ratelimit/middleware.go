@@ -142,6 +142,16 @@ func (m *Middleware) Throttle(ip string) {
 	m.throttled.Set(trust.HashIP(ip), struct{}{})
 }
 
+// Forget efface l'état de rate limit d'un visiteur (droit à l'effacement,
+// FR-28) : ses buckets des trois fenêtres, actives ou non, et sa mesure
+// THROTTLE.
+func (m *Middleware) Forget(ipHash string) {
+	for _, suffix := range []string{"", minuteKeySuffix, hourKeySuffix} {
+		m.store.DeleteBucket(ipHash + suffix)
+	}
+	m.throttled.Delete(ipHash)
+}
+
 // isExempt : seul le PASS de la whitelist IP (FR-04) exempte du rate limit.
 // Celui du bypass d'assets (FR-24) lève le challenge et le trust score, pas le
 // rate limit : les requêtes d'assets restent comptées (static-assets-bypass.feature).

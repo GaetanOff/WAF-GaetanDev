@@ -859,3 +859,17 @@ func TestUpdateVisitorFallsBackToLocalWhenRedisFails(t *testing.T) {
 		t.Fatalf("local visitor = %+v, want the computed state kept locally", visitor)
 	}
 }
+
+func TestDeleteBucketRemovesRedisAndLocalState(t *testing.T) {
+	store, fake, _, clock := newTestStore(t, 100)
+	store.SetBucket("d0d0cafe:m", bucketFixture(3, clock.Now().Add(time.Hour)))
+
+	store.DeleteBucket("d0d0cafe:m")
+
+	if _, _, ok := fake.rawValue(bucketKeyPrefix + "d0d0cafe:m"); ok {
+		t.Fatal("the Redis bucket must be deleted")
+	}
+	if _, ok := store.local.GetBucket("d0d0cafe:m"); ok {
+		t.Fatal("the local bucket must be deleted")
+	}
+}

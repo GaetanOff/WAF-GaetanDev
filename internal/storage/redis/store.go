@@ -476,6 +476,20 @@ func (s *Store) SetBucket(key string, bucket storage.RateBucket) {
 	s.write(bucketKeyPrefix+key, bucket, ttl, "set_bucket")
 }
 
+func (s *Store) DeleteBucket(key string) {
+	s.local.DeleteBucket(key)
+	if s.degraded() {
+		return
+	}
+	ctx, cancel := s.operationContext()
+	defer cancel()
+	if err := s.client.Del(ctx, bucketKeyPrefix+key).Err(); err != nil {
+		s.failed("delete_bucket")
+		return
+	}
+	s.succeeded()
+}
+
 // UpdateBuckets lit les buckets en un MGET, calcule, puis écrit par un script
 // compare-and-set : deux allers-retours pour toutes les fenêtres, au lieu d'un
 // GET puis d'un SET par fenêtre (six pour seconde + minute + heure). Surtout,

@@ -104,6 +104,12 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 	})
 }
 
+// Forget efface le dernier JA3 retenu pour un visiteur (droit à l'effacement,
+// FR-28).
+func (m *Middleware) Forget(ipHash string) {
+	m.lastJA3.Delete(ipHash)
+}
+
 // detectSwap retourne true si le JA3 du visiteur a changé depuis la dernière
 // session observée (signe d'usurpation / outil tournant).
 func (m *Middleware) detectSwap(ip string, ja3 string) bool {

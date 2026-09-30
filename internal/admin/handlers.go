@@ -137,9 +137,18 @@ func (s *Server) gdprErase(w http.ResponseWriter, r *http.Request) {
 	}
 	ipHash := trust.HashIP(payload.IP)
 	_, existed := s.store.GetVisitor(ipHash)
-	s.store.DeleteVisitor(ipHash)
+	s.eraseVisitor(ipHash)
 	s.record("gdpr_erase", ipHash, "erased")
 	writeJSON(w, http.StatusOK, map[string]any{"erased": existed, "ip_hash": ipHash})
+}
+
+// eraseVisitor supprime le visiteur et tout l'état tenu hors du store de
+// visiteurs (droit à l'effacement, FR-28).
+func (s *Server) eraseVisitor(ipHash string) {
+	s.store.DeleteVisitor(ipHash)
+	for _, erase := range s.erasers {
+		erase(ipHash)
+	}
 }
 
 // record journalise une action d'administration (no-op si l'audit est désactivé).
@@ -380,7 +389,7 @@ func (s *Server) deleteVisitor(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	s.store.DeleteVisitor(ipHash)
+	s.eraseVisitor(ipHash)
 	s.record("reset_visitor", ipHash, "reset")
 	w.WriteHeader(http.StatusNoContent)
 }

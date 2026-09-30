@@ -670,3 +670,29 @@ func TestRateLimitCountsIPv6Per64(t *testing.T) {
 		t.Fatalf("other /64 status = %d, want 204", response.Code)
 	}
 }
+
+// FR-28 : l'effacement retire les buckets des trois fenêtres et la mesure
+// THROTTLE du visiteur.
+func TestForgetErasesTheVisitorBuckets(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	middleware := newTestMiddleware(t, store, 10, 5)
+	handler := middleware.Handler(countingHandler())
+	handler.ServeHTTP(httptest.NewRecorder(), requestFrom("9.9.9.9:1234"))
+	middleware.Throttle("9.9.9.9")
+	ipHash := trust.HashIP("9.9.9.9")
+	if _, ok := store.GetBucket(ipHash); !ok {
+		t.Fatal("setup: the request must have created a bucket")
+	}
+
+	middleware.Forget(ipHash)
+
+	for _, key := range []string{ipHash, ipHash + minuteKeySuffix, ipHash + hourKeySuffix} {
+		if _, ok := store.GetBucket(key); ok {
+			t.Fatalf("bucket %s survived the erasure", key)
+		}
+	}
+	if _, throttled := middleware.throttled.Get(ipHash); throttled {
+		t.Fatal("the THROTTLE measure survived the erasure")
+	}
+}

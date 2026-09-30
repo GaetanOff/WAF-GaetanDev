@@ -49,6 +49,7 @@ type Store interface {
 	ListVisitors() []VisitorState
 	GetBucket(key string) (*RateBucket, bool)
 	SetBucket(key string, bucket RateBucket)
+	DeleteBucket(key string)
 	// UpdateBuckets lit les buckets de keys (nil si absent ou expiré), laisse
 	// update calculer leur nouvel état — même ordre, même longueur — et
 	// l'écrit, atomiquement vis-à-vis de toute autre mise à jour de ces clés,
