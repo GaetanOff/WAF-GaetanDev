@@ -314,6 +314,16 @@ func (s *countingStore) SetVisitor(key string, visitor storage.VisitorState) {
 	s.Store.SetVisitor(key, visitor)
 }
 
+func (s *countingStore) UpdateVisitor(key string, update func(*storage.VisitorState) (storage.VisitorState, bool)) {
+	s.Store.UpdateVisitor(key, func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		next, write := update(current)
+		if write {
+			s.writes++
+		}
+		return next, write
+	})
+}
+
 func TestGetRewritesAKnownVisitorOncePerTouchInterval(t *testing.T) {
 	manager, store, clock := newTestManager(t)
 	defer store.Close()
@@ -438,4 +448,23 @@ func TestHashIPCacheNeverReturnsAnotherIPHash(t *testing.T) {
 		})
 	}
 	wg.Wait()
+}
+
+// Pénalités concurrentes d'un même visiteur : aucune n'est perdue. Get puis
+// SetVisitor laissait la dernière écriture effacer les autres.
+func TestApplyIsAtomicUnderConcurrency(t *testing.T) {
+	manager, store, _ := newTestManager(t)
+	defer store.Close()
+	manager.Set("1.2.3.4", "example.test", 60)
+
+	var wg sync.WaitGroup
+	for range 50 {
+		wg.Go(func() { manager.Apply("1.2.3.4", "example.test", -1) })
+		wg.Go(func() { manager.Get("1.2.3.4", "example.test") })
+	}
+	wg.Wait()
+
+	if visitor := manager.Peek("1.2.3.4", "example.test"); visitor.Score != 10 {
+		t.Fatalf("score = %d, want 10 (60 - 50 penalties)", visitor.Score)
+	}
 }

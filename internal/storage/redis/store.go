@@ -43,18 +43,19 @@ const (
 	// KEYS : la commande bloque Redis le temps de parcourir tout l'espace de clés.
 	scanBatch = 200
 
-	// maxBucketCASAttempts borne les recalculs de UpdateBuckets quand un autre
-	// nœud écrit les mêmes buckets entre la lecture et l'écriture.
-	maxBucketCASAttempts = 3
+	// maxCASAttempts borne les recalculs de UpdateBuckets et UpdateVisitor
+	// quand un autre nœud écrit les mêmes clés entre la lecture et l'écriture.
+	maxCASAttempts = 3
 )
 
-// bucketCASScript écrit les nouveaux buckets seulement si aucun n'a changé
+// casScript écrit les nouvelles valeurs seulement si aucune clé n'a changé
 // depuis la lecture (compare-and-set) ; 0 signale un conflit, 1 l'écriture.
 // ARGV : n valeurs attendues ("" = clé absente), n nouvelles valeurs, n TTL en
-// millisecondes (0 = sans expiration). Les clés d'un appel sont celles d'une
-// même IP ; sur Redis Cluster elles devraient partager un hash tag, le backend
-// ne visant aujourd'hui qu'une instance (goredis.NewClient).
-const bucketCASScript = `
+// millisecondes (0 = sans expiration). Il sert aux buckets d'une IP et au
+// visiteur ; les clés d'un appel sont celles d'une même IP, et sur Redis
+// Cluster elles devraient partager un hash tag, le backend ne visant
+// aujourd'hui qu'une instance (goredis.NewClient).
+const casScript = `
 local n = #KEYS
 for i = 1, n do
   local current = redis.call('GET', KEYS[i])
@@ -243,6 +244,86 @@ func (s *Store) SetVisitor(key string, visitor storage.VisitorState) {
 	s.write(visitorKeyPrefix+key, visitor, ttl, "set_visitor")
 }
 
+// UpdateVisitor lit le visiteur, calcule, puis écrit par compare-and-set : un
+// autre nœud qui l'écrit entre-temps fait recalculer sur l'état frais au lieu
+// d'être écrasé. Au-delà de maxCASAttempts conflits, le dernier état calculé
+// est écrit sans condition, comme SetVisitor.
+func (s *Store) UpdateVisitor(key string, update func(current *storage.VisitorState) (storage.VisitorState, bool)) {
+	if s.degraded() {
+		s.local.UpdateVisitor(key, update)
+		return
+	}
+	redisKey := visitorKeyPrefix + key
+	var next storage.VisitorState
+	for attempt := 1; attempt <= maxCASAttempts; attempt++ {
+		current, expected, err := s.readVisitor(redisKey)
+		if err != nil {
+			s.failed("update_visitor")
+			s.local.UpdateVisitor(key, update)
+			return
+		}
+		var write bool
+		if next, write = update(current); !write {
+			s.succeeded()
+			return
+		}
+		written, err := s.compareAndSetVisitor(redisKey, expected, next)
+		if err != nil {
+			s.failed("update_visitor")
+			s.local.SetVisitor(key, next)
+			return
+		}
+		s.succeeded()
+		if written {
+			s.local.SetVisitor(key, next)
+			return
+		}
+		s.observeError("update_visitor_conflict")
+	}
+	s.SetVisitor(key, next)
+}
+
+// readVisitor retourne le visiteur décodé (nil si absent, illisible ou périmé)
+// et la valeur brute lue, attendue par le compare-and-set.
+func (s *Store) readVisitor(redisKey string) (*storage.VisitorState, string, error) {
+	ctx, cancel := s.operationContext()
+	defer cancel()
+	raw, err := s.client.Get(ctx, redisKey).Result()
+	if errors.Is(err, goredis.Nil) {
+		return nil, "", nil
+	}
+	if err != nil {
+		return nil, "", err
+	}
+	visitor, err := decodeVisitor([]byte(raw))
+	if err != nil {
+		s.observeError("decode_visitor")
+		return nil, raw, nil
+	}
+	if s.expired(visitor.ExpiresAt) {
+		return nil, raw, nil
+	}
+	return &visitor, raw, nil
+}
+
+func (s *Store) compareAndSetVisitor(redisKey string, expected string, next storage.VisitorState) (bool, error) {
+	payload, err := json.Marshal(next)
+	if err != nil {
+		return false, err
+	}
+	ttl, expired := s.ttlFor(next.ExpiresAt)
+	if expired {
+		ttl = time.Millisecond // déjà périmé : l'état ne doit pas survivre
+	}
+	ctx, cancel := s.operationContext()
+	defer cancel()
+	result, err := s.client.Eval(ctx, casScript, []string{redisKey}, expected, string(payload), ttl.Milliseconds()).Int()
+	if err != nil {
+		return false, err
+	}
+	return result == 1, nil
+}
+
 func (s *Store) DeleteVisitor(key string) {
 	s.local.DeleteVisitor(key)
 	if s.degraded() {
@@ -416,7 +497,7 @@ func (s *Store) UpdateBuckets(keys []string, update func(current []*storage.Rate
 	}
 
 	var next []storage.RateBucket
-	for attempt := 1; attempt <= maxBucketCASAttempts; attempt++ {
+	for attempt := 1; attempt <= maxCASAttempts; attempt++ {
 		current, expected, err := s.readBuckets(redisKeys)
 		if err != nil {
 			s.failed("update_buckets")
@@ -497,7 +578,7 @@ func (s *Store) compareAndSetBuckets(redisKeys []string, expected []string, next
 
 	ctx, cancel := s.operationContext()
 	defer cancel()
-	result, err := s.client.Eval(ctx, bucketCASScript, redisKeys, args...).Int()
+	result, err := s.client.Eval(ctx, casScript, redisKeys, args...).Int()
 	if err != nil {
 		return false, err
 	}

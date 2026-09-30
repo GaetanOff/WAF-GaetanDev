@@ -128,11 +128,13 @@ func (s *Syncer) applyScoreCritical(event Event) {
 	if s.store == nil || event.IPHash == "" {
 		return
 	}
-	visitor := s.localVisitor(event)
-	if visitor.Score > event.Score {
-		visitor.Score = event.Score
-	}
-	s.store.SetVisitor(event.IPHash, visitor)
+	s.store.UpdateVisitor(event.IPHash, func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		visitor := s.localVisitor(event, current)
+		if visitor.Score > event.Score {
+			visitor.Score = event.Score
+		}
+		return visitor, true
+	})
 }
 
 // applyCircuitOpen ouvre le circuit localement jusqu'à la même échéance que le
@@ -149,22 +151,25 @@ func (s *Syncer) applyCircuitOpen(event Event) {
 	if !until.After(s.now()) {
 		return
 	}
-	visitor := s.localVisitor(event)
-	visitor.CircuitOpen = true
-	visitor.CircuitOpenUntil = &until
-	if visitor.ExpiresAt.Before(until) {
-		visitor.ExpiresAt = until
-	}
-	s.store.SetVisitor(event.IPHash, visitor)
+	s.store.UpdateVisitor(event.IPHash, func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		visitor := s.localVisitor(event, current)
+		visitor.CircuitOpen = true
+		visitor.CircuitOpenUntil = &until
+		if visitor.ExpiresAt.Before(until) {
+			visitor.ExpiresAt = until
+		}
+		return visitor, true
+	})
 }
 
-// localVisitor retourne l'état local du visiteur, ou un état neuf au score
-// propagé.
-func (s *Syncer) localVisitor(event Event) storage.VisitorState {
+// localVisitor retourne l'état local du visiteur (current), ou un état neuf au
+// score propagé.
+func (s *Syncer) localVisitor(event Event, current *storage.VisitorState) storage.VisitorState {
 	now := s.now()
-	if visitor, ok := s.store.GetVisitor(event.IPHash); ok {
+	if current != nil {
+		visitor := *current
 		visitor.LastSeen = now
-		return *visitor
+		return visitor
 	}
 	return storage.VisitorState{
 		IPHash:    event.IPHash,

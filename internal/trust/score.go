@@ -113,24 +113,56 @@ func (m *ScoreManager) SetThresholds(challengeThreshold int, blockThreshold int)
 
 // Get retourne l'état du visiteur, en le créant s'il est inconnu ou expiré, et
 // fait glisser son TTL. La réécriture du TTL n'a lieu qu'une fois par
-// touchInterval : les lectures suivantes ne coûtent qu'un GetVisitor.
+// touchInterval : les lectures suivantes ne coûtent qu'un GetVisitor. Création
+// et glissement passent par UpdateVisitor : réécrire l'état lu plus tôt
+// effaçait une pénalité appliquée entre-temps par une requête concurrente.
 func (m *ScoreManager) Get(ip string, domain string) storage.VisitorState {
 	now := m.now()
 	ipHash := HashIP(ip)
-	if visitor, ok := m.store.GetVisitor(ipHash); ok {
-		if isExpired(*visitor, now) {
-			m.store.DeleteVisitor(ipHash)
-			return m.create(ipHash, domain, now)
-		}
-		if now.Sub(visitor.LastSeen) >= m.touchInterval {
-			visitor.LastSeen = now
-			visitor.ExpiresAt = now.Add(m.scoreTTL)
-			m.store.SetVisitor(ipHash, *visitor)
-		}
+	if visitor, ok := m.store.GetVisitor(ipHash); ok && !isExpired(*visitor, now) && now.Sub(visitor.LastSeen) < m.touchInterval {
 		return *visitor
 	}
+	var result storage.VisitorState
+	m.store.UpdateVisitor(ipHash, func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		if m.isAbsent(current, now) {
+			result = m.initialVisitor(ipHash, domain, now)
+			return result, true
+		}
+		result = *current
+		if now.Sub(result.LastSeen) < m.touchInterval {
+			return result, false
+		}
+		result.LastSeen = now
+		result.ExpiresAt = now.Add(m.scoreTTL)
+		return result, true
+	})
+	return result
+}
 
-	return m.create(ipHash, domain, now)
+// isAbsent : pas de visiteur, ou un visiteur expiré selon l'horloge du manager.
+func (m *ScoreManager) isAbsent(current *storage.VisitorState, now time.Time) bool {
+	return current == nil || isExpired(*current, now)
+}
+
+// update applique change à l'état courant du visiteur (créé s'il est absent)
+// et l'écrit atomiquement ; il retourne le score d'avant et l'état écrit.
+func (m *ScoreManager) update(ip string, domain string, change func(visitor *storage.VisitorState, now time.Time) bool) (int, storage.VisitorState) {
+	now := m.now()
+	ipHash := HashIP(ip)
+	var before int
+	var result storage.VisitorState
+	m.store.UpdateVisitor(ipHash, func(current *storage.VisitorState) (storage.VisitorState, bool) {
+		created := m.isAbsent(current, now)
+		if created {
+			result = m.initialVisitor(ipHash, domain, now)
+		} else {
+			result = *current
+		}
+		before = result.Score
+		changed := change(&result, now)
+		return result, changed || created
+	})
+	return before, result
 }
 
 // Peek retourne l'état du visiteur SANS rien écrire : ni création, ni
@@ -149,12 +181,6 @@ func (m *ScoreManager) Peek(ip string, domain string) storage.VisitorState {
 
 func isExpired(visitor storage.VisitorState, now time.Time) bool {
 	return !visitor.ExpiresAt.IsZero() && !visitor.ExpiresAt.After(now)
-}
-
-func (m *ScoreManager) create(ipHash string, domain string, now time.Time) storage.VisitorState {
-	visitor := m.initialVisitor(ipHash, domain, now)
-	m.store.SetVisitor(ipHash, visitor)
-	return visitor
 }
 
 func (m *ScoreManager) initialVisitor(ipHash string, domain string, now time.Time) storage.VisitorState {
@@ -188,13 +214,15 @@ func (m *ScoreManager) Set(ip string, domain string, score int) storage.VisitorS
 	return visitor
 }
 
+// Apply ajoute delta au score, atomiquement : deux pénalités concurrentes
+// comptent toutes les deux.
 func (m *ScoreManager) Apply(ip string, domain string, delta int) storage.VisitorState {
-	visitor := m.Get(ip, domain)
-	before := visitor.Score
-	visitor.Score = clamp(visitor.Score+delta, 0, 100)
-	visitor.LastSeen = m.now()
-	visitor.ExpiresAt = visitor.LastSeen.Add(m.scoreTTL)
-	m.store.SetVisitor(visitor.IPHash, visitor)
+	before, visitor := m.update(ip, domain, func(visitor *storage.VisitorState, now time.Time) bool {
+		visitor.Score = clamp(visitor.Score+delta, 0, 100)
+		visitor.LastSeen = now
+		visitor.ExpiresAt = now.Add(m.scoreTTL)
+		return true
+	})
 	m.notifyCritical(before, visitor)
 	return visitor
 }
@@ -203,17 +231,16 @@ func (m *ScoreManager) Apply(ip string, domain string, delta int) storage.Visito
 // RateLimitPenaltyWindow (FR-05). Les refus supplémentaires dans la fenêtre
 // retournent l'état courant sans nouvelle pénalité.
 func (m *ScoreManager) PenalizeRateLimit(ip string, domain string) storage.VisitorState {
-	visitor := m.Get(ip, domain)
-	now := m.now()
-	if visitor.LastRateLimitPenalty != nil && now.Sub(*visitor.LastRateLimitPenalty) < RateLimitPenaltyWindow {
-		return visitor
-	}
-	before := visitor.Score
-	visitor.Score = clamp(visitor.Score+DeltaRateLimit, 0, 100)
-	visitor.LastSeen = now
-	visitor.ExpiresAt = now.Add(m.scoreTTL)
-	visitor.LastRateLimitPenalty = &now
-	m.store.SetVisitor(visitor.IPHash, visitor)
+	before, visitor := m.update(ip, domain, func(visitor *storage.VisitorState, now time.Time) bool {
+		if visitor.LastRateLimitPenalty != nil && now.Sub(*visitor.LastRateLimitPenalty) < RateLimitPenaltyWindow {
+			return false
+		}
+		visitor.Score = clamp(visitor.Score+DeltaRateLimit, 0, 100)
+		visitor.LastSeen = now
+		visitor.ExpiresAt = now.Add(m.scoreTTL)
+		visitor.LastRateLimitPenalty = &now
+		return true
+	})
 	m.notifyCritical(before, visitor)
 	return visitor
 }

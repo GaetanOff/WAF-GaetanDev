@@ -45,6 +45,13 @@ Feature: Backend de stockage de l'état visiteurs (ADR-002, ADR-021)
     Then l'écriture est faite dans Redis et dans le store local
     And un basculement en mode dégradé retrouve cet état sans repartir de zéro
 
+  Scenario: Écritures concurrentes d'un visiteur — aucune n'est perdue
+    Given storage.backend = "redis" et deux instances du WAF
+    And un visiteur au score 42
+    When l'instance A applique -10 pendant que l'instance B applique -20
+    Then le score final du visiteur est 12
+    And l'écriture de l'instance perdante est recalculée sur l'état frais (compare-and-set)
+
   Scenario: Liste des visiteurs pour l'API admin — SCAN borné
     Given storage.backend = "redis" et 500 000 visiteurs en base
     When un administrateur appelle GET /admin/visitors
