@@ -9,7 +9,7 @@
   "properties": {
     "ip_hash": {
       "type": "string",
-      "description": "SHA-256(client) tronqué à 16 hex chars — client = l'IPv4, ou le préfixe /64 d'une IPv6 (FR-02)",
+      "description": "HMAC-SHA256(clé, client) tronqué à 16 hex chars — clé dérivée de challenge.secret_key (FR-28), client = l'IPv4, ou le préfixe /64 d'une IPv6 (FR-02)",
       "pattern": "^[0-9a-f]{16}$"
     },
     "domain": {

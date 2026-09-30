@@ -35,6 +35,7 @@ import (
 	"github.com/gaetandev/waf/internal/proxy"
 	"github.com/gaetandev/waf/internal/risk"
 	"github.com/gaetandev/waf/internal/rules"
+	"github.com/gaetandev/waf/internal/signing"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/storage/memory"
 	redisstore "github.com/gaetandev/waf/internal/storage/redis"
@@ -174,6 +175,7 @@ type app struct {
 
 func (a *app) build() error {
 	steps := []func() error{
+		a.configureIPHash,
 		a.buildOrigin,
 		a.buildState,
 		a.buildProtection,
@@ -187,6 +189,25 @@ func (a *app) build() error {
 		if err := step(); err != nil {
 			return err
 		}
+	}
+	return nil
+}
+
+// ipHashKeyPurpose dérive de challenge.secret_key la clé HMAC des ip_hash.
+const ipHashKeyPurpose = "waf/ip-hash/v1"
+
+// configureIPHash fixe la clé des ip_hash (FR-28) avant tout calcul : dérivée
+// du secret de challenge, elle est la même sur toutes les instances qui
+// partagent la configuration, et survit aux redémarrages. Sans secret, la clé
+// aléatoire du processus s'applique : l'état persisté dans Redis ne se
+// retrouve alors ni après un redémarrage, ni d'une instance à l'autre.
+func (a *app) configureIPHash() error {
+	if secret := a.cfg.Challenge.SecretKey; secret != "" {
+		trust.SetHashKey(signing.Derive([]byte(secret), ipHashKeyPurpose))
+		return nil
+	}
+	if a.cfg.Storage.Backend == "redis" {
+		slog.Warn("challenge.secret_key is empty: ip_hash uses a per-process random key, so the Redis state is lost on restart and not shared across instances; set WAF_CHALLENGE_SECRET_KEY")
 	}
 	return nil
 }

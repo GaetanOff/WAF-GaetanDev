@@ -379,7 +379,7 @@ Format : waf_session=<base64(payload)>.<base64(hmac)>
 
 Payload JSON :
 {
-  "ip_hash": "<SHA-256(ip)[:16]>",
+  "ip_hash": "<HMAC-SHA256(clé, client)[:16]>",
   "fp_hash": "<SHA-256(fingerprint), 64 hex>",
   "domain": "example.com",
   "issued_at": 1748880000,
@@ -421,7 +421,7 @@ BLOCKED      0-10     403 Forbidden
 
 ```
 VisitorState {
-  ip_hash      string    // SHA-256(client)[:16] — IPv4, ou /64 d'une IPv6 (FR-02)
+  ip_hash      string    // HMAC-SHA256(clé, client)[:16] — IPv4, ou /64 d'une IPv6 (FR-02, FR-28)
   domain       string
   score        int       // 0..100
   last_seen    time.Time

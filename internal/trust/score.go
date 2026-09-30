@@ -1,6 +1,9 @@
 package trust
 
 import (
+	"bytes"
+	"crypto/hmac"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"hash/maphash"
@@ -312,44 +315,74 @@ func blockDeterministic(w http.ResponseWriter, r *http.Request, trigger string) 
 	http.Error(w, "forbidden", http.StatusForbidden)
 }
 
-// ipHashBytes est la part du SHA-256 conservée : 8 octets, 16 caractères hex.
+// ipHashBytes est la part du HMAC-SHA256 conservée : 8 octets, 16 caractères
+// hex.
 const ipHashBytes = 8
+
+// hashKeyBytes est la taille de la clé aléatoire de repli de HashIP.
+const hashKeyBytes = 32
 
 // hashCacheSlots est la taille du cache de HashIP (puissance de deux).
 const hashCacheSlots = 1 << 14
 
-// ipHash est une entrée du cache de HashIP.
+// ipHash est une entrée du cache de HashIP. key désigne la clé qui l'a
+// calculée : une entrée d'une clé précédente n'est jamais rendue.
 type ipHash struct {
 	ip   string
 	hash string
+	key  *[]byte
 }
 
 var (
 	hashCache [hashCacheSlots]atomic.Pointer[ipHash]
 	hashSeed  = maphash.MakeSeed()
+	// hashKey est la clé HMAC de HashIP. Un SHA-256 sans clé d'une IPv4 se
+	// renversait en parcourant les 2³² adresses : l'ip_hash des journaux et du
+	// store n'était pas la pseudonymisation promise (FR-28). Aléatoire par
+	// processus tant que SetHashKey n'a pas été appelé.
+	hashKey atomic.Pointer[[]byte]
 )
 
+func init() {
+	key := make([]byte, hashKeyBytes)
+	if _, err := rand.Read(key); err != nil {
+		panic("trust: random ip hash key: " + err.Error())
+	}
+	hashKey.Store(&key)
+}
+
+// SetHashKey fixe la clé HMAC de HashIP. Toutes les instances qui partagent un
+// store doivent recevoir la même clé ; en changer rend inaccessibles les états
+// indexés par l'ancienne (visiteurs, buckets, cookies de clearance). Appelée au
+// démarrage, avant le premier HashIP.
+func SetHashKey(key []byte) {
+	cloned := bytes.Clone(key)
+	hashKey.Store(&cloned)
+}
+
 // HashIP est appelé six à dix fois par requête pour la même IP (rate limit,
-// trust, journal, métriques, moteur de risque, détecteurs) : un SHA-256 et une
-// allocation à chaque fois. Un cache à correspondance directe, sans verrou,
+// trust, journal, métriques, moteur de risque, détecteurs) : un HMAC-SHA256 et
+// une allocation à chaque fois. Un cache à correspondance directe, sans verrou,
 // retient le dernier hash calculé par emplacement : le premier appel d'une
 // requête le calcule, les suivants le relisent. Deux IP qui se disputent un
 // emplacement se l'arrachent sans erreur possible — l'IP est comparée avant de
 // rendre le hash. N'encoder que les octets conservés, au lieu des 64
 // caractères tronqués ensuite, produit la même clé.
 func HashIP(ip string) string {
+	key := hashKey.Load()
 	slot := &hashCache[maphash.String(hashSeed, ip)&(hashCacheSlots-1)]
-	if cached := slot.Load(); cached != nil && cached.ip == ip {
+	if cached := slot.Load(); cached != nil && cached.ip == ip && cached.key == key {
 		return cached.hash
 	}
 	// Une IPv6 est hachée par son /64 (ipkey.Subject) : toute la chaîne
 	// indexée par ce hash (rate limit, score, breaker, détecteurs) compte alors
 	// un abonné IPv6 comme un seul client.
-	sum := sha256.Sum256([]byte(ipkey.Subject(ip)))
-	hash := hex.EncodeToString(sum[:ipHashBytes])
+	mac := hmac.New(sha256.New, *key)
+	_, _ = mac.Write([]byte(ipkey.Subject(ip)))
+	hash := hex.EncodeToString(mac.Sum(nil)[:ipHashBytes])
 	// Clone : ip peut être une sous-chaîne d'un en-tête ou de RemoteAddr, que
 	// l'entrée retiendrait sinon en mémoire.
-	slot.Store(&ipHash{ip: strings.Clone(ip), hash: hash})
+	slot.Store(&ipHash{ip: strings.Clone(ip), hash: hash, key: key})
 	return hash
 }
 
