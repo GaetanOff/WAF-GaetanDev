@@ -54,7 +54,13 @@ func (h *Handler) WithPool(pool *upstream.Pool, tlsVerify bool, maxIdleConns int
 		proxy := newReverseProxy(target, tlsVerify, maxIdleConns, timeout, preserveHost)
 		member := u
 		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-			member.SetHealthy(false) // failover : exclure dès l'échec de connexion
+			// Failover : exclure dès l'échec de l'upstream. Un client parti
+			// (context.Canceled) n'en est pas un : une seule annulation retirait
+			// le membre, et un pool d'un membre répondait « no healthy upstream »
+			// à tous jusqu'aux sondes suivantes.
+			if !isClientCancellation(r, err) {
+				member.SetHealthy(false)
+			}
 			logUpstreamError(r, target, err)
 			http.Error(w, "bad gateway", http.StatusBadGateway)
 		}
@@ -263,10 +269,16 @@ func stripInternalHeaders(header http.Header) {
 // panne de l'upstream. Le chemin est journalisé sans sa query, qui peut porter
 // des données personnelles.
 func logUpstreamError(r *http.Request, target *url.URL, err error) {
-	if errors.Is(err, context.Canceled) {
+	if isClientCancellation(r, err) {
 		return
 	}
 	slog.Warn("upstream request failed", "upstream", target.Host, "method", r.Method, "path", r.URL.Path, "error", err)
+}
+
+// isClientCancellation indique que l'échec vient du départ du client, pas de
+// l'upstream.
+func isClientCancellation(r *http.Request, err error) bool {
+	return errors.Is(err, context.Canceled) || errors.Is(r.Context().Err(), context.Canceled)
 }
 
 func realIP(r *http.Request) string {
