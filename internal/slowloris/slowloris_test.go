@@ -80,3 +80,33 @@ func TestLimiterIsPerIP(t *testing.T) {
 	close(release)
 	<-done
 }
+
+// Deux adresses d'un même /64 IPv6 partagent la borne : changer d'adresse
+// dans son préfixe ne donne pas de nouveaux slots.
+func TestLimiterCountsIPv6Per64(t *testing.T) {
+	limiter := New(1)
+	release := make(chan struct{})
+	entered := make(chan struct{})
+	handler := limiter.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		entered <- struct{}{}
+		<-release
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	ipv6 := func(ip string) *http.Request {
+		r := httptest.NewRequest(http.MethodGet, "http://x/", nil)
+		r.RemoteAddr = "[" + ip + "]:1234"
+		return r
+	}
+
+	var wg sync.WaitGroup
+	wg.Go(func() { handler.ServeHTTP(httptest.NewRecorder(), ipv6("2001:db8:1:2::1")) })
+	<-entered
+
+	second := httptest.NewRecorder()
+	handler.ServeHTTP(second, ipv6("2001:db8:1:2::ffff"))
+	if second.Code != http.StatusTooManyRequests {
+		t.Fatalf("same /64 status = %d, want 429", second.Code)
+	}
+	close(release)
+	wg.Wait()
+}

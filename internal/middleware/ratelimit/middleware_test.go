@@ -1,6 +1,7 @@
 package ratelimit
 
 import (
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -643,5 +644,29 @@ func TestUnderAttackThrottleCapsNonBrowserRequests(t *testing.T) {
 	}
 	if visitor, ok := store.GetVisitor(trust.HashIP("9.9.9.9")); ok && visitor.Score != 50 {
 		t.Fatalf("score = %d, want 50 (no penalty for a throttle-only 429)", visitor.Score)
+	}
+}
+
+// FR-02 : les adresses d'un même /64 IPv6 partagent leur bucket.
+func TestRateLimitCountsIPv6Per64(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	middleware := newTestMiddleware(t, store, 10, 20)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+
+	for i := range 20 {
+		handler.ServeHTTP(httptest.NewRecorder(), requestFrom(fmt.Sprintf("[2001:db8:1:2::%x]:1234", i+1)))
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestFrom("[2001:db8:1:2::ffff]:1234"))
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("same /64 status = %d, want 429", response.Code)
+	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, requestFrom("[2001:db8:1:3::1]:1234"))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("other /64 status = %d, want 204", response.Code)
 	}
 }

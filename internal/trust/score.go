@@ -12,6 +12,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/hostname"
+	"github.com/gaetandev/waf/internal/ipkey"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/wafheader"
@@ -314,7 +315,10 @@ func HashIP(ip string) string {
 	if cached := slot.Load(); cached != nil && cached.ip == ip {
 		return cached.hash
 	}
-	sum := sha256.Sum256([]byte(ip))
+	// Une IPv6 est hachée par son /64 (ipkey.Subject) : toute la chaîne
+	// indexée par ce hash (rate limit, score, breaker, détecteurs) compte alors
+	// un abonné IPv6 comme un seul client.
+	sum := sha256.Sum256([]byte(ipkey.Subject(ip)))
 	hash := hex.EncodeToString(sum[:ipHashBytes])
 	// Clone : ip peut être une sous-chaîne d'un en-tête ou de RemoteAddr, que
 	// l'entrée retiendrait sinon en mémoire.

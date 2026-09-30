@@ -371,15 +371,26 @@ func TestPeekNeverWrites(t *testing.T) {
 }
 
 // La clé est persistée (Redis, cookie de clearance, token de challenge) : son
-// format ne doit pas changer d'une version à l'autre.
+// format ne doit pas changer d'une version à l'autre sans être annoncé.
 func TestHashIPIsStable(t *testing.T) {
 	for ip, want := range map[string]string{
 		"203.0.113.7": "fec52565aa0cf18f",
-		"2001:db8::1": "5afd19e856d1c18d",
+		"2001:db8::1": "b22e912162f83195", // hash du /64 depuis l'agrégation IPv6
 	} {
 		if got := HashIP(ip); got != want {
 			t.Fatalf("HashIP(%q) = %q, want %q", ip, got, want)
 		}
+	}
+}
+
+// Un abonné IPv6 dispose d'un /64 : chaque adresse n'était pas un nouveau
+// visiteur, au score initial et au bucket plein.
+func TestHashIPAggregatesIPv6Per64(t *testing.T) {
+	if HashIP("2001:db8:1:2::1") != HashIP("2001:db8:1:2:aaaa:bbbb:cccc:dddd") {
+		t.Fatal("two addresses of one /64 must share their hash")
+	}
+	if HashIP("2001:db8:1:2::1") == HashIP("2001:db8:1:3::1") {
+		t.Fatal("two /64 prefixes must not share their hash")
 	}
 }
 

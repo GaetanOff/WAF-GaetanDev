@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"sync"
 
+	"github.com/gaetandev/waf/internal/ipkey"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/wafheader"
 )
@@ -42,7 +43,8 @@ func New(maxPerIP int) *Limiter {
 
 func (l *Limiter) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := cloudflare.RealIP(r)
+		// Compté par client : une IPv6 par son /64 (ipkey).
+		ip := ipkey.Subject(cloudflare.RealIP(r))
 		if !l.acquire(ip) {
 			w.Header().Set("Retry-After", "10")
 			w.Header().Set(wafheader.Action, wafheader.ActionRateLimit)

@@ -420,7 +420,7 @@ BLOCKED      0-10     403 Forbidden
 
 ```
 VisitorState {
-  ip_hash      string    // SHA-256(ip_address)[:16], non-réversible
+  ip_hash      string    // SHA-256(client)[:16] — IPv4, ou /64 d'une IPv6 (FR-02)
   domain       string
   score        int       // 0..100
   last_seen    time.Time
