@@ -64,6 +64,40 @@ func TestRoutesRejectsForgedCloudflareHeaderWhenTrusted(t *testing.T) {
 	}
 }
 
+// reverse-proxy.feature — « Panic d'un middleware — 500 journalisé et compté »
+// (NFR-04) : le panic devient un 500, waf_panics_total le compte et le
+// pipeline sert la requête suivante.
+func TestRoutesRecoverPipelinePanic(t *testing.T) {
+	cfg := config.Default()
+	cfg.Challenge.Enabled = false
+	metrics := newTestMetrics()
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), metrics, newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/boom" {
+			panic("upstream selection bug")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	send := func(path string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test"+path, nil)
+		request.RemoteAddr = "203.0.113.10:443"
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+
+	if response := send("/boom"); response.Code != http.StatusInternalServerError || response.Header().Get("X-Request-Id") == "" {
+		t.Fatalf("status = %d X-Request-Id = %q, want 500 with a request id", response.Code, response.Header().Get("X-Request-Id"))
+	}
+	if response := send("/ok"); response.Code != http.StatusNoContent {
+		t.Fatalf("status after the panic = %d, want 204", response.Code)
+	}
+	scrape := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(scrape, httptest.NewRequest(http.MethodGet, "/waf/metrics", nil))
+	if !strings.Contains(scrape.Body.String(), "waf_panics_total 1") {
+		t.Fatalf("metrics do not count the panic:\n%s", scrape.Body.String())
+	}
+}
+
 func TestRoutesSkipsCloudflareValidationWhenNotTrusted(t *testing.T) {
 	cfg := config.Default()
 	cfg.Cloudflare.Trusted = false

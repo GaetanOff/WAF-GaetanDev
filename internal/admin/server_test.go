@@ -500,6 +500,31 @@ func TestAdminServerEnforcesMaxHeaderBytes(t *testing.T) {
 	}
 }
 
+// NFR-04 : un panic d'un handler admin est récupéré, compté et répond 500
+// dans l'enveloppe d'erreur de l'API ; le serveur continue de servir.
+func TestAdminRecoversHandlerPanic(t *testing.T) {
+	server := newTestServer(t)
+	server.scores.Set("1.2.3.4", "example.test", 60)
+	server.WithErasers(func(string) { panic("eraser bug") })
+	panics := 0
+	server.WithPanicObserver(func() { panics++ })
+
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, requestWithAuth(http.MethodPost, "/waf/admin/gdpr/erase", `{"ip":"1.2.3.4"}`))
+
+	if response.Code != http.StatusInternalServerError || !strings.Contains(response.Body.String(), `"error":"internal_error"`) {
+		t.Fatalf("status = %d body = %s, want 500 internal_error", response.Code, response.Body.String())
+	}
+	if panics != 1 {
+		t.Fatalf("panic observer called %d times, want 1", panics)
+	}
+	next := httptest.NewRecorder()
+	server.Handler().ServeHTTP(next, requestWithAuth(http.MethodGet, "/waf/stats", ""))
+	if next.Code != http.StatusOK {
+		t.Fatalf("status after the panic = %d, want 200", next.Code)
+	}
+}
+
 // FR-28 : POST /waf/admin/gdpr/erase efface aussi l'état tenu hors du store de
 // visiteurs (buckets de rate limit, profil comportemental, JA3), par les
 // effaceurs branchés.

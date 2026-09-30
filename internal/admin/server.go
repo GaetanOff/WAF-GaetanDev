@@ -29,6 +29,7 @@ type Server struct {
 	startedAt   time.Time
 	httpServer  *http.Server
 	onBlacklist func(value string)
+	onPanic     func()
 	applyConfig ConfigApplier
 	erasers     []func(ipHash string)
 }
@@ -53,6 +54,12 @@ func (s *Server) EventRecorder() logger.EventRecorder {
 // prétendre avoir appliqué une modification.
 func (s *Server) WithConfigApplier(applier ConfigApplier) {
 	s.applyConfig = applier
+}
+
+// WithPanicObserver est notifié de chaque panic récupéré d'un handler admin
+// (NFR-04, waf_panics_total).
+func (s *Server) WithPanicObserver(observer func()) {
+	s.onPanic = observer
 }
 
 // WithBlacklistObserver est notifié de chaque entrée ajoutée à la blacklist

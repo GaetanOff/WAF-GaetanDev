@@ -13,6 +13,7 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/middleware/ingress"
+	"github.com/gaetandev/waf/internal/middleware/recovery"
 	"github.com/gaetandev/waf/internal/origin"
 	"github.com/gaetandev/waf/internal/proxy"
 	"github.com/gaetandev/waf/internal/secheaders"
@@ -71,6 +72,10 @@ func (a *app) routes() http.Handler {
 	// journal et les métriques : montés au-dessus, leurs 429 et 400 n'étaient
 	// ni comptés dans Prometheus, ni journalisés, ni publiés sur le flux admin.
 	proxyHandler = guard(proxyHandler)
+	// Récupération d'un panic du pipeline (NFR-04) sous le journal et les
+	// métriques : le 500 qui en résulte est journalisé avec son request_id et
+	// compté dans waf_requests_total.
+	proxyHandler = recovery.Middleware(proxyHandler, a.metrics.IncPanic, recovery.PlainText)
 	proxyHandler = a.securityLogger.Middleware(a.scoreManager, proxyHandler)
 	proxyHandler = a.metrics.Middleware(a.scoreManager, proxyHandler)
 	// Bypass des assets statiques (FR-24) : le plus en amont du pipeline pour
@@ -111,7 +116,9 @@ func (a *app) routes() http.Handler {
 	if cfg.OriginProtection.Enabled {
 		handler = origin.CaptureInboundToken(handler)
 	}
-	return handler
+	// Filet extérieur (NFR-04) : un panic hors du pipeline de proxy (ingress,
+	// en-têtes de sécurité, maintenance, extraction d'IP, journal, /waf/*).
+	return recovery.Middleware(handler, a.metrics.IncPanic, recovery.PlainText)
 }
 
 // envelopeGuard retourne les refus par IP et par Host appliqués à tout chemin

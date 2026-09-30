@@ -563,6 +563,7 @@ func (a *app) buildAdmin() error {
 	}
 	a.securityLogger.Recorder = adminServer.EventRecorder()
 	adminServer.WithErasers(a.erasers...)
+	adminServer.WithPanicObserver(a.metrics.IncPanic)
 	if a.syncer != nil {
 		adminServer.WithBlacklistObserver(a.syncer.PublishBlacklistAdd)
 		a.syncer.WithBlacklistApplier(adminServer.ApplyClusterBlacklist)

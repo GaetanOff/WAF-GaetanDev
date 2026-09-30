@@ -13,6 +13,7 @@ import (
 
 	"github.com/gaetandev/waf/internal/ipkey"
 	"github.com/gaetandev/waf/internal/jsonstrict"
+	"github.com/gaetandev/waf/internal/middleware/recovery"
 	"github.com/gaetandev/waf/internal/signing"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
@@ -114,7 +115,21 @@ func (s *Server) routes() http.Handler {
 		}
 		mux.Handle(r.method+" "+r.pattern, limitBody(handler))
 	}
-	return mux
+	return recovery.Middleware(mux, s.notifyPanic, internalError)
+}
+
+// notifyPanic lit l'observateur au moment du panic : routes est construit par
+// NewServer, avant WithPanicObserver.
+func (s *Server) notifyPanic() {
+	if s.onPanic != nil {
+		s.onPanic()
+	}
+}
+
+// internalError répond à un panic récupéré (NFR-04) dans l'enveloppe d'erreur
+// de l'API admin.
+func internalError(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "internal_error", Message: "Internal server error"})
 }
 
 // limitBody plafonne la lecture du corps : sans borne, jsonstrict.Decode

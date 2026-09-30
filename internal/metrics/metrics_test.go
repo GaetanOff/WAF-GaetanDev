@@ -248,3 +248,13 @@ func TestGlobalPressureGaugeFollowsLevelChanges(t *testing.T) {
 	metrics.observeGlobalPressure(request)
 	assertMetricContains(t, scrape(t, metrics), `waf_global_pressure{level="elevated"} 0`)
 }
+
+// NFR-04 : les panics récupérés sont comptés, à 0 avant le premier.
+func TestPanicMetric(t *testing.T) {
+	metrics := New()
+	assertMetricContains(t, scrape(t, metrics), `waf_panics_total 0`)
+
+	metrics.IncPanic()
+
+	assertMetricContains(t, scrape(t, metrics), `waf_panics_total 1`)
+}
