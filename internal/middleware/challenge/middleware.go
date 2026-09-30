@@ -303,12 +303,16 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 		rejectSubmission(w, "invalid_pow")
 		return
 	}
-	if submission.ElapsedMS < m.minElapsedMS {
+	// Durée mesurée par le serveur depuis l'émission signée du token :
+	// l'elapsed_ms du client, qu'il choisit librement, rendait le plancher
+	// challenge_too_fast décoratif.
+	elapsedMS := m.tokenIssuer.now().UnixMilli() - payload.IssuedAtMS
+	if elapsedMS < int64(m.minElapsedMS) {
 		m.scores.Apply(ip, host, trust.DeltaChallengeFailed)
 		rejectSubmission(w, "challenge_too_fast")
 		return
 	}
-	if submission.ElapsedMS > m.maxElapsedMS {
+	if elapsedMS > int64(m.maxElapsedMS) {
 		rejectSubmission(w, "challenge_timeout")
 		return
 	}

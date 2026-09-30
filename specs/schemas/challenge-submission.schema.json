@@ -20,7 +20,7 @@
     "elapsed_ms": {
       "type": "integer",
       "minimum": 0,
-      "description": "Durée d'exécution du challenge JS en millisecondes"
+      "description": "Durée d'exécution du challenge JS en millisecondes, indicative : le serveur compare min_elapsed_ms et max_elapsed_ms à la durée qu'il mesure depuis l'émission signée du token"
     },
     "fingerprint": {
       "type": "object",

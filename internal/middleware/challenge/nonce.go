@@ -32,6 +32,9 @@ type TokenPayload struct {
 	RedirectURL string `json:"redirect_url,omitempty"`
 	Difficulty  int    `json:"difficulty,omitempty"`
 	IssuedAt    int64  `json:"issued_at"`
+	// IssuedAtMS date l'émission à la milliseconde : /waf/verify en déduit la
+	// durée du challenge, au lieu de croire l'elapsed_ms du client.
+	IssuedAtMS int64 `json:"issued_at_ms"`
 	ExpiresAt   int64  `json:"expires_at"`
 }
 
@@ -79,6 +82,7 @@ func (i TokenIssuer) GenerateForRedirectWithDifficulty(ip string, domain string,
 		RedirectURL: redirectURL,
 		Difficulty:  difficulty,
 		IssuedAt:    now.Unix(),
+		IssuedAtMS:  now.UnixMilli(),
 		ExpiresAt:   now.Add(i.TTL).Unix(),
 	}
 

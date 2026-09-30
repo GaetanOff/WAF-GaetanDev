@@ -234,8 +234,13 @@ func TestMiddlewareVerifyAcceptsFastResolutionWhenFloorDisabled(t *testing.T) {
 	}
 }
 
+// La durée est mesurée par le serveur depuis l'émission du token : l'elapsed_ms
+// annoncé par le client (ici 1 200 ms, plausible) n'y change rien.
 func TestMiddlewareVerifyRejectsTimingErrors(t *testing.T) {
 	middleware, _ := newTestChallengeMiddleware(t)
+	middleware.minElapsedMS = 500
+	issued := time.Now()
+	middleware.tokenIssuer.Now = func() time.Time { return issued }
 	token, err := middleware.tokenIssuer.GenerateForRedirect("3.3.3.3", "example.test", "/page")
 	if err != nil {
 		t.Fatalf("GenerateForRedirect() error = %v", err)
@@ -243,17 +248,18 @@ func TestMiddlewareVerifyRejectsTimingErrors(t *testing.T) {
 	nonce := solvePow(t, token, middleware.staticDifficulty())
 
 	tests := []struct {
-		name      string
-		elapsedMS int
-		want      string
+		name    string
+		elapsed time.Duration
+		want    string
 	}{
-		{name: "too fast", elapsedMS: 50, want: "challenge_too_fast"},
-		{name: "timeout", elapsedMS: 15000, want: "challenge_timeout"},
+		{name: "too fast", elapsed: 50 * time.Millisecond, want: "challenge_too_fast"},
+		{name: "timeout", elapsed: 15 * time.Second, want: "challenge_timeout"},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			request := verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, nonce, tt.elapsedMS))
+			middleware.tokenIssuer.Now = func() time.Time { return issued.Add(tt.elapsed) }
+			request := verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, nonce, 1200))
 			response := httptest.NewRecorder()
 
 			middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, request)
@@ -265,6 +271,29 @@ func TestMiddlewareVerifyRejectsTimingErrors(t *testing.T) {
 				t.Fatalf("response missing %s: %s", tt.want, response.Body.String())
 			}
 		})
+	}
+}
+
+// Au-dessus du plancher selon l'horloge du serveur, la soumission passe, même
+// si le client annonce une durée plus courte.
+func TestMiddlewareVerifyMeasuresElapsedServerSide(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+	middleware.minElapsedMS = 500
+	issued := time.Now()
+	middleware.tokenIssuer.Now = func() time.Time { return issued }
+	token, err := middleware.tokenIssuer.GenerateForRedirect("3.3.3.3", "example.test", "/page")
+	if err != nil {
+		t.Fatalf("GenerateForRedirect() error = %v", err)
+	}
+	nonce := solvePow(t, token, middleware.staticDifficulty())
+	middleware.tokenIssuer.Now = func() time.Time { return issued.Add(800 * time.Millisecond) }
+	request := verifyRequest(t, "3.3.3.3:1234", submissionJSON(token, nonce, 10))
+	response := httptest.NewRecorder()
+
+	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).ServeHTTP(response, request)
+
+	if response.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (800 ms measured > 500 ms floor) body=%s", response.Code, response.Body.String())
 	}
 }
 
@@ -335,7 +364,6 @@ func newTestChallengeMiddleware(t *testing.T) (Middleware, *memory.Store) {
 	cfg.Upstream.Address = "http://example.test"
 	cfg.Challenge.SecretKey = testKey
 	cfg.Challenge.PowDifficulty = 8
-	cfg.Challenge.MinElapsedMS = 500
 	cfg.Challenge.MaxElapsedMS = 10000
 	cfg.Admin.Enabled = false
 	manager, err := trust.NewScoreManager(store, cfg)
