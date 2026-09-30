@@ -35,9 +35,19 @@ type TokenPayload struct {
 	ExpiresAt   int64  `json:"expires_at"`
 }
 
+// tokenKeyPurpose et clearanceKeyPurpose séparent les clés du token de
+// challenge et du cookie de clearance, dérivées du même challenge.secret_key
+// (FR-06). Avec une clé commune, le token — remis à tout visiteur dans la page
+// — se validait comme cookie : posé tel quel dans waf_session, il franchissait
+// le challenge sans PoW, mode « sous attaque » compris.
+const (
+	tokenKeyPurpose     = "waf/challenge-token/v1"
+	clearanceKeyPurpose = "waf/clearance-cookie/v1"
+)
+
 func NewTokenIssuer(key string, ttl time.Duration) TokenIssuer {
 	return TokenIssuer{
-		Key: []byte(key),
+		Key: signing.Derive([]byte(key), tokenKeyPurpose),
 		TTL: ttl,
 		Now: time.Now,
 	}

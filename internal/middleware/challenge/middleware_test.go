@@ -471,3 +471,30 @@ func TestMiddlewareVerifyTagsRejectionsAsBlock(t *testing.T) {
 		})
 	}
 }
+
+// Le token de challenge est remis à tout visiteur dans la page : posé tel quel
+// comme cookie de clearance, il ne doit pas franchir le challenge — ni en
+// temps normal, ni en mode « sous attaque » (FR-06, FR-39).
+func TestMiddlewareRejectsChallengeTokenReplayedAsCookie(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+	token, err := middleware.tokenIssuer.GenerateForRedirectWithDifficulty("3.3.3.3", "example.test", "/", 8)
+	if err != nil {
+		t.Fatalf("GenerateForRedirectWithDifficulty() error = %v", err)
+	}
+	if _, err := middleware.cookieIssuer.Validate(token, "3.3.3.3", "example.test"); err == nil {
+		t.Fatal("a challenge token must not validate as a clearance cookie")
+	}
+
+	for _, underAttack := range []bool{false, true} {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+		request.RemoteAddr = "3.3.3.3:1234"
+		request.Header.Set("Accept", "text/html")
+		if underAttack {
+			request.Header.Set("X-WAF-Under-Attack-Enforce", "true")
+		}
+		request.AddCookie(&http.Cookie{Name: middleware.cookieIssuer.Name, Value: token})
+		if !servedChallenge(t, middleware, request) {
+			t.Fatalf("under_attack=%v: a replayed token reached the upstream", underAttack)
+		}
+	}
+}

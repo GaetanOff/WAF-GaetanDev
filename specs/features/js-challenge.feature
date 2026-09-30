@@ -154,6 +154,15 @@ Feature: Challenge JavaScript
     And la requête est transmise à l'upstream sans interruption
     And la latence ajoutée est < 5 ms
 
+  Scenario: Token de challenge rejoué comme cookie — refusé
+    # Le token est remis à tout visiteur dans la page. Signé avec la même clé et
+    # au même format que le cookie, il franchissait le challenge sans PoW.
+    Given un visiteur a reçu la page de challenge et son token
+    When il envoie GET "/" avec le cookie waf_session = ce token
+    Then le cookie est refusé (clé de signature distincte)
+    And la page de challenge est servie
+    And il en va de même en mode « sous attaque » (FR-39)
+
   Scenario: Token de challenge expiré (> 30s)
     Given un visiteur a reçu la page de challenge il y a 45 secondes
     When il soumet POST /waf/verify avec le token expiré

@@ -23,3 +23,13 @@ func Verify(key []byte, payload string, sig string) bool {
 	}
 	return hmac.Equal(actual, expected)
 }
+
+// Derive dérive du secret une clé propre à un usage (HMAC-SHA256(secret,
+// purpose)). Deux objets signés avec des clés dérivées d'usages distincts ne
+// sont jamais interchangeables, même s'ils partagent le même format : le token
+// de challenge, remis à tout visiteur, était accepté comme cookie de clearance.
+func Derive(secret []byte, purpose string) []byte {
+	mac := hmac.New(sha256.New, secret)
+	_, _ = mac.Write([]byte(purpose))
+	return mac.Sum(nil)
+}
