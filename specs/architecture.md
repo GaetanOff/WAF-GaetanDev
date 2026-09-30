@@ -1,8 +1,8 @@
 ---
 status: approved
-version: 1.4.6
+version: 1.4.7
 last-reviewed: 2026-09-30
-change: "Séquence du challenge : la durée est mesurée par le serveur depuis l'émission du token. Précédent (1.4.5) — Phase 23 : séquence du challenge et structure du cookie réalignées sur le code (pas d'attente minimale côté client, elapsed_ms borné par min_elapsed_ms = 0 et max_elapsed_ms = 60 s par défaut, token à usage unique, fp_hash SHA-256 complet). Précédent (1.4.4) — Phase 21 : [6] staticassets n'exempte plus du rate limit (FR-24). Précédent (1.4.3) — Phase 19 : slowloris, strict_host et selfprotect descendent sous metrics et logger (refus comptés et journalisés) ; le middleware de trust score applique les déclencheurs déterministes sans moteur de risque. Précédent (1.4.2) — Phase 18 : architecture-advanced.md et architecture-ops.md dépréciés, ce document est la seule architecture de référence ; paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
+change: "routes() est dans cmd/waf/routes.go, les composants construits dans cmd/waf/app.go (le document situait routes() dans main.go). Précédent (1.4.6) — Séquence du challenge : la durée est mesurée par le serveur depuis l'émission du token. Précédent (1.4.5) — Phase 23 : séquence du challenge et structure du cookie réalignées sur le code (pas d'attente minimale côté client, elapsed_ms borné par min_elapsed_ms = 0 et max_elapsed_ms = 60 s par défaut, token à usage unique, fp_hash SHA-256 complet). Précédent (1.4.4) — Phase 21 : [6] staticassets n'exempte plus du rate limit (FR-24). Précédent (1.4.3) — Phase 19 : slowloris, strict_host et selfprotect descendent sous metrics et logger (refus comptés et journalisés) ; le middleware de trust score applique les déclencheurs déterministes sans moteur de risque. Précédent (1.4.2) — Phase 18 : architecture-advanced.md et architecture-ops.md dépréciés, ce document est la seule architecture de référence ; paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
 ---
 
 # Architecture — WAF Anti-DDoS / Anti-Bot
@@ -151,7 +151,8 @@ internal/
 ## Request Processing Pipeline
 
 > Ordre d'**exécution** réel, tel que composé par `routes()` dans
-> `cmd/waf/main.go`. Beaucoup d'étapes sont montées conditionnellement : la clé de
+> `cmd/waf/routes.go` (les composants sont construits par `app.build()`,
+> `cmd/waf/app.go`). Beaucoup d'étapes sont montées conditionnellement : la clé de
 > configuration qui les monte est indiquée. Une étape non montée est absente de la
 > chaîne, elle ne se contente pas de ne rien faire.
 >
@@ -472,7 +473,9 @@ RateBucket {
 waf/
 ├── cmd/
 │   └── waf/
-│       ├── main.go              # Bootstrap, construction de la chaîne (routes())
+│       ├── main.go              # Bootstrap (flags, chargement de la config)
+│       ├── app.go               # Construction des composants (app.build) et serveurs
+│       ├── routes.go            # Composition de la chaîne (routes())
 │       └── main_test.go         # Tests e2e sur routes()
 ├── internal/                    # 43 paquets — cf. C4 Level 3
 ├── web/
