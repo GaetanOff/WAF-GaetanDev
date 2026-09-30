@@ -56,7 +56,7 @@ server:
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `listen` | string | — | Adresse d'écoute du port public (trafic entrant depuis Cloudflare). Ex : `":8080"`, `"0.0.0.0:443"`. **Obligatoire.** |
-| `admin_listen` | string | `":9090"` | Adresse d'écoute de l'API d'administration. **Ne jamais exposer publiquement.** Restreignez à `127.0.0.1` ou à un réseau interne. |
+| `admin_listen` | string | `"127.0.0.1:9090"` | Adresse d'écoute de l'API d'administration (HTTP clair, jeton `Bearer`). **Ne jamais exposer publiquement.** Boucle locale par défaut ; dans un conteneur, la lier explicitement à l'interface du réseau interne (ex. `0.0.0.0:9090` sans publier le port). |
 | `read_timeout` | durée | `"30s"` | Délai max pour lire la requête entière (headers + body). Protège contre les connexions lentes (Slowloris). |
 | `write_timeout` | durée | `"30s"` | Délai max pour envoyer la réponse complète au client. |
 | `idle_timeout` | durée | `"60s"` | Délai max d'inactivité sur une connexion keep-alive avant fermeture. |

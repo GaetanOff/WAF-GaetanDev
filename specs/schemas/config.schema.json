@@ -26,7 +26,7 @@
         "admin_listen": {
           "type": "string",
           "description": "Adresse d'écoute de l'API admin (port séparé)",
-          "default": ":9090",
+          "default": "127.0.0.1:9090",
           "example": "127.0.0.1:9090"
         },
         "read_timeout": {

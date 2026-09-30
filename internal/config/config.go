@@ -488,7 +488,10 @@ func Load(path string) (*Config, error) {
 func Default() Config {
 	return Config{
 		Server: ServerConfig{
-			AdminListen:             ":9090",
+			// Boucle locale : l'API admin, servie en HTTP clair, n'est jamais
+			// exposée par défaut (NFR-03). ":9090" écoutait sur toutes les
+			// interfaces. Un déploiement conteneurisé la déclare explicitement.
+			AdminListen:             "127.0.0.1:9090",
 			ReadTimeout:             "30s",
 			WriteTimeout:            "30s",
 			IdleTimeout:             "60s",
