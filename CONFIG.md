@@ -633,11 +633,13 @@ cluster:
   channel: "waf:events"
 ```
 
-Synchronise les décisions (scores, blacklists dynamiques) entre plusieurs instances WAF via Redis Pub/Sub. Nécessite `storage.backend: "redis"`.
+Synchronise les décisions (blacklist, ouverture de circuit, score critique) entre plusieurs instances WAF via Redis Pub/Sub, sur la connexion `storage.redis` (quel que soit `storage.backend`).
+
+Chaque événement est signé (HMAC-SHA256, clé dérivée de `challenge.secret_key`) : un message non signé, mal signé ou de type inconnu est ignoré et compté dans `waf_cluster_rejected_events_total`. Tous les nœuds doivent donc partager le même `challenge.secret_key` (`WAF_CHALLENGE_SECRET_KEY`). La signature n'empêche pas le rejeu d'un message capturé : garder Redis sur un réseau privé, avec mot de passe, TLS et une ACL qui réserve `PUBLISH`/`SUBSCRIBE` sur le canal aux nœuds WAF.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
-| `enabled` | bool | `false` | Active la synchronisation cluster. **Opt-in.** Requiert un Redis configuré. |
+| `enabled` | bool | `false` | Active la synchronisation cluster. **Opt-in.** Requiert `storage.redis.address` et `challenge.secret_key` (≥ 32 caractères, identique sur tous les nœuds). |
 | `channel` | string | `"waf:events"` | Nom du canal Pub/Sub Redis utilisé pour diffuser les événements entre nœuds. |
 
 ---

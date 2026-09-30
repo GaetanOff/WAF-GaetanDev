@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/GaetanDev/WAF/schemas/cluster-event.schema.json",
   "title": "ClusterEvent",
-  "description": "Événement de synchronisation inter-nœuds publié sur le canal Redis Pub/Sub cluster.channel (FR-20, défaut \"waf:events\"). Cohérence éventuelle : un nœud qui rejoint ne reçoit que les événements postérieurs.",
+  "description": "Événement de synchronisation inter-nœuds publié sur le canal Redis Pub/Sub cluster.channel (FR-20, défaut \"waf:events\"). Sur le canal, le message vaut \"<signature>.<événement JSON>\" : HMAC-SHA256 base64url du JSON sous une clé dérivée de challenge.secret_key ; un message non signé ou mal signé est ignoré. Cohérence éventuelle : un nœud qui rejoint ne reçoit que les événements postérieurs.",
   "type": "object",
   "additionalProperties": false,
   "required": ["type"],
