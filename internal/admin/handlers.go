@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
@@ -175,8 +176,7 @@ func (s *Server) auth(next http.Handler) http.Handler {
 			writeJSON(w, http.StatusTooManyRequests, errorResponse{Error: "locked", Message: "Too many failed attempts"})
 			return
 		}
-		expected := "Bearer " + s.cfg.Admin.Token
-		if subtle.ConstantTimeCompare([]byte(r.Header.Get("Authorization")), []byte(expected)) != 1 {
+		if !bearerMatches(r.Header.Get("Authorization"), s.cfg.Admin.Token) {
 			if s.brute != nil {
 				s.brute.Record(ip)
 			}
@@ -185,6 +185,16 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// bearerMatches compare en temps constant l'en-tête Authorization au token
+// attendu. ConstantTimeCompare rend la main dès que les longueurs diffèrent :
+// comparer les chaînes brutes révélait la longueur du token par le temps de
+// réponse. Les empreintes SHA-256, de longueur fixe, ne révèlent rien.
+func bearerMatches(header string, token string) bool {
+	got := sha256.Sum256([]byte(header))
+	want := sha256.Sum256([]byte("Bearer " + token))
+	return subtle.ConstantTimeCompare(got[:], want[:]) == 1
 }
 
 func clientIP(r *http.Request) string {
