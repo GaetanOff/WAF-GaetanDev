@@ -81,3 +81,66 @@ func TestCSPOnlyWhenConfigured(t *testing.T) {
 		t.Fatal("CSP must not be set when empty (opt-in)")
 	}
 }
+
+func serve(cfg config.SecurityHeaders, upstream http.HandlerFunc) http.Header {
+	response := httptest.NewRecorder()
+	New(cfg).Handler(upstream).ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://x/", nil))
+	return response.Header()
+}
+
+func respondOK(w http.ResponseWriter, _ *http.Request) { w.WriteHeader(http.StatusOK) }
+
+// FR-21 : les défauts servis sont ceux de config.Default(), sur une requête
+// HTTP (derrière Cloudflare, le WAF reçoit du HTTP et pose tout de même HSTS).
+func TestDefaultConfigHeaders(t *testing.T) {
+	header := serve(config.Default().SecurityHeaders, respondOK)
+
+	checks := map[string]string{
+		"Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+		"X-Frame-Options":           "DENY",
+		"X-Content-Type-Options":    "nosniff",
+		"Referrer-Policy":           "strict-origin-when-cross-origin",
+		"Permissions-Policy":        "",
+		"Content-Security-Policy":   "",
+	}
+	for name, want := range checks {
+		if got := header.Get(name); got != want {
+			t.Errorf("%s = %q, want %q", name, got, want)
+		}
+	}
+}
+
+func TestCSPWhenConfigured(t *testing.T) {
+	cfg := testConfig()
+	cfg.CSP = "default-src 'self'"
+
+	if got := serve(cfg, respondOK).Get("Content-Security-Policy"); got != cfg.CSP {
+		t.Fatalf("Content-Security-Policy = %q, want %q", got, cfg.CSP)
+	}
+}
+
+func TestHSTSDisabledWithZeroMaxAge(t *testing.T) {
+	cfg := testConfig()
+	cfg.HSTSMaxAge = 0
+
+	if got := serve(cfg, respondOK).Get("Strict-Transport-Security"); got != "" {
+		t.Fatalf("Strict-Transport-Security = %q, want none with hsts_max_age 0", got)
+	}
+}
+
+// FR-22 : strip_headers est la liste à retirer ; l'opérateur l'étend selon sa stack.
+func TestStripsConfiguredHeaders(t *testing.T) {
+	cfg := testConfig()
+	cfg.StripHeaders = []string{"Server", "X-Powered-By", "X-Generator", "Via"}
+	header := serve(cfg, func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-Generator", "WordPress 6.4")
+		w.Header().Set("Via", "1.1 nginx")
+		w.WriteHeader(http.StatusOK)
+	})
+
+	for _, name := range []string{"X-Generator", "Via"} {
+		if got := header.Get(name); got != "" {
+			t.Errorf("%s = %q, want stripped", name, got)
+		}
+	}
+}
