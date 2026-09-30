@@ -1,7 +1,7 @@
 ---
 status: implemented
-sprint: 24
-last-updated: 2026-09-30
+sprint: 26
+last-updated: 2026-10-01
 ---
 
 # Tasks — WAF Anti-DDoS / Anti-Bot
@@ -1174,4 +1174,44 @@ last-updated: 2026-09-30
 - [x] 3.7 Processus SDD (`SPEC-INDEX.md`, frontmatter, `specs/slos/`, Pact, oasdiff, gate de couverture, decoupage des gros fichiers), optimisations O1-O12 sans mesure, dette `@deferred` : **non retenus** dans ce sprint (roadmap)
 - [x] 3.8 Webhook Discord en clair (S6) : action d'exploitation, deja tracee (T24.3 3.2)
 - **Validation 2026-09-30** : `make gates` (spectral 0 erreur, vet/build, conformance, behavior `-race`, govulncheck 0 vulnerabilite atteignable), `golangci-lint` v2.14.0 (0 issue), `go test ./...` (891 tests et sous-tests, 49 paquets), `NO_COLOR=1 go test ./internal/logger/` ; binaire reel : page de challenge servie avec CSP a nonce, parcours complet dans un navigateur sans violation.
+- **Statut** : implemente.
+
+## Sprint 26 - Remediation du onzieme audit du 2026-10-01 (Phase 26)
+
+> Onzieme audit du 2026-10-01 (« analyse complete ») : chaque point a ete
+> verifie contre le code avant correction, sur la branche
+> `fix/audit-11-remediation`, a raison d'un commit par correction (spec d'abord
+> quand le contrat change).
+
+### T26.1 - Defauts de code
+- [x] 1.1 P1-2 bus cluster non authentifie : `decode` -> `Apply` sans controle, tout client capable de `PUBLISH` sur `cluster.channel` propageait une blacklist (`0.0.0.0/0` compris), un score ou un circuit a tous les noeuds. Un type inconnu etait en outre compte comme applique et devenait une serie du label `type`. Evenements scelles `<HMAC-SHA256>.<JSON>` (cle derivee de `challenge.secret_key`, usage `waf/cluster-event/v1`), messages refuses comptes dans `waf_cluster_rejected_events_total`, `cluster.enabled` exige le secret ; FR-20 2.8.0
+- [x] 1.2 P2-2 `/waf/metrics` public sur tous les domaines : le « firewall reseau » de FR-30 ne s'applique pas derriere Cloudflare. `metrics.auth_token` / `WAF_METRICS_AUTH_TOKEN` (opt-in, >= 32 caracteres), 401 + `WWW-Authenticate: Bearer` ; scenario `@deferred` active ; `public.openapi.yaml` 1.6.0
+- [x] 1.3 P2-7 Bearer admin : `ConstantTimeCompare` sur l'en-tete brut rend la main sur une longueur differente. `signing.EqualSecret` (empreintes SHA-256), partage avec `/waf/metrics`
+- [x] 1.4 Constat en verifiant le point « label `reason` non borne » : les `rule_*` viennent du fichier de regles (borne par la config), mais le proxy transmettait tel quel tout `X-WAF-*` d'une **reponse** upstream, que metriques, journal et circuit-breaker lisent comme la decision du WAF. Un `X-WAF-Action: RATE_LIMIT` de l'origine comptait comme une violation (FR-08). `ModifyResponse` les supprime ; FR-01 2.6.7
+- [x] 1.5 P2-3 `strict_host` opt-in : avertissement au demarrage pour un domaine `challenge_enabled` contournable par un `Host` non declare (meme origine ou pool) ; ADR-020 amende
+
+### T26.2 - Specs contre code
+- [x] 2.1 P1-3 `slowloris-protection.feature` : cles `slow_attacks.*`, `408`, debit minimal du corps, RST, exemption whitelist et metriques dedies inexistants. Verifie : `header_timeout` ferme la connexion sans reponse (`TestHeaderTimeoutClosesTheConnectionWithoutResponse`). FR-23 / NFR-11 realignes (3.12.1), feature reecrite, le reste en `@deferred` ; CONFIG.md (« connexions » -> requetes en cours, 429)
+- [x] 2.2 SD-010 `GET /waf/health` admin : `version` est la cle `version` de la config ; `admin.openapi.yaml` 1.4.1
+- [x] 2.3 CONFIG.md annoncait `GET /waf/metrics` sur l'API admin (inexistant) et `cluster` « necessite `storage.backend: redis` » (seul `storage.redis` est requis)
+
+### T26.3 - CI et gates
+- [x] 3.1 `make typecheck` en CI (seul `./cmd/waf` etait compile) ; `make behavior` = `-race` + gate de couverture 80 % (`coverage-check`) ; `make gates` inclut `lint` ; Spectral epingle 6.16.3, CI via `make spec-lint`
+- [x] 3.2 Trivy : le scan SARIF sortait toujours en 0. Second pas `exit-code: 1`, `ignore-unfixed` (le rapport SARIF reste complet)
+- [x] 3.3 `.dockerignore` : `.env*`, `*.pem`, `*.key`, `*.crt`, `*.p12` (le build stage fait `COPY . .`) ; README (`make lint` = golangci-lint)
+
+### T26.4 - Differe ou non retenu
+- [x] 4.1 P1-1 acces direct hors Cloudflare : **limite connue** d'ADR-019 (option B retenue, D opt-in non engagee). Action d'exploitation : firewall CF-only sur `:8080`, `cloudflare.trusted: true` en prod
+- [x] 4.2 P2-1 `admin.allowed_ips`, mTLS : **differe** (FR-30). Defaut `127.0.0.1:9090` ; `deploy/config.docker.yaml` (`0.0.0.0:9090`) est la pile compose de test, marquee « Do NOT use as a production config »
+- [x] 4.3 P2-4 `ja3_header` hors `CF-` : **limite connue** d'ADR-019 (option C non engagee)
+- [x] 4.4 P2-5 anti-rejeu fail-open sature : **non retenu**, deja tranche (T25.3 3.4)
+- [x] 4.5 P2-6 `/waf/origin/verify` : **non retenu** — le token est un HMAC lie a l'IP et au domaine ; l'oracle ne revele rien a qui n'a pas deja le token, et l'endpoint est sous la borne slowloris
+- [x] 4.6 `origin_protection.secret` >= 16 : **non retenu** — passer a 32 casse le demarrage des deploiements existants pour un gain nul sur un secret aleatoire de 16+ caracteres
+- [x] 4.7 `SameSite=Strict` : **infirme** — le cookie de clearance ne serait plus envoye sur une navigation depuis un lien externe : chaque visiteur venu d'un moteur de recherche repasserait le challenge
+- [x] 4.8 WebSocket sans PoW : **par conception** (appel non-HTML, cf. `isBrowserNavigation`) ; sous attaque, un GET sans `Accept: application/json` est challenge
+- [x] 4.9 Label `reason` via `rule_*` : **infirme** tel que decrit (borne par le fichier de regles) ; le vrai vecteur est 1.4. Scan CIDR lineaire (listes de config, courtes), pool du logger, seuils k6 (= SLO de la spec) : **non retenus** sans mesure
+- [x] 4.10 `request_id` des erreurs admin, metriques upstream, OTel, anti-DDoS shard, Redis Cluster, fail-closed threat intel, decoupage `config.go`/`app.go` : **non retenus** dans ce sprint (features ou refactorings, roadmap)
+- [x] 4.11 Processus SDD (`SPEC-INDEX.md`, frontmatter des OpenAPI/JSON Schema, `specs/slos/`, oasdiff, AJV, job k6, `release.yml`, `CHANGELOG.md` racine, tri des `@deferred`) : **non retenus** dans ce sprint (T25.3 3.7)
+- [ ] 4.12 Protection de branche (jobs `ci.yml`, `semgrep`, `trivy` requis) : **a verifier cote GitHub** par l'operateur
+- **Validation 2026-10-01** : `make spec-lint typecheck conformance behavior security` (spectral 6.16.3 0 erreur, vet/build, conformance, behavior `-race` + couverture 82,6 %, govulncheck 0 vulnerabilite atteignable), `golangci-lint` v2.14.0 (0 issue), `go test ./...` (927 tests et sous-tests, 49 paquets).
 - **Statut** : implemente.

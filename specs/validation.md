@@ -1,7 +1,7 @@
 ---
 status: implemented
 version: 1.0.0
-last-reviewed: 2026-09-30
+last-reviewed: 2026-10-01
 ---
 
 # Validation Report — WAF Anti-DDoS / Anti-Bot
@@ -295,6 +295,14 @@ last-reviewed: 2026-09-30
 | 2026-09-24 | `ttlcache` sous contention | Benchmark `Get` parallèle (non versionné), 1/4/8/16 cœurs | mesure | 37 / 91 / 85 / 108 ns/op : ~10 M lectures/s par cache, sharding non justifié |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `Example.com:8080` compté sous `domain="example.com"` ; `attack-1.test`, `attack-2.test` sous `_undeclared` ; `GET /waf/admin/config` masque les secrets |
 
+| 2026-10-01 | Sprint 26 (audit 11) | `go test ./...` | pass | 927 tests et sous-tests, 49 paquets |
+| 2026-10-01 | Sprint 26 (audit 11) | `make spec-lint typecheck conformance behavior security` | pass | spectral 6.16.3 0 erreur ; couverture 82,6 % (gate 80 %) ; 0 vulnérabilité atteignable |
+| 2026-10-01 | Sprint 26 (audit 11) | `golangci-lint` v2.14.0 `run ./...` | pass | 0 issue |
+| 2026-10-01 | Bus cluster signé | `TestOpenRejectsUnsignedAndForgedMessages`, `TestOpenRejectsUnknownEventTypes`, `TestRedisBusCountsRejectedMessagesAndNeverDeliversThem`, `TestSyncerIgnoresUnknownEventTypes` | pass | L'ancien `RedisBus` décodait et appliquait tout message du canal, sans contrôle |
+| 2026-10-01 | `/waf/metrics` protégé | `TestMetricsRequireTheConfiguredBearerToken`, `TestMetricsAuthToken` | pass | 401 conforme à `public.openapi.yaml` 1.6.0 |
+| 2026-10-01 | `X-WAF-*` de réponse upstream | `TestHandlerStripsInternalHeadersFromUpstreamResponses` | pass | En échec sur l'ancien code (`X-WAF-Action: RATE_LIMIT` de l'origine transmis au pipeline) |
+| 2026-10-01 | Slowloris (FR-23) | `TestHeaderTimeoutClosesTheConnectionWithoutResponse`, `TestHeaderTimeoutDefaultsWhenSlowlorisIsDisabled` | pass | Aucune réponse (pas de `408`) à l'expiration de `header_timeout` |
+| 2026-10-01 | Bearer en temps constant | `TestEqualSecret`, `TestBearerMatches` | pass | |
 | 2026-09-30 | Sprint 25 (audit 10) | `go test ./...` | pass | 891 tests et sous-tests, 49 paquets |
 | 2026-09-30 | Sprint 25 (audit 10) | `make gates` (spectral, vet/build, conformance, behavior `-race`, govulncheck) | pass | spectral 0 erreur ; 0 vulnérabilité atteignable |
 | 2026-09-30 | Sprint 25 (audit 10) | `golangci-lint` v2.14.0 `run ./...` | pass | 0 issue |
@@ -389,6 +397,30 @@ last-reviewed: 2026-09-30
 | 2026-09-24 | Pool d'upstreams | `BenchmarkPoolPick`, `TestPoolPickDoesNotAllocate` | pass | 1 alloc (48 B/op) avant, 0 après, 4 stratégies |
 | 2026-09-24 | Verrous visiteurs / DDoS | Benchmarks parallèles (non versionnés), 1 et 8 cœurs | mesure | `observe` 93 / 131 ns/op ; `Record` 60 / 117 ; `Observe` 98 / 284 : verrous occupés < 1 % à 20 000 req/s |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` + `strict_host` | pass | Host non déclaré : 400, `BLOCK host_not_declared` journalisé, `waf_blocked_total{domain="_undeclared"}` ; `/waf/metrics` par IP 400 ; `/waf/health` 200 |
+
+### Sprint 26 — onzième audit du 2026-10-01 : ce qui était exact, ce qui ne l'était pas
+
+- **Exact et corrigé** : bus cluster non authentifié (P1-2, signature HMAC),
+  `slowloris-protection.feature` fausse (P1-3, spec réalignée),
+  `/waf/metrics` public (P2-2, token opt-in), fuite de longueur du Bearer
+  admin (P2-7), `health.version` ambigu (SD-010), gaps CI (typecheck, gate de
+  couverture, Trivy non bloquant, `lint` hors de `make gates`, Spectral
+  flottant, README, `.dockerignore`).
+- **Exact, différent de sa description** : le label `reason` n'est pas
+  explosé par les `rule_*` (bornés par le fichier de règles) mais par les
+  `X-WAF-*` d'une réponse upstream, transmis au pipeline — qui faussaient aussi
+  le circuit-breaker. Le bus cluster acceptait en outre un type inconnu comme
+  série du label `type`. `strict_host` : défaut voulu (ADR-020), désormais
+  signalé au démarrage quand un domaine durci est contournable.
+- **Limites connues, non modifiées** : accès direct hors Cloudflare et
+  `ja3_header` hors `CF-` (ADR-019, options C/D non engagées) — action
+  d'exploitation : firewall CF-only.
+- **Infirmé** : `SameSite=Strict` (casserait la navigation entrante),
+  oracle `/waf/origin/verify` (HMAC lié IP + domaine), secret d'origine à
+  32 caractères (rupture sans gain).
+- **Différé / non retenu** : `admin.allowed_ips`, anti-rejeu partagé,
+  optimisations sans mesure, refactorings structurants, conventions de
+  processus SDD (roadmap). Protection de branche à vérifier côté GitHub.
 
 ### Sprint 25 — dixième audit du 2026-09-30 : ce qui était exact, ce qui ne l'était pas
 

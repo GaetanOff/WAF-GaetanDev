@@ -6,6 +6,41 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — onzième audit du 2026-10-01 (phase 26)
+
+- Les événements du bus cluster sont signés (HMAC-SHA256, clé dérivée de
+  `challenge.secret_key`) : un message non signé, mal signé ou de type inconnu
+  est ignoré et compté dans `waf_cluster_rejected_events_total`. Tout client
+  capable de publier sur `cluster.channel` propageait sinon une blacklist
+  (`0.0.0.0/0` compris), un score ou un circuit à tous les nœuds (FR-20).
+  **Mise à jour** : `cluster.enabled` exige désormais `challenge.secret_key`,
+  identique sur tous les nœuds ; pendant un déploiement progressif, les nœuds
+  mis à jour ignorent les événements des anciens.
+- `/waf/metrics` accepte un token Bearer opt-in (`metrics.auth_token`,
+  `WAF_METRICS_AUTH_TOKEN`) : derrière Cloudflare, l'endpoint répond sur tous
+  les domaines publics (FR-30, `public.openapi.yaml` 1.6.0).
+- Le token de l'API admin est comparé en temps constant longueur comprise.
+- Les en-têtes `X-WAF-*` d'une réponse de l'upstream sont supprimés : un
+  `X-WAF-Action: RATE_LIMIT` de l'origine comptait comme une violation du
+  circuit-breaker (FR-01, FR-08).
+
+### Added — onzième audit du 2026-10-01
+
+- Avertissement au démarrage pour un domaine `challenge_enabled` contournable
+  par un `Host` non déclaré, sans `server.strict_host` (ADR-020).
+- CI : `make typecheck`, gate de couverture (80 %), échec sur une
+  vulnérabilité Trivy HIGH/CRITICAL corrigeable ; `make gates` inclut `lint` ;
+  Spectral épinglé en 6.16.3.
+
+### Changed — onzième audit du 2026-10-01
+
+- FR-23 et `slowloris-protection.feature` réalignés sur le code :
+  `header_timeout` ferme la connexion sans réponse (pas de `408`), le slow POST
+  est borné par `server.read_timeout`, la borne par IP compte les requêtes en
+  cours ; `408`, débit minimal du corps, RST et métriques dédiées différés.
+- `GET /waf/health` (admin) : `version` est la version du schéma de
+  configuration (`admin.openapi.yaml` 1.4.1).
+
 ### Security — dixième audit du 2026-09-30 (phase 25)
 
 - La page de challenge est servie sous une `Content-Security-Policy` stricte à
