@@ -242,6 +242,9 @@ components:
     Page:
       name: page
       in: query
+      description: >-
+        Une page au-delà de la dernière rend une liste vide (HTTP 200), quelle
+        que soit sa valeur.
       schema:
         type: integer
         minimum: 1
