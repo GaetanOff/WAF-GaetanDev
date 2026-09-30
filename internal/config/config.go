@@ -17,6 +17,7 @@ import (
 
 const (
 	envAdminToken         = "WAF_ADMIN_TOKEN"
+	envMetricsAuthToken   = "WAF_METRICS_AUTH_TOKEN"
 	envChallengeSecretKey = "WAF_CHALLENGE_SECRET_KEY"
 	envRedisPassword      = "WAF_REDIS_PASSWORD"
 	envOriginSecret       = "WAF_ORIGIN_SECRET"
@@ -68,6 +69,7 @@ type Config struct {
 	Domains             []DomainConfig   `yaml:"domains"`
 	Logging             Logging          `yaml:"logging"`
 	Storage             Storage          `yaml:"storage"`
+	Metrics             Metrics          `yaml:"metrics"`
 	Admin               Admin            `yaml:"admin"`
 }
 
@@ -461,6 +463,12 @@ type RedisConfig struct {
 type Admin struct {
 	Enabled bool   `yaml:"enabled"`
 	Token   string `yaml:"token"`
+}
+
+// Metrics protège /waf/metrics, servi sur tous les domaines du listener public
+// (FR-30). AuthToken vide : endpoint public.
+type Metrics struct {
+	AuthToken string `yaml:"auth_token"`
 }
 
 type ValidationError struct {
@@ -950,6 +958,9 @@ func (c *Config) Validate() error {
 	if c.Storage.Redis != nil && c.Storage.Redis.Timeout != "" {
 		validateDuration(&fields, "storage.redis.timeout", c.Storage.Redis.Timeout)
 	}
+	if c.Metrics.AuthToken != "" && len(c.Metrics.AuthToken) < 32 {
+		fields = append(fields, "metrics.auth_token must be at least 32 characters; set WAF_METRICS_AUTH_TOKEN")
+	}
 	if c.Admin.Enabled && len(c.Admin.Token) < 32 {
 		fields = append(fields, "admin.token is required and must be at least 32 characters; set WAF_ADMIN_TOKEN")
 	}
@@ -1204,6 +1215,9 @@ func (c *Config) applyEnvOverrides() {
 	}
 	if value := os.Getenv(envAdminToken); value != "" {
 		c.Admin.Token = value
+	}
+	if value := os.Getenv(envMetricsAuthToken); value != "" {
+		c.Metrics.AuthToken = value
 	}
 	if value := os.Getenv(envOriginSecret); value != "" {
 		c.OriginProtection.Secret = value

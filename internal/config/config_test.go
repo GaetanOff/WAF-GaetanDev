@@ -725,3 +725,33 @@ func TestValidateClusterRequiresChallengeSecret(t *testing.T) {
 		t.Fatalf("Validate() unexpected error = %v", err)
 	}
 }
+
+// FR-30 : metrics.auth_token se fournit par WAF_METRICS_AUTH_TOKEN, et un token
+// trop court est refusé au démarrage.
+func TestMetricsAuthToken(t *testing.T) {
+	t.Setenv(envChallengeSecretKey, testSecret)
+	t.Setenv(envAdminToken, testSecret)
+	t.Setenv(envMetricsAuthToken, "metrics-token-from-env-0123456789")
+	path := writeConfig(t, `
+version: "1.0"
+server:
+  listen: ":8080"
+upstream:
+  address: "http://example.test"
+metrics:
+  auth_token: "overridden-by-the-environment-012345"
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.Metrics.AuthToken != "metrics-token-from-env-0123456789" {
+		t.Fatalf("metrics.auth_token = %q, want the env value", cfg.Metrics.AuthToken)
+	}
+
+	short := validBaseConfig()
+	short.Metrics.AuthToken = "court"
+	if err := short.Validate(); err == nil || !strings.Contains(err.Error(), "metrics.auth_token") {
+		t.Fatalf("Validate() error = %v, want it to reject a short metrics.auth_token", err)
+	}
+}

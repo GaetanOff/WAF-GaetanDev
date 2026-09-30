@@ -302,6 +302,11 @@ admin:
   enabled: true
   # token: "change-me-in-production-min-32-chars" # Préférer env var
 
+# /waf/metrics répond sur tous les domaines publics : en production, exiger un
+# token Bearer (>= 32 caractères) via WAF_METRICS_AUTH_TOKEN.
+metrics:
+  # auth_token: "" # Préférer env var ; vide = endpoint public
+
 # Stockage de l'état visiteurs
 storage:
   # "memory" : état par processus, borné par trust.max_visitors.

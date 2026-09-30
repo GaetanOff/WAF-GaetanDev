@@ -1,8 +1,6 @@
 package admin
 
 import (
-	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/json"
 	"log/slog"
 	"net"
@@ -14,6 +12,7 @@ import (
 	"time"
 
 	"github.com/gaetandev/waf/internal/jsonstrict"
+	"github.com/gaetandev/waf/internal/signing"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
 )
@@ -187,14 +186,10 @@ func (s *Server) auth(next http.Handler) http.Handler {
 	})
 }
 
-// bearerMatches compare en temps constant l'en-tête Authorization au token
-// attendu. ConstantTimeCompare rend la main dès que les longueurs diffèrent :
-// comparer les chaînes brutes révélait la longueur du token par le temps de
-// réponse. Les empreintes SHA-256, de longueur fixe, ne révèlent rien.
+// bearerMatches compare l'en-tête Authorization au token attendu, en temps
+// constant longueur comprise.
 func bearerMatches(header string, token string) bool {
-	got := sha256.Sum256([]byte(header))
-	want := sha256.Sum256([]byte("Bearer " + token))
-	return subtle.ConstantTimeCompare(got[:], want[:]) == 1
+	return signing.EqualSecret(header, "Bearer "+token)
 }
 
 func clientIP(r *http.Request) string {
