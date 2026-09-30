@@ -30,3 +30,35 @@ func TestGetDoesNotAllocate(t *testing.T) {
 		t.Fatalf("Header.Get(Action) allocates %v times, want 0", allocs)
 	}
 }
+
+// Journaux et métriques comptent la même action pour une même requête.
+func TestEffectiveAction(t *testing.T) {
+	cases := []struct {
+		name     string
+		response string
+		request  string
+		want     string
+	}{
+		{name: "no header is an upstream status", want: ActionPass},
+		{name: "response decision", response: ActionBlock, want: ActionBlock},
+		{name: "request decision", request: ActionChallenge, want: ActionChallenge},
+		{name: "response wins over request", response: ActionRateLimit, request: ActionPass, want: ActionRateLimit},
+		{name: "tarpit served", response: ActionTarpit, want: ActionTarpit},
+		{name: "tarpit only classified", request: ActionTarpit, want: ActionPass},
+		{name: "unknown value", response: "ALLOW", want: ActionPass},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			response, request := http.Header{}, http.Header{}
+			if tc.response != "" {
+				response.Set(Action, tc.response)
+			}
+			if tc.request != "" {
+				request.Set(Action, tc.request)
+			}
+			if got := EffectiveAction(response, request); got != tc.want {
+				t.Fatalf("EffectiveAction() = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}

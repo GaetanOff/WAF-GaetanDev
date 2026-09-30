@@ -104,7 +104,7 @@ func withRequestID(r *http.Request, requestID string) *http.Request {
 func (l Logger) securityEvent(r *http.Request, recorder *statusRecorder, scores *trust.ScoreManager, requestID string, startedAt time.Time, elapsedMS float64, wafLatencyMS float64) SecurityEvent {
 	ip := cloudflare.RealIP(r)
 	trustScore := currentTrustScore(r, scores, ip)
-	action := normalizedAction(r, recorder)
+	action := wafheader.EffectiveAction(recorder.Header(), r.Header)
 	loggedIP := ip
 	if l.AnonymizeIP {
 		loggedIP = gdpr.AnonymizeIP(ip)
@@ -184,32 +184,6 @@ func currentTrustScore(r *http.Request, scores *trust.ScoreManager, ip string) i
 		return 0
 	}
 	return scores.Peek(ip, r.Host).Score
-}
-
-// normalizedAction dérive l'action depuis l'en-tête X-WAF-Action. Toutes les
-// vraies décisions du WAF (access, antibot, ratelimit, circuit-breaker, rules,
-// trust, risk) posent cet en-tête. En son absence, l'action est PASS : le statut
-// observé vient alors de l'UPSTREAM (ex: 502 origine down, 403/404 applicatif)
-// et ne doit PAS être compté comme un blocage WAF — sinon faux BLOCK dans les
-// métriques/logs et fausses alertes webhook à chaque hoquet d'origine.
-//
-// TARPIT n'est retenu que sur la réponse : posé sur la requête, ce n'est
-// qu'une classification (moteur de risque, règles) que seul le tarpit rend
-// effective. Sans couche de déception, la requête classée atteint l'upstream.
-func normalizedAction(r *http.Request, recorder *statusRecorder) string {
-	action := recorder.Header().Get(wafheader.Action)
-	if action == "" {
-		action = r.Header.Get(wafheader.Action)
-		if action == ActionTarpit {
-			return ActionPass
-		}
-	}
-	switch action {
-	case ActionPass, ActionChallenge, ActionBlock, ActionRateLimit, ActionCircuitBreak, ActionHoneypot, ActionTarpit:
-		return action
-	default:
-		return ActionPass
-	}
 }
 
 func reason(r *http.Request, recorder *statusRecorder) string {
