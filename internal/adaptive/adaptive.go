@@ -21,6 +21,13 @@ const (
 	// Seuils de l'Attack Intensity Indicator (AII = rate courant / baseline %).
 	elevatedThreshold = 110
 	criticalThreshold = 200
+
+	// baselineSeconds est la constante de temps de la baseline : une moyenne
+	// exponentielle du débit par seconde écoulée, cumulée pendant sa première
+	// période. Mise à jour à chaque challenge servi (α = 0,05), elle rejoignait
+	// un flood soutenu en une dizaine de secondes et annulait la difficulté
+	// ajoutée pendant l'attaque même.
+	baselineSeconds = 3600
 )
 
 // Controller calcule la difficulté courante du PoW à partir du débit observé.
@@ -33,8 +40,16 @@ type Controller struct {
 	// counts compte les requêtes des windowSeconds dernières secondes, une case
 	// par seconde (seconde modulo windowSeconds). Une map, parcourue en entier
 	// à chaque requête pour purger les secondes échues, tenait ce rôle.
-	counts      [windowSeconds]secondCount
-	baseline    float64
+	counts [windowSeconds]secondCount
+	// baseline est le débit « normal » (req/s) ; baselineSamples le nombre de
+	// secondes qu'elle résume (borné à baselineSeconds). curSec et curCount
+	// comptent la seconde en cours, versée à la baseline quand elle s'achève.
+	baseline        float64
+	baselineSamples int64
+	curSec          int64
+	curCount        int
+	// currentBits est la difficulté ajoutée : elle monte immédiatement vers la
+	// cible de l'AII et redescend en e^(-t/τ) depuis lastDecay.
 	currentBits float64
 	lastDecay   time.Time
 	now         func() time.Time
@@ -86,20 +101,70 @@ func (c *Controller) Observe() int {
 		slot.sec, slot.n = sec, 0
 	}
 	slot.n++
+	c.countForBaseline(sec)
 	return c.snapshotLocked()
 }
 
+// countForBaseline compte la requête dans la seconde en cours ; la seconde
+// précédente, achevée, est versée à la baseline, suivie des secondes sans
+// requête qui les séparent.
+func (c *Controller) countForBaseline(sec int64) {
+	if sec != c.curSec {
+		if c.curSec != 0 {
+			c.feedBaseline(float64(c.curCount), max(sec-c.curSec-1, 0))
+		}
+		c.curSec, c.curCount = sec, 0
+	}
+	c.curCount++
+}
+
+// feedBaseline verse une seconde de count requêtes puis idle secondes vides.
+// Pendant ses baselineSeconds premières secondes, la baseline est leur moyenne
+// cumulée ; ensuite, une moyenne exponentielle de constante baselineSeconds.
+func (c *Controller) feedBaseline(count float64, idle int64) {
+	c.baselineSamples = min(c.baselineSamples+1, baselineSeconds)
+	c.baseline += (count - c.baseline) / float64(c.baselineSamples)
+	if idle <= 0 {
+		return
+	}
+	if warmup := min(idle, baselineSeconds-c.baselineSamples); warmup > 0 {
+		c.baseline *= float64(c.baselineSamples) / float64(c.baselineSamples+warmup)
+		c.baselineSamples += warmup
+		idle -= warmup
+	}
+	c.baseline *= math.Exp(-float64(idle) / baselineSeconds)
+}
+
 // ObservePressure applique immédiatement un plancher de difficulté selon la
-// pression globale anti-DDoS calculée en amont.
+// pression globale anti-DDoS calculée en amont. Appelée à chaque requête, elle
+// fait d'abord avancer la décroissance : elle remettait lastDecay à l'instant
+// courant sans rien décroître, et la difficulté ne redescendait jamais tant
+// que le trafic continuait (FR-14).
 func (c *Controller) ObservePressure(level string) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	target := float64(extraBitsForPressure(level))
-	if target > c.currentBits {
-		c.currentBits = target
+	c.advanceLocked(c.now())
+	if floor := float64(extraBitsForPressure(level)); floor > c.currentBits {
+		c.currentBits = floor
 	}
-	c.lastDecay = c.now()
+}
+
+// advanceLocked fait tendre currentBits vers la cible de l'AII courant sur le
+// temps écoulé depuis lastDecay.
+func (c *Controller) advanceLocked(now time.Time) {
+	target := 0.0
+	// Sans windowSeconds d'historique, la baseline ne dit encore rien : tout
+	// trafic de démarrage passerait pour une attaque.
+	if c.baselineSamples >= windowSeconds {
+		target = float64(extraBitsFor(aii(c.rate(now.Unix()), c.baseline)))
+	}
+	if c.lastDecay.IsZero() {
+		c.currentBits = max(c.currentBits, target)
+	} else {
+		c.currentBits = decay(c.currentBits, target, now.Sub(c.lastDecay), c.tau)
+	}
+	c.lastDecay = now
 }
 
 // Difficulty retourne la difficulté courante du PoW [base..max].
@@ -107,18 +172,7 @@ func (c *Controller) Difficulty() int {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
-	now := c.now()
-	rate := c.rate(now.Unix())
-	// Baseline EMA : suit lentement le débit "normal".
-	if c.baseline == 0 {
-		c.baseline = rate
-	} else {
-		c.baseline = 0.05*rate + 0.95*c.baseline
-	}
-
-	target := float64(extraBitsFor(aii(rate, c.baseline)))
-	c.currentBits = decay(c.currentBits, target, now.Sub(c.lastDecay), c.tau)
-	c.lastDecay = now
+	c.advanceLocked(c.now())
 
 	difficulty := min(c.baseDifficulty+int(math.Round(c.currentBits)), c.maxDifficulty)
 	if difficulty < c.baseDifficulty {
