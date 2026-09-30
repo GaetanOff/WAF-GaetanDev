@@ -237,6 +237,10 @@ func TestConformanceVerifyRejectsNonPost(t *testing.T) {
 	if response.Code != http.StatusMethodNotAllowed {
 		t.Fatalf("status = %d, want 405", response.Code)
 	}
+	// RFC 9110 §15.5.6 : un 405 DOIT annoncer les méthodes acceptées.
+	if got := response.Header().Get("Allow"); got != http.MethodPost {
+		t.Fatalf("Allow = %q, want POST", got)
+	}
 }
 
 // POST /waf/verify — corps malformé ou champs inconnus rejetés.

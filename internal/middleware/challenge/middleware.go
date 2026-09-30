@@ -268,6 +268,7 @@ func (m Middleware) Enforcer(next http.Handler) http.Handler {
 func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		markRejected(w, "method_not_allowed")
+		w.Header().Set("Allow", http.MethodPost)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
