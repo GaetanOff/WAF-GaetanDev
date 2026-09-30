@@ -3,20 +3,26 @@ Feature: Synchronisation Multi-Nœuds (Cluster Mode)
   Je veux que les décisions de sécurité soient partagées entre toutes les instances
   Afin qu'un bot bloqué sur un nœud soit bloqué sur tous les nœuds immédiatement.
 
+  # Contrat : FR-20 (requirements-advanced.md), cluster-event.schema.json, bloc
+  # cluster de config.schema.json. Tous les événements passent par un seul canal
+  # Redis Pub/Sub, cluster.channel (défaut "waf:events"), le type étant porté par
+  # l'événement. Les scénarios @deferred sont spécifiés mais NON implémentés
+  # (audit du 2026-09-30) : ils ne sont pas un critère d'acceptation.
+
   Background:
     Given le WAF est configuré avec cluster.enabled = true
-    And cluster.redis_address = "redis:6379"
+    And storage.redis pointe vers "redis:6379" (la connexion du bus Pub/Sub)
     And 3 instances WAF sont actives: WAF-1, WAF-2, WAF-3
 
   Scenario: Ajout d'une IP en blacklist — propagation immédiate
     Given un administrateur ajoute "5.5.5.5" en blacklist via l'API de WAF-1
-    When WAF-1 publie l'événement sur Redis Pub/Sub channel "waf:blacklist"
+    When WAF-1 publie l'événement "blacklist_add" sur cluster.channel
     Then WAF-2 et WAF-3 reçoivent l'événement en < 100ms
     And les trois instances bloquent "5.5.5.5" simultanemément
 
   Scenario: Circuit-breaker ouvert — propagation aux autres nœuds
     Given WAF-1 ouvre le circuit-breaker pour l'IP "6.6.6.6" (5 violations)
-    When WAF-1 publie l'événement sur Redis Pub/Sub channel "waf:circuit_breaker"
+    When WAF-1 publie l'événement "circuit_open" sur cluster.channel
     Then WAF-2 et WAF-3 bloquent également l'IP "6.6.6.6" immédiatement
     And la durée du blocage est la même sur tous les nœuds
 
@@ -31,13 +37,14 @@ Feature: Synchronisation Multi-Nœuds (Cluster Mode)
     Then la requête n'attend pas Redis (événement mis en file, abandonné si la file est pleine)
 
   Scenario: Score très bas partagé — visiteur dangereux
-    Given WAF-1 détecte un visiteur avec score = 3 (très dangereux)
-    When WAF-1 publie le score sur "waf:threat_share"
+    Given WAF-1 détecte un visiteur dont le score passe sous 5 (très dangereux, ici 3)
+    When WAF-1 publie l'événement "score_critical" sur cluster.channel
     Then WAF-2 et WAF-3 mettent à jour le score de ce visiteur dans leur store local
 
+  @deferred
   Scenario: Mode dégradé global — coordination
     Given WAF-1 passe en mode dégradé (trafic > 200% baseline)
-    When WAF-1 publie l'événement sur "waf:degraded_mode"
+    When WAF-1 publie l'événement "degraded_mode" sur cluster.channel
     Then WAF-2 et WAF-3 passent également en mode dégradé dans les 200ms
 
   Scenario: Eventual consistency — pas de blocage sur perte réseau
@@ -55,10 +62,15 @@ Feature: Synchronisation Multi-Nœuds (Cluster Mode)
     And aucune instance ne crash
 
   Scenario: Métriques de synchronisation
+    Given WAF-2 a appliqué un événement "blacklist_add" reçu de WAF-1
+    When GET /waf/metrics sur WAF-2
+    Then waf_cluster_sync_events_total{type="blacklist_add"} vaut 1
+
+  @deferred
+  Scenario: Métriques de synchronisation détaillées
     When GET /waf/metrics sur WAF-1
     Then les métriques contiennent:
       | waf_cluster_sync_events_published_total | événements publiés  |
-      | waf_cluster_sync_events_received_total  | événements reçus    |
       | waf_cluster_sync_lag_seconds            | latence de sync     |
       | waf_cluster_redis_connected             | 1 si connecté       |
 
@@ -70,7 +82,7 @@ Feature: Synchronisation Multi-Nœuds (Cluster Mode)
     And il ne récupère pas l'historique des états (eventual consistency, pas de snapshot)
 
   Scenario: Rate limiting distribué (mode optionnel)
-    Given cluster.distributed_rate_limit = true (Redis comme backend de rate limit)
+    Given storage.backend = "redis" sur les trois instances (buckets partagés, ADR-021)
     When la même IP "7.7.7.7" envoie 40 req/s sur WAF-1 ET 40 req/s sur WAF-2
     Then le rate limit global de 50 req/s est respecté (via Redis counters)
     And les deux instances coordonnent le rate limit
