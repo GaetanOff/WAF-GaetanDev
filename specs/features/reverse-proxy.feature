@@ -53,6 +53,14 @@ Feature: Reverse Proxy (FR-01)
     Then il reçoit HTTP 502 "bad gateway"
     And le WAF continue de servir les requêtes suivantes (NFR-02)
 
+  Scenario: Panic d'un middleware — 500 journalisé et compté (NFR-04)
+    Given un middleware du pipeline déclenche un panic sur une requête
+    When un visiteur envoie cette requête
+    Then il reçoit HTTP 500
+    And un journal error porte le request_id de la requête et la pile
+    And waf_panics_total augmente de 1
+    And le WAF continue de servir les requêtes suivantes
+
   Scenario: Préfixe /waf/ réservé — jamais transmis
     When une requête arrive sur "/waf/health", "/waf/metrics" ou "/waf/verify"
     Then le WAF y répond lui-même
