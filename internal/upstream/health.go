@@ -2,6 +2,7 @@ package upstream
 
 import (
 	"context"
+	"crypto/tls"
 	"net/http"
 	"time"
 
@@ -18,6 +19,7 @@ type HealthChecker struct {
 	healthyN   int
 	unhealthyN int
 	client     *http.Client
+	transport  *http.Transport
 }
 
 func NewHealthChecker(pool *Pool, path string, interval, timeout time.Duration, healthyThreshold, unhealthyThreshold int) *HealthChecker {
@@ -30,6 +32,8 @@ func NewHealthChecker(pool *Pool, path string, interval, timeout time.Duration, 
 	if unhealthyThreshold < 1 {
 		unhealthyThreshold = 1
 	}
+	transport := http.DefaultTransport.(*http.Transport).Clone()
+	transport.TLSClientConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	return &HealthChecker{
 		pool:       pool,
 		path:       path,
@@ -37,8 +41,25 @@ func NewHealthChecker(pool *Pool, path string, interval, timeout time.Duration, 
 		timeout:    timeout,
 		healthyN:   healthyThreshold,
 		unhealthyN: unhealthyThreshold,
-		client:     &http.Client{Timeout: timeout},
+		client: &http.Client{
+			Timeout:   timeout,
+			Transport: transport,
+			// FR-25 : le 3xx est lui-même le succès. Suivre Location jugeait la
+			// santé d'une autre URL, voire d'un autre hôte.
+			CheckRedirect: func(*http.Request, []*http.Request) error {
+				return http.ErrUseLastResponse
+			},
+		},
+		transport: transport,
 	}
+}
+
+// SetTLSVerify applique upstream.tls_verify aux sondes, comme au proxy : les
+// sondes vérifiaient toujours le certificat, si bien qu'avec tls_verify=false
+// une origine HTTPS auto-signée échouait toutes ses sondes et sortait du pool
+// alors que le proxy la joignait. À appeler avant Start.
+func (h *HealthChecker) SetTLSVerify(verify bool) {
+	h.transport.TLSClientConfig.InsecureSkipVerify = !verify
 }
 
 // Start lance une goroutine de sondage par upstream jusqu'à annulation du

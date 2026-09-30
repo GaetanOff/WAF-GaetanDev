@@ -49,6 +49,18 @@ Feature: Upstream Health Checks & Load Balancing
     Then upstream-A est remis en service
     And les requêtes lui sont à nouveau routées
 
+  Scenario: Redirection de la sonde — succès sans suivre Location
+    Given upstream-A répond GET /healthz avec HTTP 302 vers "https://ailleurs.example/login"
+    When le health check s'exécute
+    Then la sonde compte un succès
+    And aucune requête n'est envoyée à "https://ailleurs.example/login"
+
+  Scenario: Origine HTTPS auto-signée avec upstream.tls_verify = false
+    Given upstream-A est "https://10.0.0.1:443" avec un certificat auto-signé
+    And upstream.tls_verify = false
+    When le health check s'exécute
+    Then la sonde compte un succès (comme le proxy, elle ne vérifie pas le certificat)
+
   Scenario: Health check timeout
     Given upstream-A ne répond pas dans le délai health_check.timeout = 2s
     Then ce health check compte comme un échec

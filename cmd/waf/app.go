@@ -262,6 +262,7 @@ func (a *app) attachUpstreamPool(proxyHandler *proxy.Handler) error {
 		return err
 	}
 	checker := upstream.NewHealthChecker(pool, cfg.UpstreamPool.HealthCheck.Path, hcInterval, hcTimeout, cfg.UpstreamPool.HealthCheck.HealthyThreshold, cfg.UpstreamPool.HealthCheck.UnhealthyThreshold)
+	checker.SetTLSVerify(cfg.Upstream.TLSVerify)
 	hcCtx, hcCancel := context.WithCancel(context.Background())
 	a.stop.add(hcCancel)
 	checker.Start(hcCtx)
