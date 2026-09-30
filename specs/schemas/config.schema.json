@@ -797,6 +797,18 @@
         }
       }
     },
+    "metrics": {
+      "type": "object",
+      "additionalProperties": false,
+      "description": "Endpoint /waf/metrics du listener public (FR-30).",
+      "properties": {
+        "auth_token": {
+          "type": "string",
+          "minLength": 32,
+          "description": "Opt-in : token Bearer exigé par GET /waf/metrics (401 sans). Vide = endpoint public. Préférer WAF_METRICS_AUTH_TOKEN."
+        }
+      }
+    },
     "admin": {
       "type": "object",
       "additionalProperties": false,

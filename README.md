@@ -108,6 +108,7 @@ variables d'environnement et surchargent le fichier :
 |---|---|
 | `WAF_CHALLENGE_SECRET_KEY` | Clé HMAC du challenge et des cookies (≥ 32 caractères) |
 | `WAF_ADMIN_TOKEN` | Jeton Bearer de l'API d'administration (≥ 32 caractères) |
+| `WAF_METRICS_AUTH_TOKEN` | Jeton Bearer exigé par `/waf/metrics` (≥ 32 caractères, opt-in, recommandé : l'endpoint répond sur tous les domaines publics) |
 | `WAF_REDIS_PASSWORD` | Mot de passe Redis (si backend `redis`) |
 
 ### Réglages clés

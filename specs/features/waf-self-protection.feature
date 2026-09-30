@@ -153,19 +153,26 @@ Feature: Auto-protection du WAF
 
   # ── Protection /waf/metrics ─────────────────────────────────────────────────
 
-  @deferred
   Scenario: /waf/metrics protégé par token (opt-in)
-    Given metrics.auth_token = "mon-token-prometheus"
+    Given metrics.auth_token = "prometheus-scrape-token-0123456789"
     When une requête GET /waf/metrics arrive sans token
+    Then HTTP 401 est retourné avec "WWW-Authenticate: Bearer"
+    When la requête arrive avec un autre token
     Then HTTP 401 est retourné
-    When la requête arrive avec header "Authorization: Bearer mon-token-prometheus"
+    When la requête arrive avec header "Authorization: Bearer prometheus-scrape-token-0123456789"
     Then les métriques sont retournées normalement
 
-  Scenario: /waf/metrics sans auth
+  Scenario: Token de métriques trop court — refusé au démarrage
+    Given metrics.auth_token = "court"
+    When le WAF charge sa configuration
+    Then le démarrage échoue : metrics.auth_token doit compter au moins 32 caractères
+
+  Scenario: /waf/metrics sans auth_token
+    Given metrics.auth_token n'est pas configuré
     When GET /waf/metrics depuis n'importe quelle IP
     Then les métriques sont retournées (accessible publiquement)
-    # Aucune clé metrics.auth_token n'existe : restreindre l'accès par firewall
-    # réseau.
+    # Derrière Cloudflare, /waf/metrics répond sur tous les domaines publics :
+    # configurer metrics.auth_token (WAF_METRICS_AUTH_TOKEN) en production.
 
   # ── Détection d'amplification ────────────────────────────────────────────────
 

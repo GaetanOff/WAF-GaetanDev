@@ -17,6 +17,7 @@ Ne mettez **jamais** de secrets dans `config.yaml`. Fournissez-les via l'environ
 |---|---|---|
 | `WAF_CHALLENGE_SECRET_KEY` | `challenge.secret_key` | 32 caractères |
 | `WAF_ADMIN_TOKEN` | `admin.token` | 32 caractères |
+| `WAF_METRICS_AUTH_TOKEN` | `metrics.auth_token` | 32 caractères |
 | `WAF_REDIS_PASSWORD` | `storage.redis.password` | — |
 | `WAF_ORIGIN_SECRET` | `origin_protection.secret` | 16 caractères |
 | `WAF_ABUSEIPDB_KEY` | `threat_intel.abuseipdb.api_key` | — |
@@ -909,6 +910,32 @@ Le challenge JavaScript consiste en un Proof-of-Work SHA-256 (via `SubtleCrypto`
 | `pow_difficulty` | int [8–24] | `16` | Difficulté initiale du Proof-of-Work en bits. 16 bits ≈ 500ms sur un CPU standard. Augmenter augmente la charge pour le visiteur **et** pour les bots. |
 | `min_elapsed_ms` | int | `0` | Temps minimum (ms) pour résoudre le challenge. `0` = **plancher désactivé** (recommandé) : sur un client rapide la PoW se résout en quelques dizaines de ms, et un plancher positif rejetait ces résolutions légitimes (`challenge_too_fast`). La résistance anti-bot vient de la PoW + fingerprint + cookie, pas du chrono. Mettre `>0` pour réactiver un plancher. |
 | `max_elapsed_ms` | int | `60000` | Temps maximum (ms). Au-delà, le challenge est considéré abandonné. Marge large pour les appareils lents. |
+
+---
+
+## `metrics` — Endpoint Prometheus
+
+```yaml
+metrics:
+  auth_token: ""   # préférer WAF_METRICS_AUTH_TOKEN
+```
+
+`/waf/metrics` est servi par le listener public, **sur tous les domaines** : derrière Cloudflare, `https://<votre-domaine>/waf/metrics` est joignable depuis Internet et un pare-feu réseau ne le restreint pas. Il révèle les domaines, les décisions, la pression et l'état du stockage.
+
+| Clé | Type | Défaut | Description |
+|---|---|---|---|
+| `auth_token` | string | `""` | **Opt-in.** Token Bearer (≥ 32 caractères) exigé par `GET /waf/metrics` : sans `Authorization: Bearer <token>`, réponse `401`. Vide : endpoint public. **Utiliser `WAF_METRICS_AUTH_TOKEN`.** Recommandé en production. |
+
+Côté Prometheus :
+
+```yaml
+scrape_configs:
+  - job_name: waf
+    metrics_path: /waf/metrics
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/waf-metrics-token
+```
 
 ---
 
