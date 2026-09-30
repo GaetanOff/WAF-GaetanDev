@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -147,6 +148,71 @@ func TestAdminConfigMasksEverySecret(t *testing.T) {
 			t.Errorf("config response leaked %q", secret)
 		}
 	}
+}
+
+// Garde structurelle : tout champ texte de la configuration dont le nom désigne
+// un secret (Secret*, *Token, Password, APIKey) doit sortir masqué. Le Bearer de
+// /waf/metrics, ajouté après sanitizedConfig, était rendu en clair.
+func TestSanitizedConfigMasksEverySecretField(t *testing.T) {
+	const sentinel = "secret-sentinel-value"
+	var cfg config.Config
+	cfg.Storage.Redis = &config.RedisConfig{}
+	cfg.Alerting.Webhooks = []config.AlertWebhook{{}}
+	secretFields := fillSecretFields(reflect.ValueOf(&cfg).Elem(), "cfg", sentinel)
+	if len(secretFields) == 0 {
+		t.Fatal("no secret field found: the name heuristic no longer matches config.Config")
+	}
+	cfg.Alerting.Webhooks[0].URL = sentinel
+
+	body, err := json.Marshal(sanitizedConfig(cfg))
+	if err != nil {
+		t.Fatalf("json.Marshal() error = %v", err)
+	}
+	if bytes.Contains(body, []byte(sentinel)) {
+		t.Fatalf("sanitizedConfig leaked a secret among %v: %s", secretFields, body)
+	}
+}
+
+// fillSecretFields pose value dans chaque champ texte dont le nom désigne un
+// secret, en descendant dans les structures, pointeurs et tranches, et rend le
+// chemin des champs remplis.
+func fillSecretFields(v reflect.Value, path string, value string) []string {
+	switch v.Kind() {
+	case reflect.Pointer:
+		if v.IsNil() {
+			return nil
+		}
+		return fillSecretFields(v.Elem(), path, value)
+	case reflect.Slice:
+		var filled []string
+		for i := range v.Len() {
+			filled = append(filled, fillSecretFields(v.Index(i), fmt.Sprintf("%s[%d]", path, i), value)...)
+		}
+		return filled
+	case reflect.Struct:
+		var filled []string
+		for i := range v.NumField() {
+			field := v.Type().Field(i)
+			if !field.IsExported() {
+				continue
+			}
+			fieldPath := path + "." + field.Name
+			if v.Field(i).Kind() == reflect.String && isSecretFieldName(field.Name) {
+				v.Field(i).SetString(value)
+				filled = append(filled, fieldPath)
+				continue
+			}
+			filled = append(filled, fillSecretFields(v.Field(i), fieldPath, value)...)
+		}
+		return filled
+	default:
+		return nil
+	}
+}
+
+func isSecretFieldName(name string) bool {
+	return strings.HasPrefix(name, "Secret") || strings.HasSuffix(name, "Token") ||
+		name == "Password" || name == "APIKey"
 }
 
 // Masquer ne doit pas modifier la configuration active : Storage.Redis et

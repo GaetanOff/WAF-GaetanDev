@@ -220,6 +220,8 @@ func keys(entries map[string]IPEntry) []string {
 func sanitizedConfig(cfg config.Config) config.Config {
 	mask(&cfg.Challenge.SecretKey)
 	mask(&cfg.Admin.Token)
+	// Bearer de /waf/metrics, servi sur le listener public (FR-30).
+	mask(&cfg.Metrics.AuthToken)
 	mask(&cfg.OriginProtection.Secret)
 	mask(&cfg.ThreatIntel.AbuseIPDB.APIKey)
 	if cfg.Storage.Redis != nil {
