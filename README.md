@@ -178,15 +178,18 @@ curl -H "Authorization: Bearer $WAF_ADMIN_TOKEN" \
 
 ```bash
 make test            # go test ./...
-make lint            # go vet ./...
-go test ./... -race -coverprofile=coverage.out   # comme en CI
+make lint            # golangci-lint run ./...
+make behavior        # go test -race + couverture >= 80 %, comme en CI
+make gates           # G1 à G5 : spec-lint, typecheck, lint, conformance, behavior, security
 ```
 
 Les **portes qualité** (gates) sont décrites dans
 [`specs/validation.md`](specs/validation.md) et exécutées en CI
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) :
-lint, tests `-race` + couverture, build statique Linux, et `spectral`
-sur le contrat OpenAPI.
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) par les mêmes
+cibles `make` : golangci-lint, `go vet` + `go build ./...`, tests `-race`
+avec couverture minimale de 80 %, build statique Linux, `govulncheck` et
+`spectral` sur les contrats OpenAPI. Semgrep et Trivy (bloquant sur une
+vulnérabilité HIGH/CRITICAL corrigeable) ont leurs propres workflows.
 
 Les comportements sont spécifiés en Gherkin dans
 [`specs/features/`](specs/features/) et couverts par des tests de conformance.
