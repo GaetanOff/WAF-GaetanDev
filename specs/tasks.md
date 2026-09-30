@@ -1139,3 +1139,39 @@ last-updated: 2026-09-30
 - [x] 4.5 Defaut `cluster.channel` : **non modifie**, exception documentee de `TestSchemaDefaultsMatchDefaultConfig` (vide = defaut applique par `buildCluster`)
 - **Validation 2026-09-30** : `make gates` (spectral 0 erreur, vet/build, conformance, behavior, govulncheck 0 vulnerabilite atteignable), `go test -race ./...`, `golangci-lint` v2.14.0 (0 issue), `go test ./...` (865 tests et sous-tests, 49 paquets) ; binaire reel sur `configs/config.example.yaml` (`/waf/health` 200, en-tetes de 100 Ko -> 431, admin sur `127.0.0.1:9090`, `waf_log_events_dropped_total` expose). Build Docker non verifie localement (daemon arrete) ; digests resolus depuis les registres.
 - **Statut** : implemente.
+
+## Sprint 25 - Remediation du dixieme audit du 2026-09-30 (Phase 25)
+
+> Dixieme audit du 2026-09-30 (« audit complet specs vs code ») : chaque point a
+> ete verifie contre le code avant correction, sur la branche
+> `fix/audit-10-remediation`, a raison d'un commit par correction, avec un test
+> en echec sur l'ancien code pour chaque defaut.
+
+### T25.1 - Defauts de code
+- [x] 1.1 G4 `TestColorsEnabled` rouge : la cause est un `NO_COLOR` herite du shell, pas `isTerminal`. Le test retire `NO_COLOR` le temps de son execution
+- [x] 1.2 Health-checker (0 % de couverture) : en le testant, deux defauts reels. Il suivait les redirections (FR-25 : « 3xx = succes » ; un 302 vers une URL injoignable sortait un membre sain du pool) et ignorait `upstream.tls_verify: false` (une origine HTTPS auto-signee echouait toutes ses sondes, le pool entier sortait du service alors que le proxy la joignait). `CheckRedirect` -> `ErrUseLastResponse`, `HealthChecker.SetTLSVerify` ; `health_test.go` (seuils, timeout, arret, redirection, TLS)
+- [x] 1.3 `SecurityEvent.domain` = `r.Host` brut (`Example.TEST:8080`), le `VisitorState` est range sous la forme normalisee : correlation cassee. `hostname.Normalize` ; `TestMiddlewareLogsNormalizedDomain`
+- [x] 1.4 405 de `/waf/verify` sans en-tete `Allow` (RFC 9110) : `Allow: POST` ; `public.openapi.yaml` 1.5.1
+- [x] 1.5 Page de challenge sans CSP : CSP stricte a nonce tire par reponse (`default-src 'none'`, `script-src`/`style-src` nonce, `connect-src 'self'`, `frame-ancestors 'none'`) ; FR-06 ; verifiee dans un navigateur reel (challenge -> PoW -> `/waf/verify` -> origine, aucune violation)
+- [x] 1.6 `normalizedAction` duplique dans `logger` et `metrics` : `wafheader.EffectiveAction`, source unique ; `TestEffectiveAction`
+- [x] 1.7 `panic` de `trust.init` : branche morte (`crypto/rand.Read` ne rend plus d'erreur depuis Go 1.24), retiree
+- [x] 1.8 Effacement RGPD non prouve (`behavioral.Forget`, `tlsfp.Forget`, `ttlcache.Delete` a 0 %) : tests unitaires ; commentaire de `Tracker.Score` remis a sa place
+
+### T25.2 - Specs contre code
+- [x] 2.1 FR-21/FR-22 : `X-Frame-Options` `SAMEORIGIN` annonce, `DENY` servi (code, schema, CONFIG.md). Ecart plus large que signale : `Permissions-Policy` et `X-XSS-Protection` injectes, `X-WAF-Protected`, CSP par domaine, HSTS seulement en HTTPS, `sanitize_errors`, remplacement de `Server` — rien de cela n'existe. FR-21/FR-22 realignes (3.11.0), `security-headers.feature` : scenarios non implementes en `@deferred`, ADR-011 amende ; tests des defauts reels
+- [x] 2.2 FR-27 : 10 000 entrees d'audit annoncees, 1 000 par defaut dans le code et le schema -> spec alignee
+- [x] 2.3 FR-28 : `privacy.data_retention_hours` / `event_retention_hours`, goroutine de purge et `GET /waf/admin/privacy/report` inexistants ; cle `privacy.anonymize_ip` au lieu de `gdpr.anonymize_ip` (defaut `true`, pas `false`) ; anonymisation limitee aux journaux (pas au store). FR-28 realigne sur la retention reelle (`trust.score_ttl`, 24 h pour les events, `audit.max_entries`), le reste en `@deferred` ; ADR-013 amende, registre des traitements complete. Scenario d'effacement : action d'audit `reset_visitor`, pas `GDPR_ERASURE`
+- [x] 2.4 FR-20 : `multi-node-sync.feature` citait encore `degraded_mode` (non differe), des canaux par type et `cluster.redis_address`, une metrique `waf_cluster_lag_seconds` ; realignes sur le canal unique `cluster.channel` et `waf_cluster_sync_events_total{type}`, le reste en `@deferred`
+- [x] 2.5 `config.example.yaml` : `adaptive.max_difficulty: 16` et `challenge.token_ttl: 90s` sont des choix de deploiement (commit d29d24e), commentes comme ecarts voulus. `max_difficulty` egal a `pow_difficulty` desactive l'adaptation : le commentaire le dit
+
+### T25.3 - Differe ou non retenu
+- [ ] 3.1 G6 (k6) : **differe**, k6 absent du poste — les SLO de `validation.md` restent non mesures
+- [ ] 3.2 Redis sur le chemin chaud (lectures multiples du visiteur par requete) : **differe** (T24.3 3.7). Le raccourci « lire `X-WAF-Score` » n'est pas sur : le moteur de risque y ecrit `100 - risk_score`, pas le trust score
+- [ ] 3.3 Couverture de `cluster/redis.go` et des `build*` de `cmd/waf/app.go` : **differe** (dependance miniredis ou harnais a introduire)
+- [x] 3.4 Anti-rejeu fail-open : **non retenu**. Saturer la memoire exige 65 536 soumissions reussies (PoW valide) pendant la duree de vie des tokens, chacun lie a l'IP et au domaine signes ; le compromis est documente dans `replay.go`
+- [x] 3.5 `GET /waf/stats` « DoS admin » : **infirme** — endpoint authentifie sur l'API admin (boucle locale par defaut) ; le cout O(N) est reel mais releve de 3.2
+- [x] 3.6 Enum `VerifyError` sans `verify_method_not_allowed` : **infirme** — le 405 repond en `text/plain`, la raison est dans `X-WAF-Reason` (seul l'en-tete `Allow` manquait, 1.4)
+- [x] 3.7 Processus SDD (`SPEC-INDEX.md`, frontmatter, `specs/slos/`, Pact, oasdiff, gate de couverture, decoupage des gros fichiers), optimisations O1-O12 sans mesure, dette `@deferred` : **non retenus** dans ce sprint (roadmap)
+- [x] 3.8 Webhook Discord en clair (S6) : action d'exploitation, deja tracee (T24.3 3.2)
+- **Validation 2026-09-30** : `make gates` (spectral 0 erreur, vet/build, conformance, behavior `-race`, govulncheck 0 vulnerabilite atteignable), `golangci-lint` v2.14.0 (0 issue), `go test ./...` (891 tests et sous-tests, 49 paquets), `NO_COLOR=1 go test ./internal/logger/` ; binaire reel : page de challenge servie avec CSP a nonce, parcours complet dans un navigateur sans violation.
+- **Statut** : implemente.

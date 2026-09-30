@@ -79,6 +79,23 @@ Le README DOIT contenir un tableau de registre des traitements :
 - Documentation RGPD dans README.md section dédiée
 - Pas de changement d'architecture majeur (privacy by design from the start)
 
+## Amendement — rétention et anonymisation implémentées (2026-09-30)
+
+Constat d'audit : les conséquences ci-dessus (bloc `privacy`, paquet
+`internal/privacy`, goroutine de rétention, `GET /waf/admin/privacy/report`)
+n'ont jamais été implémentées ; FR-28 les exigeait comme si elles l'étaient.
+
+- La clé réelle est `gdpr.anonymize_ip`, **`true` par défaut** (le mode
+  « pseudonymisation par défaut » décrit plus haut n'est pas celui livré). Elle
+  ne tronque l'IP que dans les journaux de sécurité ; le store est indexé par
+  l'`ip_hash` (HMAC à clé, FR-28), jamais par l'IP en clair.
+- Conservation : `VisitorState` = `trust.score_ttl` (1 h par défaut, purge du
+  store) ; events du flux admin = 10 000 dernières mitigations, jamais servies
+  au-delà de 24 h ; audit trail = `audit.max_entries` entrées (1 000 par défaut),
+  pas de rétention de 30 jours.
+- Différés : durées de rétention configurables, purge par âge des events en
+  mémoire, rapport `GET /waf/admin/privacy/report`.
+
 ## Spec References
 
 - [requirements-ops.md](../requirements-ops.md) FR-28

@@ -17,7 +17,6 @@ const (
 	actionPass         = wafheader.ActionPass
 	actionChallenge    = wafheader.ActionChallenge
 	actionBlock        = wafheader.ActionBlock
-	actionRateLimit    = wafheader.ActionRateLimit
 	actionCircuitBreak = wafheader.ActionCircuitBreak
 	actionHoneypot     = wafheader.ActionHoneypot
 	actionTarpit       = wafheader.ActionTarpit
@@ -292,7 +291,7 @@ func (m *Metrics) Middleware(scores *trust.ScoreManager, next http.Handler) http
 
 		next.ServeHTTP(recorder, r)
 
-		action := normalizedAction(r, recorder)
+		action := wafheader.EffectiveAction(recorder.Header(), r.Header)
 		reason := wafReason(r, recorder)
 		domain := m.domains.label(r.Host)
 		m.requests.WithLabelValues(action, domain).Inc()
@@ -391,27 +390,6 @@ func (m *Metrics) observeUnderAttack(r *http.Request, action string, domain stri
 	m.underAttack.WithLabelValues(domain).Set(value)
 	if active && action == actionChallenge {
 		m.underAttackHits.WithLabelValues(domain).Inc()
-	}
-}
-
-// normalizedAction dérive l'action depuis X-WAF-Action. Sans cet en-tête, le
-// statut vient de l'upstream (et non d'une décision WAF) : action PASS, pour ne
-// pas gonfler waf_blocked_total avec les 5xx d'origine (cf. logger.normalizedAction).
-// TARPIT n'est retenu que sur la réponse, posé par le tarpit qui la sert : sur
-// la requête, c'est une classification qui atteint l'upstream sans déception.
-func normalizedAction(r *http.Request, recorder *statusRecorder) string {
-	action := recorder.Header().Get(wafheader.Action)
-	if action == "" {
-		action = r.Header.Get(wafheader.Action)
-		if action == actionTarpit {
-			return actionPass
-		}
-	}
-	switch action {
-	case actionPass, actionChallenge, actionBlock, actionRateLimit, actionCircuitBreak, actionHoneypot, actionTarpit:
-		return action
-	default:
-		return actionPass
 	}
 }
 

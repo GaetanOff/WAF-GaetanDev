@@ -13,7 +13,7 @@ info:
     (défaut :80), hors de la chaîne de protection : il sert le challenge
     HTTP-01 (/.well-known/acme-challenge/{token}) et redirige toute autre
     requête GET/HEAD vers HTTPS (302 ; 400 pour les autres méthodes).
-  version: 1.5.0
+  version: 1.5.1
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -207,6 +207,11 @@ paths:
         "405":
           description: Méthode autre que POST (X-WAF-Action BLOCK, X-WAF-Reason verify_method_not_allowed)
           headers:
+            Allow:
+              description: Méthode acceptée
+              schema:
+                type: string
+                const: "POST"
             X-WAF-Action:
               $ref: "#/components/headers/WafAction"
             X-WAF-Reason:

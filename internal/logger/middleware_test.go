@@ -408,6 +408,29 @@ func TestMiddlewareForwardsEventToRecorder(t *testing.T) {
 	}
 }
 
+// Le domain d'un événement porte la forme normalisée du VisitorState
+// (visitor.schema.json) : "Example.TEST:8080" journalisé tel quel ne se
+// corrélait plus avec l'état visiteur rangé sous "example.test".
+func TestMiddlewareLogsNormalizedDomain(t *testing.T) {
+	log := NewWithWriter(config.Default().Logging, &bytes.Buffer{})
+	recorder := &capturingRecorder{}
+	log.Recorder = recorder
+	scores, store := newTestScoreManager(t)
+	defer store.Close()
+	handler := log.Middleware(scores, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("X-WAF-Action", ActionBlock)
+		http.Error(w, "forbidden", http.StatusForbidden)
+	}))
+	request := httptest.NewRequest(http.MethodGet, "http://Example.TEST:8080/admin", nil)
+	request.RemoteAddr = "1.2.3.4:1234"
+
+	handler.ServeHTTP(httptest.NewRecorder(), request)
+
+	if len(recorder.events) != 1 || recorder.events[0].Domain != "example.test" {
+		t.Fatalf("recorded events = %+v, want domain example.test", recorder.events)
+	}
+}
+
 // FR-15 : l'action TARPIT n'est journalisée que si le tarpit a servi la
 // réponse ; posée sur la seule requête, elle n'a pas été appliquée.
 func TestMiddlewareLogsTarpitOnlyWhenServed(t *testing.T) {

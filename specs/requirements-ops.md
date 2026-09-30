@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.10.4
+version: 3.12.0
 last-reviewed: 2026-09-30
 extends: requirements-advanced.md (v2.0.0)
-change: "FR-28 : ip_hash = HMAC-SHA256 à clé (dérivée de challenge.secret_key) au lieu d'un SHA-256 sans clé renversable sur IPv4. Précédent (3.10.3) — FR-28 : l'effacement supprime aussi buckets de rate limit, mesure THROTTLE, profil comportemental et dernier JA3. Précédent (3.10.2) — FR-23 : taille des en-têtes bornée (server.max_header_bytes, 64 Kio par défaut). Précédent (3.10.1) — FR-25 : l'annulation d'une requête par le client ne retire plus le membre du pool. Précédent (3.10.0) — FR-30 : détection de rejeu des tokens de challenge (`token_already_used`) implémentée. Précédent (3.9.5) — FR-40 : la redirection HTTPS accepte l'apex d'un domaine wildcard. Précédent (3.9.4) — FR-40 : deux serveurs démarrés sur la même adresse d'écoute sont refusés à la validation. Précédent (3.9.3) — FR-32 : la page brandée qui remplace un corps d'erreur retire les en-têtes décrivant le corps d'origine (`Content-Encoding`, `Content-Range`, `ETag`, `Last-Modified`). Précédent (3.9.2) — FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+change: "FR-27/FR-28 : réalignés sur le code — audit.max_entries 1 000 par défaut ; anonymisation gdpr.anonymize_ip (défaut true) limitée aux journaux ; conservation = trust.score_ttl (visiteurs), 24 h (events), audit.max_entries ; rétentions configurables et rapport privacy différés. Précédent (3.11.0) — FR-21/FR-22 : réalignés sur le contrat implémenté (config.schema.json) — X-Frame-Options DENY par défaut, Permissions-Policy opt-in, HSTS quel que soit le transport ; réglages par domaine, X-XSS-Protection, X-WAF-Protected et sanitize_errors différés. Précédent (3.10.5) — FR-25 : la sonde de santé ne suit pas les redirections (3xx = succès) et applique upstream.tls_verify. Précédent (3.10.4) — FR-28 : ip_hash = HMAC-SHA256 à clé (dérivée de challenge.secret_key) au lieu d'un SHA-256 sans clé renversable sur IPv4. Précédent (3.10.3) — FR-28 : l'effacement supprime aussi buckets de rate limit, mesure THROTTLE, profil comportemental et dernier JA3. Précédent (3.10.2) — FR-23 : taille des en-têtes bornée (server.max_header_bytes, 64 Kio par défaut). Précédent (3.10.1) — FR-25 : l'annulation d'une requête par le client ne retire plus le membre du pool. Précédent (3.10.0) — FR-30 : détection de rejeu des tokens de challenge (`token_already_used`) implémentée. Précédent (3.9.5) — FR-40 : la redirection HTTPS accepte l'apex d'un domaine wildcard. Précédent (3.9.4) — FR-40 : deux serveurs démarrés sur la même adresse d'écoute sont refusés à la validation. Précédent (3.9.3) — FR-32 : la page brandée qui remplace un corps d'erreur retire les en-têtes décrivant le corps d'origine (`Content-Encoding`, `Content-Range`, `ETag`, `Last-Modified`). Précédent (3.9.2) — FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -15,33 +15,44 @@ change: "FR-28 : ip_hash = HMAC-SHA256 à clé (dérivée de challenge.secret_ke
 
 ## FR-21 — Security Headers Injection
 
+- Contrat de configuration : bloc `security_headers` de `config.schema.json`
+  (global, pour tous les domaines)
 - Le WAF DOIT injecter des security headers dans **toutes** les réponses transmises au client
 - Headers injectés par défaut (configurables et désactivables) :
-  | Header | Valeur par défaut | Description |
-  |--------|------------------|-------------|
-  | `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | Force HTTPS |
-  | `X-Frame-Options` | `SAMEORIGIN` | Clickjacking protection |
-  | `X-Content-Type-Options` | `nosniff` | MIME-type sniffing protection |
-  | `Referrer-Policy` | `strict-origin-when-cross-origin` | Contrôle des données de référent |
-  | `Permissions-Policy` | `geolocation=(), microphone=(), camera=()` | Feature policies |
-  | `X-XSS-Protection` | `1; mode=block` | Compatibilité navigateurs anciens |
-- Le WAF DOIT supporter une **Content-Security-Policy** configurable par domaine (valeur vide = header non injecté)
+  | Header | Valeur par défaut | Clé | Description |
+  |--------|------------------|-----|-------------|
+  | `Strict-Transport-Security` | `max-age=31536000; includeSubDomains` | `hsts_max_age`, `hsts_include_subdomains` | Force HTTPS (`hsts_max_age: 0` le désactive) |
+  | `X-Frame-Options` | `DENY` | `frame_options` | Clickjacking protection (`SAMEORIGIN` autorise l'iframe même origine, `""` désactive) |
+  | `X-Content-Type-Options` | `nosniff` | `content_type_nosniff` | MIME-type sniffing protection |
+  | `Referrer-Policy` | `strict-origin-when-cross-origin` | `referrer_policy` | Contrôle des données de référent |
+- `Permissions-Policy` (`permissions_policy`) et `Content-Security-Policy` (`csp`)
+  sont **opt-in** : vides par défaut, header non injecté. Une CSP générique
+  casserait les sites protégés
+- `X-Frame-Options` vaut `DENY` par défaut : le code, `config.schema.json` et
+  CONFIG.md l'ont toujours appliqué ; cette exigence annonçait `SAMEORIGIN`
+  (ADR-011). `DENY` est le choix le plus strict, un domaine qui s'affiche dans
+  une iframe même origine configure `SAMEORIGIN`
+- HSTS est injecté quel que soit le transport de la connexion au WAF : derrière
+  Cloudflare, le WAF reçoit du HTTP alors que le client est en HTTPS. Un
+  navigateur ignore HSTS reçu en HTTP clair (RFC 6797 §8.1)
 - Si l'upstream envoie déjà un header, le WAF NE DOIT PAS l'écraser (upstream a la priorité)
-- Le WAF DOIT permettre de désactiver chaque header individuellement par domaine
-- Le WAF DOIT injecter `X-WAF-Protected: GaetanDev.fr/1.0` (header de signature, désactivable)
+- **Différé** (spécifié, non implémenté — `security-headers.feature`, scénarios
+  `@deferred`) : réglages par domaine (CSP, désactivation), `X-XSS-Protection`,
+  signature `X-WAF-Protected`
 
 ## FR-22 — Response Sanitization (Masquage d'informations)
 
-- Le WAF DOIT **supprimer ou remplacer** les headers qui révèlent l'infrastructure upstream :
-  - `Server: nginx/1.25.3` → supprimé ou remplacé par valeur configurable
-  - `X-Powered-By: PHP/8.2.0` → supprimé
-  - `X-Generator: WordPress 6.4` → supprimé
-  - `X-AspNet-Version: 4.0` → supprimé
-  - `X-AspNetMvc-Version: 5.0` → supprimé
-- Le WAF DOIT masquer les détails d'erreur dans les réponses 5xx de l'upstream :
-  - Si `sanitize_errors: true` et réponse upstream est 500/502/503/504 avec body HTML contenant des stack traces ou chemins de fichiers → remplacer le body par une page d'erreur générique configurable
-- La liste des headers à supprimer DOIT être configurable (`sanitize_headers: [...]`)
-- Le comportement DOIT être opt-in par domaine (défaut: activé globalement)
+- Le WAF DOIT **supprimer** les headers de réponse qui révèlent l'infrastructure
+  upstream, listés par `security_headers.strip_headers` (défaut : `Server`,
+  `X-Powered-By`). L'opérateur y ajoute `X-Generator`, `X-AspNet-Version`,
+  `X-AspNetMvc-Version`, `Via`… selon sa stack
+- La sanitisation s'applique avant l'injection de FR-21 : un header retiré puis
+  géré par FR-21 reçoit la valeur du WAF
+- Les corps d'erreur 4xx/5xx de l'upstream sont remplacés par une page brandée
+  sans détail technique avec `maintenance.error_pages` (FR-32)
+- **Différé** (`@deferred`) : valeur de remplacement configurable du header
+  `Server`, bloc `sanitize_errors` (remplacement ciblé des seuls corps 5xx
+  contenant une stack trace ou un chemin de fichier)
 
 ## FR-23 — Protection Slowloris & Slow HTTP
 
@@ -96,7 +107,12 @@ change: "FR-28 : ip_hash = HMAC-SHA256 à clé (dérivée de challenge.secret_ke
 - Contrat de configuration : bloc `upstream_pool` (`schemas/upstream-pool.schema.json`
   v2.0.0, identique à `config.schema.json`)
 - Le WAF DOIT effectuer des **health checks actifs** sur chaque upstream configuré :
-  - Méthode : HTTP GET sur `health_check.path` (défaut: `/healthz`) ; 2xx ou 3xx = succès
+  - Méthode : HTTP GET sur `health_check.path` (défaut: `/healthz`) ; 2xx ou 3xx = succès.
+    Une redirection n'est PAS suivie : le 3xx de la sonde est lui-même le succès
+    (suivre `Location` jugeait la santé d'une autre URL, voire d'un autre hôte)
+  - La sonde applique `upstream.tls_verify`, comme le proxy : avec `false`, une
+    origine HTTPS à certificat auto-signé échouait toutes ses sondes et le pool
+    entier sortait du service alors que le proxy la joignait
   - Intervalle configurable (`interval`, défaut: `10s`)
   - Timeout du health check : configurable (`timeout`, défaut: `2s`)
   - Succès consécutifs pour remettre un upstream en service (`healthy_threshold`, défaut: 2)
@@ -146,7 +162,7 @@ change: "FR-28 : ip_hash = HMAC-SHA256 à clé (dérivée de challenge.secret_ke
 - **Différé** : filtres `since`, `until` et `action` (`audit-trail.feature`,
   scénarios `@deferred`)
 - Le journal DOIT être **append-only** en mémoire (pas de suppression via API)
-- La taille max du journal en mémoire DOIT être configurable (défaut: 10 000 entrées, rotation FIFO)
+- La taille max du journal en mémoire DOIT être configurable (`audit.max_entries`, défaut : 1 000 entrées, rotation FIFO — `config.schema.json`)
 - En option, le journal DOIT pouvoir être écrit sur disque (fichier JSON-lines configurable)
   - Un échec d'écriture du fichier (disque plein, fichier révoqué) NE DOIT PAS
     faire échouer l'action admin, mais DOIT être journalisé en erreur ;
@@ -155,14 +171,25 @@ change: "FR-28 : ip_hash = HMAC-SHA256 à clé (dérivée de challenge.secret_ke
 
 ## FR-28 — Conformité GDPR & Privacy
 
-- Le WAF DOIT supporter un mode **IP anonymisation** (`privacy.anonymize_ip: true`) :
-  - IPv4 : masquer le dernier octet (`192.168.1.x`)
-  - IPv6 : masquer les 80 derniers bits
-  - Quand actif, les logs et le store utilisent l'IP anonymisée (sauf audit trail)
-- Le WAF DOIT supporter une **politique de rétention des données** :
-  - `privacy.data_retention_hours` : durée max de conservation des `VisitorState` (défaut: 24h, configurable)
-  - `privacy.event_retention_hours` : durée max des events de sécurité en mémoire (défaut: 24h)
-  - Suppression automatique par goroutine de purge
+- Le WAF DOIT supporter un mode **IP anonymisation** (`gdpr.anonymize_ip`, défaut `true`) :
+  - IPv4 : masquer le dernier octet (`192.168.1.0`, /24)
+  - IPv6 : masquer les 80 derniers bits (/48)
+  - Quand actif, les journaux de sécurité (`SecurityEvent`, flux `GET /waf/admin/events`)
+    portent l'IP anonymisée. Le scoring, le store et les listes d'accès utilisent
+    l'IP réelle : leur clé est l'`ip_hash` (ci-dessous), jamais l'IP en clair, et
+    une blacklist sur l'IP exacte reste appliquée
+- Le WAF DOIT borner la **conservation des données** :
+  - `VisitorState` : `trust.score_ttl` (défaut 1 h) après la dernière requête ;
+    purge automatique par le store (goroutine toutes les 60 s en mémoire, TTL
+    des clés avec Redis)
+  - Security events du flux admin : les 10 000 dernières décisions de mitigation
+    en mémoire, jamais servies au-delà de 24 h
+  - Audit trail : `audit.max_entries` entrées en mémoire (FIFO) ; la rotation du
+    fichier `audit.file` relève de l'opérateur
+- **Différé** (`gdpr-compliance.feature`, scénarios `@deferred`) : durées de
+  rétention configurables (`privacy.data_retention_hours`,
+  `privacy.event_retention_hours`) et purge par âge des events déjà en mémoire ;
+  rapport `GET /waf/admin/privacy/report`
 - Le WAF DOIT fournir un endpoint `DELETE /waf/admin/visitors/{ip_hash}` pour le **droit à l'effacement** (déjà dans FR-10 mais formalisé ici avec audit log)
 - L'effacement (`DELETE /waf/admin/visitors/{ip_hash}` comme `POST /waf/admin/gdpr/erase`) DOIT supprimer **tout** l'état tenu pour le visiteur : `VisitorState`, buckets de rate limit des trois fenêtres (store partagé compris) et mesure `THROTTLE`, profil comportemental (chemins visités), dernier JA3 retenu. Il ne supprimait que le `VisitorState`, alors que le registre des traitements annonce la suppression de toutes les données
 - Le WAF NE DOIT PAS logger les query parameters en clair dans les logs `info` et `warn` (déjà couvert en FR-09 mais formalisé)

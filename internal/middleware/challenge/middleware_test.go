@@ -86,6 +86,46 @@ func TestMiddlewareChallengePageIsNotCacheable(t *testing.T) {
 	}
 }
 
+// FR-06 : la page de challenge porte une CSP stricte, avec un nonce tiré à
+// chaque réponse et remis au template.
+func TestMiddlewareChallengePageHasNonceCSP(t *testing.T) {
+	middleware, store := newTestChallengeMiddleware(t)
+	defer store.Close()
+	serve := func() (csp string, body string) {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
+		request.RemoteAddr = "3.3.3.3:1234"
+		request.Header.Set("Accept", "text/html")
+		response := httptest.NewRecorder()
+		middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+			t.Fatal("next handler should not be called")
+		})).ServeHTTP(response, request)
+		return response.Header().Get("Content-Security-Policy"), response.Body.String()
+	}
+
+	firstCSP, firstBody := serve()
+	secondCSP, _ := serve()
+
+	for _, directive := range []string{"default-src 'none'", "connect-src 'self'", "base-uri 'none'", "form-action 'none'", "frame-ancestors 'none'"} {
+		if !strings.Contains(firstCSP, directive) {
+			t.Fatalf("Content-Security-Policy = %q, want %q", firstCSP, directive)
+		}
+	}
+	_, after, found := strings.Cut(firstCSP, "script-src 'nonce-")
+	nonce, _, closed := strings.Cut(after, "'")
+	if !found || !closed || len(nonce) < 16 {
+		t.Fatalf("Content-Security-Policy = %q, want a script-src nonce", firstCSP)
+	}
+	if !strings.Contains(firstCSP, "style-src 'nonce-"+nonce+"'") {
+		t.Fatalf("Content-Security-Policy = %q, want the same nonce for style-src", firstCSP)
+	}
+	if !strings.Contains(firstBody, "nonce="+nonce) {
+		t.Fatalf("body = %q, want the nonce handed to the template", firstBody)
+	}
+	if firstCSP == secondCSP {
+		t.Fatal("the nonce must differ from one response to the next")
+	}
+}
+
 func TestMiddlewareVerifyErrorIsNotCacheable(t *testing.T) {
 	middleware, _ := newTestChallengeMiddleware(t)
 	// Soumission invalide -> writeError : doit aussi être non-cacheable.
@@ -370,7 +410,7 @@ func newTestChallengeMiddleware(t *testing.T) (Middleware, *memory.Store) {
 	if err != nil {
 		t.Fatalf("NewScoreManager() error = %v", err)
 	}
-	pageTemplate := template.Must(template.New("challenge").Parse(`Protected by GaetanDev.fr {{.Token}} {{.Difficulty}} {{.RedirectURL}}`))
+	pageTemplate := template.Must(template.New("challenge").Parse(`Protected by GaetanDev.fr {{.Token}} {{.Difficulty}} {{.RedirectURL}} nonce={{.Nonce}}`))
 	middleware, err := NewMiddlewareFromTemplate(cfg, manager, pageTemplate)
 	if err != nil {
 		t.Fatalf("NewMiddlewareFromTemplate() error = %v", err)

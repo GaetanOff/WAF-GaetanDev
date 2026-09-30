@@ -27,6 +27,14 @@ Feature: Challenge JavaScript
     # Empêche un CDN (ex: Cloudflare "Cache Everything") de figer un token expiré
     # pour tous les visiteurs, ce qui provoquerait une boucle de challenge infinie.
 
+  Scenario: La page de challenge porte une CSP stricte à nonce
+    Given un nouveau visiteur sans cookie
+    When le WAF sert la page de challenge deux fois
+    Then chaque réponse porte un en-tête Content-Security-Policy avec "default-src 'none'" et "frame-ancestors 'none'"
+    And son script et son style inline portent le nonce de "script-src 'nonce-…'" et "style-src 'nonce-…'"
+    And "connect-src 'self'" autorise seulement POST "/waf/verify"
+    And le nonce diffère d'une réponse à l'autre
+
   Scenario: Les réponses de /waf/verify ne sont jamais mises en cache
     Given un visiteur soumet le challenge via POST "/waf/verify"
     When le WAF répond (succès ou erreur)

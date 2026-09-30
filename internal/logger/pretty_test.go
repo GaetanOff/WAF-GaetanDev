@@ -247,6 +247,13 @@ func TestColorsEnabled(t *testing.T) {
 	if !isTerminal(charDevice) {
 		t.Skipf("%s is not reported as a character device on this platform", os.DevNull)
 	}
+	// NO_COLOR hérité du shell (CI, terminal de l'opérateur) faisait échouer
+	// l'assertion « colorisé sur un terminal » : t.Setenv mémorise la valeur
+	// d'origine et la restaure, l'Unsetenv qui suit la retire pour ce test.
+	t.Setenv("NO_COLOR", "")
+	if err := os.Unsetenv("NO_COLOR"); err != nil {
+		t.Fatalf("Unsetenv(NO_COLOR) error = %v", err)
+	}
 
 	if colorsEnabled("json", charDevice) {
 		t.Fatal("json must never be colorized")

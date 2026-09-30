@@ -186,3 +186,25 @@ func TestTrackerBoundsTrackedVisitors(t *testing.T) {
 		t.Fatalf("tracked visitors = %d, want 10", got)
 	}
 }
+
+// FR-28 : l'effacement retire le profil (chemins visités) du seul visiteur visé.
+func TestForgetErasesTheVisitorProfile(t *testing.T) {
+	tracker := New(50, 100)
+	defer tracker.Close()
+	erased, kept := trust.HashIP("1.2.3.4"), trust.HashIP("5.6.7.8")
+	base := time.Date(2126, 1, 1, 0, 0, 0, 0, time.UTC)
+	for i := range 6 {
+		at := base.Add(time.Duration(i) * time.Second)
+		tracker.ingest(event{ipHash: erased, path: fmt.Sprintf("/p%d", i), at: at})
+		tracker.ingest(event{ipHash: kept, path: fmt.Sprintf("/p%d", i), at: at})
+	}
+
+	tracker.Forget(erased)
+
+	if _, found := tracker.profiles.Get(erased); found {
+		t.Fatal("the erased visitor's profile is still held")
+	}
+	if tracker.Score(kept) == 0 {
+		t.Fatal("another visitor's profile must be kept")
+	}
+}

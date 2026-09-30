@@ -12,6 +12,8 @@
 // insensibles à la casse.
 package wafheader
 
+import "net/http"
+
 // Prefix est le préfixe réservé aux en-têtes internes.
 const Prefix = "X-Waf-"
 
@@ -74,3 +76,27 @@ const (
 	ActionHoneypot     = "HONEYPOT"
 	ActionTarpit       = "TARPIT"
 )
+
+// EffectiveAction est l'action appliquée à une requête, telle que la comptent
+// journaux et métriques — une seule définition : leurs deux copies auraient
+// divergé en silence. X-WAF-Action de la réponse prime sur celui de la
+// requête. Sans l'en-tête, le statut vient de l'upstream (502 d'origine,
+// 403 applicatif) et non d'une décision du WAF : PASS, sans faux BLOCK ni
+// fausse alerte. TARPIT n'est retenu que sur la réponse : sur la requête, c'est
+// une classification (moteur de risque, règles) que seul le tarpit rend
+// effective. Une valeur inconnue vaut PASS.
+func EffectiveAction(response, request http.Header) string {
+	action := response.Get(Action)
+	if action == "" {
+		action = request.Get(Action)
+		if action == ActionTarpit {
+			return ActionPass
+		}
+	}
+	switch action {
+	case ActionPass, ActionChallenge, ActionBlock, ActionRateLimit, ActionCircuitBreak, ActionHoneypot, ActionTarpit:
+		return action
+	default:
+		return ActionPass
+	}
+}

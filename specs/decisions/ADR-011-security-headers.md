@@ -102,6 +102,22 @@ func (w *sanitizingResponseWriter) WriteHeader(code int) {
 - Config : bloc `security_headers` dans config.schema.json (à étendre)
 - Métriques : `waf_security_headers_injected_total{header}` (pour debug)
 
+## Amendement — défauts implémentés (2026-09-30)
+
+Constat d'audit : les défauts de cet ADR (`x_frame_options: "SAMEORIGIN"`,
+`permissions_policy` et `x_xss_protection` injectés, `x_waf_protected`, CSP
+par domaine, remplacement de `Server`) n'ont jamais été ceux du code, de
+`config.schema.json` ni de CONFIG.md, qui font foi pour l'opérateur.
+
+- `X-Frame-Options` vaut `DENY` par défaut (plus strict que `SAMEORIGIN`) ;
+  `security_headers.frame_options: "SAMEORIGIN"` rétablit l'iframe même origine.
+- `Permissions-Policy` et `Content-Security-Policy` sont opt-in, globaux.
+- HSTS est posé quel que soit le transport (TLS terminé par Cloudflare en amont).
+- Différés : réglages par domaine, `X-XSS-Protection`, `X-WAF-Protected`,
+  remplacement de `Server`, `sanitize_errors`, métrique
+  `waf_security_headers_injected_total`. Les pages d'erreur brandées (FR-32,
+  `maintenance.error_pages`) masquent déjà les corps d'erreur de l'upstream.
+
 ## Spec References
 
 - [requirements-ops.md](../requirements-ops.md) FR-21, FR-22
