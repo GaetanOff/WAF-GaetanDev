@@ -82,6 +82,26 @@ func poolShadowedDomains(cfg config.Config) []string {
 	return hosts
 }
 
+// bypassableChallengedDomains retourne les hôtes qui activent le challenge alors
+// que le global le désactive, sans server.strict_host, et dont l'origine est
+// celle d'un Host non déclaré (upstream.address, ou le pool qui sert tous les
+// hôtes). Un Host inventé y parvient alors sans challenge (ADR-020) : la
+// configuration est valide, mais ce domaine n'est pas durci.
+func bypassableChallengedDomains(cfg config.Config) []string {
+	if cfg.Server.StrictHost || cfg.Challenge.Enabled {
+		return nil
+	}
+	var hosts []string
+	for _, domain := range cfg.Domains {
+		challenged := domain.ChallengeEnabled != nil && *domain.ChallengeEnabled
+		sharedOrigin := cfg.UpstreamPool.Enabled || domain.Upstream == cfg.Upstream.Address
+		if challenged && sharedOrigin {
+			hosts = append(hosts, domain.Host)
+		}
+	}
+	return hosts
+}
+
 // geoChallengeInert signale geo.challenge_countries sans moteur de risque :
 // la contribution geo n'est lue que par le moteur (FR-16), les pays listés ne
 // sont alors jamais challengés. Un avertissement et non une erreur — la

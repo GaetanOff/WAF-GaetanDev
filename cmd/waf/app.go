@@ -91,6 +91,9 @@ func loadConfig(flags cliFlags) (*config.Config, error) {
 	if geoChallengeInert(*cfg) {
 		slog.Warn("geo.challenge_countries has no effect while risk_engine.enabled is false: only the risk engine reads the geo contribution", "requirement", "FR-16")
 	}
+	for _, host := range bypassableChallengedDomains(*cfg) {
+		slog.Warn("domains[].challenge_enabled is bypassable: an undeclared Host reaches the same origin without challenge; set server.strict_host", "host", host, "adr", "ADR-020")
+	}
 	for _, host := range poolShadowedDomains(*cfg) {
 		slog.Warn("domains[].upstream is ignored while upstream_pool is enabled: the pool serves every host", "host", host, "requirement", "FR-26")
 	}

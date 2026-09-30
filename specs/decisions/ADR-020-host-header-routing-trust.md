@@ -162,6 +162,10 @@ du moteur de règles (FR-17 v2.3.0, T14.3).
   tout en laissant `upstream.address` pointer sur la même origine DOIT être
   considérée comme non durcie. Documenté dans `CONFIG.md` à côté de
   `domains[].challenge_enabled`, où l'opérateur la lira.
+  Au démarrage (audit du 2026-10-01), un avertissement nomme chaque domaine qui
+  active `challenge_enabled` alors que `challenge.enabled` est faux, sans
+  `strict_host`, et dont l'origine est celle d'un `Host` non déclaré
+  (`upstream.address`, ou le pool qui sert tous les hôtes).
 - 1C, si retenue, exige que `/waf/health` reste servi hors validation — sinon les
   sondes de conteneur tombent.
 - 1C et le repli du routage sont indépendants : `strict_host` peut être activé
