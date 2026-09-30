@@ -118,7 +118,7 @@ func whitelistedCrawlerRequest(underAttack bool) *http.Request {
 
 // Sous attaque (FR-39), un User-Agent whitelisté n'est pas une clearance : seul
 // un crawler vérifié par reverse-DNS passe sans challenge. Hors attaque,
-// l'exemption tient, sauf pour un crawler démasqué.
+// l'exemption tient, sauf pour un crawler suspect (démasqué ou non vérifiable).
 func TestWhitelistedUserAgentExemption(t *testing.T) {
 	base, _ := newTestChallengeMiddleware(t)
 	cases := []struct {
@@ -132,7 +132,7 @@ func TestWhitelistedUserAgentExemption(t *testing.T) {
 		{"unverifiable UA, normal", func(string, string) (bool, bool) { return false, false }, false, false},
 		{"unverifiable UA, under attack", func(string, string) (bool, bool) { return false, false }, true, true},
 		{"verified crawler, under attack", func(string, string) (bool, bool) { return true, false }, true, false},
-		{"spoofed crawler, normal", func(string, string) (bool, bool) { return false, true }, false, true},
+		{"suspect crawler (spoofed or unverified), normal", func(string, string) (bool, bool) { return false, true }, false, true},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

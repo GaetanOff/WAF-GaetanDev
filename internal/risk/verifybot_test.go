@@ -320,3 +320,27 @@ func TestMiddlewareCrawlerStatus(t *testing.T) {
 		t.Fatal("without verifier, no crawler is verified")
 	}
 }
+
+// whitelist-blacklist.feature — « User-Agent whitelisté non vérifiable faute de
+// place » : un crawler unverified est suspect, un crawler pending ne l'est pas.
+func TestMiddlewareCrawlerStatusFlagsUnverifiedAsSuspect(t *testing.T) {
+	resolver := blockingBotResolver{release: make(chan struct{}), active: new(atomic.Int64), peak: new(atomic.Int64)}
+	verifier := NewBotVerifier(BotVerifierConfig{Enabled: true, Crawlers: []string{"googlebot"}}, resolver)
+	middleware := NewMiddlewareWithVerifier(nil, FusionConfig{}, DecisionConfig{}, nil, verifier, false)
+	t.Cleanup(func() {
+		close(resolver.release)
+		middleware.Close()
+	})
+
+	if verified, suspect := middleware.CrawlerStatus("10.1.0.0", "Googlebot"); verified || suspect {
+		t.Fatalf("pending crawler: CrawlerStatus = (%v, %v), want neither verified nor suspect", verified, suspect)
+	}
+	for i := 1; i < 2*(verifyWorkers+verifyQueueSize); i++ {
+		if verifier.Check(fmt.Sprintf("10.1.%d.%d", i>>8, i&0xff), "Googlebot").State == BotVerificationUnverified {
+			break
+		}
+	}
+	if _, suspect := middleware.CrawlerStatus("10.2.0.1", "Googlebot"); !suspect {
+		t.Fatal("unverified crawler (saturated queue) must be suspect")
+	}
+}
