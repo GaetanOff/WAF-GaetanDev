@@ -125,6 +125,7 @@ type PageData struct {
 	Token       string
 	Difficulty  int
 	RedirectURL string
+	Nonce       string // nonce CSP du script et du style inline (FR-06)
 }
 
 type Submission struct {
@@ -382,11 +383,14 @@ func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
 	// à l'IP. Un cache CDN (ex: règle Cloudflare "Cache Everything") figerait un
 	// token expiré pour tous les visiteurs -> verify en échec -> boucle infinie.
 	setNoStore(w)
+	nonce := newCSPNonce()
+	setPageCSP(w, nonce)
 	w.WriteHeader(http.StatusOK)
 	_ = m.template.Execute(w, PageData{
 		Token:       token,
 		Difficulty:  difficulty,
 		RedirectURL: redirectURL,
+		Nonce:       nonce,
 	})
 }
 
