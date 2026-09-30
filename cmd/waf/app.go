@@ -465,8 +465,11 @@ func (a *app) buildCluster() error {
 	if channel == "" {
 		channel = "waf:events"
 	}
-	bus := cluster.NewRedisBus(*cfg.Storage.Redis, channel)
+	// Clé de signature des événements : le secret de challenge est déjà
+	// partagé par les nœuds (ip_hash), Validate l'exige avec cluster.enabled.
+	bus := cluster.NewRedisBus(*cfg.Storage.Redis, channel, cluster.EventKey(cfg.Challenge.SecretKey))
 	a.stop.add(func() { _ = bus.Close() })
+	a.metrics.WithClusterRejected(bus.Rejected)
 	syncer := cluster.NewSyncer(bus, a.store, a.accessRules)
 	clusterCtx, clusterCancel := context.WithCancel(context.Background())
 	a.stop.add(clusterCancel)

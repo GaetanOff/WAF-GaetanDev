@@ -869,6 +869,10 @@ func (c *Config) Validate() error {
 	if c.Cluster.Enabled && (c.Storage.Redis == nil || c.Storage.Redis.Address == "") {
 		fields = append(fields, "cluster.enabled requires storage.redis.address")
 	}
+	if c.Cluster.Enabled && len(c.Challenge.SecretKey) < 32 {
+		// Les événements sont signés par une clé dérivée de ce secret (FR-20).
+		fields = append(fields, "cluster.enabled requires challenge.secret_key (>= 32 chars, the same on every node) to sign cluster events; set WAF_CHALLENGE_SECRET_KEY")
+	}
 	if c.Alerting.Enabled {
 		validateDuration(&fields, "alerting.cooldown", c.Alerting.Cooldown)
 		if len(c.Alerting.Webhooks) == 0 {

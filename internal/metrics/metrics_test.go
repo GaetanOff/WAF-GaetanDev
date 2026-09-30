@@ -205,6 +205,12 @@ func TestLogDropsMetric(t *testing.T) {
 	assertMetricContains(t, scrape(t, metrics), `waf_log_events_dropped_total 7`)
 }
 
+// FR-20 : les messages du bus cluster ignorés (non signés, mal signés) sont comptés.
+func TestClusterRejectedMetric(t *testing.T) {
+	metrics := New().WithClusterRejected(func() int64 { return 3 })
+	assertMetricContains(t, scrape(t, metrics), `waf_cluster_rejected_events_total 3`)
+}
+
 // FR-29 : métriques d'alertes webhook.
 func TestAlertMetrics(t *testing.T) {
 	metrics := New().WithAlertsPending(func() int { return 3 })

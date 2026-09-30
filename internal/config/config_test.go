@@ -705,3 +705,23 @@ func TestValidateServerMaxHeaderBytes(t *testing.T) {
 		})
 	}
 }
+
+// FR-20 / multi-node-sync.feature, « Mode cluster sans secret partagé » : les
+// événements sont signés par une clé dérivée de challenge.secret_key.
+func TestValidateClusterRequiresChallengeSecret(t *testing.T) {
+	cfg := validBaseConfig()
+	cfg.Challenge.Enabled = false
+	cfg.Challenge.SecretKey = ""
+	cfg.Cluster.Enabled = true
+	cfg.Storage.Redis = &RedisConfig{Address: "redis:6379"}
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "cluster.enabled requires challenge.secret_key") {
+		t.Fatalf("Validate() error = %v, want it to require challenge.secret_key", err)
+	}
+
+	cfg.Challenge.SecretKey = testSecret
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("Validate() unexpected error = %v", err)
+	}
+}
