@@ -174,6 +174,22 @@ Feature: Protection Anti-DDoS
     Then la requête ne reçoit pas de page de challenge JS
     And la requête reste soumise au rate limiting par IP et au moteur de risque
 
+  Scenario: Sous attaque — client non-navigateur plafonné à THROTTLE
+    Given le domaine "api.gaetandev.fr" est en mode sous attaque
+    And rate_limit.requests_per_second = 10 et rate_limit.burst = 1
+    When un client sans cookie envoie "POST /v1/orders" avec "Accept: application/json" à 5 req/s soutenues
+    Then son débit de recharge est réduit de moitié (THROTTLE, FR-34)
+    And les requêtes au-delà reçoivent HTTP 429 avec reason = "rate_limit_under_attack"
+    And ces 429 ne pénalisent ni son score ni le circuit-breaker
+
+  Scenario: Sous attaque — challenge_non_browser ferme le contournement par en-tête
+    Given antiddos.under_attack.challenge_non_browser = true
+    And le domaine "status.gaetandev.fr" est en mode sous attaque
+    When un client sans cookie envoie "GET /" avec "Accept: application/json"
+    Then la requête reçoit un challenge JS "CHALLENGE"
+    When un client sans cookie envoie "POST /"
+    Then la requête reçoit un challenge JS "CHALLENGE"
+
   Scenario: Sous attaque — portée par domaine
     Given antiddos.under_attack.scope = "per_domain"
     And le domaine "status.gaetandev.fr" est en mode sous attaque

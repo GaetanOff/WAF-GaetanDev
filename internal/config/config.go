@@ -152,6 +152,11 @@ type UnderAttack struct {
 	Cooldown          string `yaml:"cooldown"`         // durée sous exit_pressure avant sortie
 	Shadow            bool   `yaml:"shadow"`           // calcule/journalise sans forcer (FR-38)
 	MaxTrackedDomains int    `yaml:"max_tracked_domains"`
+	// ChallengeNonBrowser étend le challenge forcé aux requêtes non-navigateur
+	// (méthode non GET/HEAD, Accept: application/json). Désactivé, elles sont
+	// plafonnées à THROTTLE : un simple en-tête Accept soustrayait un flood au
+	// challenge. À activer pour un domaine sans client API légitime.
+	ChallengeNonBrowser bool `yaml:"challenge_non_browser"`
 }
 
 type PressureLevels struct {
@@ -525,6 +530,8 @@ func Default() Config {
 				Cooldown:          "30s",
 				Shadow:            false,
 				MaxTrackedDomains: 1024,
+				// Un client API ne peut pas résoudre un challenge JS (FR-39).
+				ChallengeNonBrowser: false,
 			},
 		},
 		Trust: Trust{

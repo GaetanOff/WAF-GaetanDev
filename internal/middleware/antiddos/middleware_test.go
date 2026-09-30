@@ -201,8 +201,9 @@ func TestUpstream429DoesNotFeedBreaker(t *testing.T) {
 
 func TestPressureThrottle429DoesNotFeedBreaker(t *testing.T) {
 	// Simule le middleware ratelimit refusant sous throttle de pression (FR-08)
-	// ou au débit réduit d'un visiteur classé THROTTLE (FR-34).
-	for _, reason := range []string{reasonPressureThrottle, reasonRiskThrottle} {
+	// ou au débit réduit d'un visiteur classé THROTTLE (FR-34) ou d'une requête
+	// non-navigateur sous attaque (FR-39).
+	for _, reason := range []string{reasonPressureThrottle, reasonRiskThrottle, reasonUnderAttackThrottle} {
 		store := memory.New(100)
 		middleware := New(NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration), nil, DefaultRetryAfterSeconds)
 		handler := middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

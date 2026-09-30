@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 1.5.0
+version: 1.6.0
 last-reviewed: 2026-09-30
 reviewed-by: GaetanDev
 extends: requirements-advanced.md (v2.1.0), requirements-ops.md
-change: "FR-36/FR-39 : l'exemption whitelist_user_agents consulte la vérification reverse-DNS — sous attaque, seul un crawler vérifié passe sans challenge ; Slurp et Baiduspider vérifiables. Précédent (1.4.1) — FR-38 : défaut de `shadow_mode` corrigé dans l'exemple de configuration (true, comme le code et config.schema.json). Précédent (1.4.0) — FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
+change: "FR-39 : plafond THROTTLE des requêtes non-navigateur sans clearance sous attaque câblé (raison rate_limit_under_attack) ; option under_attack.challenge_non_browser. Précédent (1.5.0) — FR-36/FR-39 : l'exemption whitelist_user_agents consulte la vérification reverse-DNS — sous attaque, seul un crawler vérifié passe sans challenge ; Slurp et Baiduspider vérifiables. Précédent (1.4.1) — FR-38 : défaut de `shadow_mode` corrigé dans l'exemple de configuration (true, comme le code et config.schema.json). Précédent (1.4.0) — FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
 ---
 
 # Requirements Detection — Moteur de Risque & Décision (v4)
@@ -270,8 +270,18 @@ explicites (issus de la revue de spec) :
     ne sait pas rendre la page est filtré).
   - Le WAF NE DOIT PAS challenger une requête négociant **explicitement** un type
     non-HTML (`Accept: application/json`) ni une méthode non idempotente : ces
-    requêtes sans clearance DOIVENT être plafonnées à `THROTTLE`/`TARPIT` plutôt
-    que recevoir une page JS insoluble (garde-fou anti-FP pour API légitimes).
+    requêtes sans clearance DOIVENT être plafonnées à `THROTTLE` plutôt que
+    recevoir une page JS insoluble (garde-fou anti-FP pour API légitimes). Le
+    plafond est celui de FR-34 : débit de recharge du rate limit réduit de moitié
+    pour la requête, 429 neutre sous la raison `rate_limit_under_attack` (ni
+    pénalité de score, ni violation de circuit-breaker). Ce plafond, spécifié dès
+    la Slice 12.1, n'était pas câblé : ces requêtes passaient sans aucune
+    mitigation.
+  - Le plafond reste par IP : un flood distribué qui se déclare client API
+    (`Accept: application/json`) n'est pas délesté par lui. Pour un domaine sans
+    client API légitime, `under_attack.challenge_non_browser: true` DOIT étendre
+    le challenge forcé à toute requête sans clearance, quels que soient méthode et
+    `Accept` (défaut `false`).
 - Le mode DOIT être **réversible avec hystérésis** pour éviter le battement :
   entrée à `trigger_pressure` ; sortie uniquement lorsque la pression du scope
   retombe à `exit_pressure` (défaut `elevated`) et **s'y maintient** pendant

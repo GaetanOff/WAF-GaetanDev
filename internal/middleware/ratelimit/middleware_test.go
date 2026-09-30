@@ -613,3 +613,35 @@ func BenchmarkHandlerAllowed(b *testing.B) {
 		handler.ServeHTTP(response, request)
 	}
 }
+
+// FR-39 : sous attaque, une requête non-navigateur sans clearance (marquée par
+// le challenge) est plafonnée à THROTTLE — débit de recharge réduit de moitié,
+// 429 neutre sous sa propre raison.
+func TestUnderAttackThrottleCapsNonBrowserRequests(t *testing.T) {
+	store := memory.New(100)
+	t.Cleanup(store.Close)
+	middleware := newTestMiddleware(t, store, 10, 1)
+	now := time.Date(2026, 6, 9, 12, 0, 0, 0, time.UTC)
+	middleware.now = func() time.Time { return now }
+	handler := middleware.Handler(countingHandler())
+	marked := func() *http.Request {
+		request := requestFrom("9.9.9.9:1234")
+		request.Header.Set("X-WAF-Under-Attack-Throttle", "true")
+		return request
+	}
+
+	handler.ServeHTTP(httptest.NewRecorder(), marked())
+	now = now.Add(150 * time.Millisecond)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, marked())
+
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429", response.Code)
+	}
+	if got := response.Header().Get("X-WAF-Reason"); got != ReasonUnderAttackThrottle {
+		t.Fatalf("X-WAF-Reason = %q, want %s", got, ReasonUnderAttackThrottle)
+	}
+	if visitor, ok := store.GetVisitor(trust.HashIP("9.9.9.9")); ok && visitor.Score != 50 {
+		t.Fatalf("score = %d, want 50 (no penalty for a throttle-only 429)", visitor.Score)
+	}
+}

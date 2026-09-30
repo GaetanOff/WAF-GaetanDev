@@ -136,6 +136,22 @@ par IP `429`), inchangés.
   lieu de simple laissez-passer) sont dans le périmètre ; le hot-reload du seuil par
   domaine et un sous-mode « siège » strict sont hors première tranche.
 
+## Amendement (2026-09-30) — clients non-navigateurs
+
+Le plafond `THROTTLE` des clients non-navigateurs n'avait pas été câblé : sous
+attaque, un bot évitait le challenge forcé en envoyant `Accept: application/json`
+ou une méthode autre que `GET`/`HEAD`, et ne subissait aucune mitigation. Le
+plafond est désormais appliqué par le rate limit (débit de recharge ×0,5, 429
+neutre `rate_limit_under_attack`), comme la décision `THROTTLE` du moteur de
+risque (FR-34).
+
+Ce plafond reste **par IP** : il ne déleste pas un flood distribué qui se déclare
+client API. Le compromis de l'option D (ne jamais servir une page JS insoluble à
+une API légitime) est conservé par défaut ; `under_attack.challenge_non_browser`
+(opt-in, défaut `false`) le lève pour les domaines sans client API, où il
+ferme ce contournement. Le réglage est global : une surcharge par domaine
+reste hors périmètre (cf. ADR-022).
+
 ## Spec References
 
 - [requirements.md](../requirements.md) FR-08

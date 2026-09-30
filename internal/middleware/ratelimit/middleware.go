@@ -42,6 +42,10 @@ const (
 	// visiteur classé THROTTLE par le moteur de risque (FR-34). Neutre, comme
 	// ReasonPressureThrottle : le WAF ne pénalise pas les refus qu'il provoque.
 	ReasonRiskThrottle = "rate_limit_risk_throttle"
+	// ReasonUnderAttackThrottle identifie un 429 imputable au seul plafond
+	// THROTTLE d'une requête non-navigateur sans clearance sous attaque (FR-39).
+	// Neutre, comme les deux précédentes.
+	ReasonUnderAttackThrottle = "rate_limit_under_attack"
 
 	// riskThrottleFactor est le multiplicateur de débit de recharge d'un
 	// visiteur classé THROTTLE ; riskThrottleTTL la durée de la mesure après la
@@ -165,14 +169,20 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 		// aux trois fenêtres : resserrer la seconde en laissant filer l'heure
 		// laisserait passer le débit soutenu, précisément ce que la pression
 		// cherche à contenir.
-		// Un visiteur classé THROTTLE par le moteur de risque (FR-34) voit aussi
-		// son débit réduit ; le plus fort des deux resserrements s'applique.
+		// Un visiteur classé THROTTLE par le moteur de risque (FR-34), ou une
+		// requête non-navigateur sans clearance sous attaque (FR-39), voit aussi
+		// son débit réduit ; le plus fort des resserrements s'applique.
 		factor, neutralReason := 1.0, ""
 		if f := m.pressureFactor(r, ip); f < 1 {
 			factor, neutralReason = f, ReasonPressureThrottle
 		}
 		if _, throttled := m.throttled.Get(ipHash); throttled && riskThrottleFactor < factor {
 			factor, neutralReason = riskThrottleFactor, ReasonRiskThrottle
+		}
+		// Sous attaque, une requête non-navigateur sans clearance n'est pas
+		// challengée (FR-39) : elle est plafonnée à THROTTLE, au même débit.
+		if r.Header.Get(wafheader.UnderAttackThrottle) == "true" && riskThrottleFactor < factor {
+			factor, neutralReason = riskThrottleFactor, ReasonUnderAttackThrottle
 		}
 
 		// Les fenêtres sont d'abord RECHARGÉES sans prélèvement : le jeton n'est

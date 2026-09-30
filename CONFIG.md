@@ -218,6 +218,7 @@ antiddos:
     cooldown: "30s"
     shadow: false
     max_tracked_domains: 1024
+    challenge_non_browser: false
 ```
 
 Compteur global (toutes IPs confondues) utilisé pour calculer un **niveau de pression adaptative**. La pression globale ne bloque pas le trafic à elle seule : elle sert de signal pour renforcer les mitigations réversibles (challenge, throttling, difficulté PoW) et pour alimenter le moteur de risque.
@@ -257,9 +258,13 @@ mitigation **réversible** : elle ne produit jamais de blocage dur à elle seule
 Une requête est **avec clearance** (donc épargnée) si elle présente : un cookie
 `waf_session` valide, un bot vérifié par reverse-DNS forward-confirm (FR-36), une IP
 whitelistée (FR-04), ou un trust persistant « sticky » après challenge réussi
-(FR-37). Les clients **non-navigateurs** (`Accept: application/json`, méthode non
-GET/HEAD) ne reçoivent jamais de page JS insoluble : ils restent soumis au rate
-limiting par IP et au moteur de risque.
+(FR-37). Un User-Agent de `whitelist_user_agents` n'est **pas** une clearance. Les
+clients **non-navigateurs** (`Accept: application/json`, méthode non GET/HEAD) ne
+reçoivent pas de page JS insoluble : ils sont plafonnés à `THROTTLE` (débit de
+recharge du rate limit réduit de moitié, 429 neutre `rate_limit_under_attack`) et
+restent soumis au moteur de risque. Ce plafond est **par IP** : un flood distribué
+qui envoie `Accept: application/json` y échappe. Sur un domaine sans client API,
+activer `challenge_non_browser` pour challenger aussi ces requêtes.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
@@ -270,6 +275,7 @@ limiting par IP et au moteur de risque.
 | `cooldown` | durée | `"30s"` | Durée pendant laquelle la pression doit rester sous `exit_pressure` avant de quitter le mode (anti-battement). |
 | `shadow` | bool | `false` | `true` = calcule et journalise `under_attack` **sans** forcer le challenge (calibration, FR-38). |
 | `max_tracked_domains` | int | `1024` | Plafond LRU du nombre de domaines suivis (scope `per_domain`). |
+| `challenge_non_browser` | bool | `false` | `true` = challenge aussi les requêtes non-navigateur sans clearance (méthode non GET/HEAD, `Accept: application/json`). Casse les clients API pendant l'attaque : à réserver aux déploiements sans API. |
 
 > **Réglage.** `trigger_pressure` se calcule à partir de `global_requests_per_second`
 > et des `pressure_levels`. Pour une petite infra, abaisser `global_requests_per_second`

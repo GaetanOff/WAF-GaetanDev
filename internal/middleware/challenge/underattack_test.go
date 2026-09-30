@@ -146,3 +146,48 @@ func TestWhitelistedUserAgentExemption(t *testing.T) {
 		})
 	}
 }
+
+// FR-39 : sous attaque, une requête non-navigateur sans clearance n'est pas
+// challengée mais marquée pour le plafond THROTTLE du rate limit ; hors
+// attaque, elle ne l'est pas.
+func TestUnderAttackMarksNonBrowserRequestsForThrottle(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+	for _, underAttack := range []bool{false, true} {
+		for _, request := range []*http.Request{
+			httptest.NewRequest(http.MethodPost, "http://api.test/v1/orders", nil),
+			httptest.NewRequest(http.MethodGet, "http://api.test/v1/users", nil),
+		} {
+			request.RemoteAddr = "9.9.9.9:1234"
+			request.Header.Set("Accept", "application/json")
+			if underAttack {
+				request.Header.Set("X-WAF-Under-Attack-Enforce", "true")
+			}
+			var marked string
+			middleware.Handler(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				marked = r.Header.Get("X-WAF-Under-Attack-Throttle")
+			})).ServeHTTP(httptest.NewRecorder(), request)
+			if want := map[bool]string{false: "", true: "true"}[underAttack]; marked != want {
+				t.Fatalf("%s under_attack=%v: throttle mark = %q, want %q", request.Method, underAttack, marked, want)
+			}
+		}
+	}
+}
+
+// Avec antiddos.under_attack.challenge_non_browser, un simple en-tête Accept
+// ne soustrait plus une requête au challenge forcé.
+func TestUnderAttackChallengesNonBrowserWhenConfigured(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+	middleware.challengeNonBrowser = true
+	for _, method := range []string{http.MethodGet, http.MethodPost} {
+		request := httptest.NewRequest(method, "http://status.test/", nil)
+		request.RemoteAddr = "9.9.9.9:1234"
+		request.Header.Set("Accept", "application/json")
+		if servedChallenge(t, middleware, cloneReq(request)) {
+			t.Fatalf("%s: outside under attack mode, a JSON client is not challenged", method)
+		}
+		request.Header.Set("X-WAF-Under-Attack-Enforce", "true")
+		if !servedChallenge(t, middleware, request) {
+			t.Fatalf("%s: under attack with challenge_non_browser, the request must be challenged", method)
+		}
+	}
+}

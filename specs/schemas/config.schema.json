@@ -275,6 +275,11 @@
               "default": false,
               "description": "true = calcule et journalise under_attack sans forcer le challenge (calibration, FR-38)"
             },
+            "challenge_non_browser": {
+              "type": "boolean",
+              "default": false,
+              "description": "true = sous attaque, les requêtes non-navigateur sans clearance (méthode non GET/HEAD, Accept: application/json) sont challengées aussi ; false = plafonnées à THROTTLE (débit de recharge réduit de moitié). À activer pour un domaine sans client API légitime"
+            },
             "max_tracked_domains": {
               "type": "integer",
               "default": 1024,
