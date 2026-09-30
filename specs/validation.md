@@ -295,6 +295,14 @@ last-reviewed: 2026-09-30
 | 2026-09-24 | `ttlcache` sous contention | Benchmark `Get` parallèle (non versionné), 1/4/8/16 cœurs | mesure | 37 / 91 / 85 / 108 ns/op : ~10 M lectures/s par cache, sharding non justifié |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `Example.com:8080` compté sous `domain="example.com"` ; `attack-1.test`, `attack-2.test` sous `_undeclared` ; `GET /waf/admin/config` masque les secrets |
 
+| 2026-09-30 | Sprint 25 (audit 10) | `go test ./...` | pass | 891 tests et sous-tests, 49 paquets |
+| 2026-09-30 | Sprint 25 (audit 10) | `make gates` (spectral, vet/build, conformance, behavior `-race`, govulncheck) | pass | spectral 0 erreur ; 0 vulnérabilité atteignable |
+| 2026-09-30 | Sprint 25 (audit 10) | `golangci-lint` v2.14.0 `run ./...` | pass | 0 issue |
+| 2026-09-30 | `NO_COLOR` hérité | `NO_COLOR=1 go test ./internal/logger/` | pass | `TestColorsEnabled` en échec sur l'ancien code |
+| 2026-09-30 | Sonde de santé | `TestProbeDoesNotFollowRedirects`, `TestProbeHonorsTLSVerify`, `TestMonitorAppliesThresholds` | pass | `health.go` de 0 % à 100 % par fonction (`probe` 92 %) ; les deux premiers en échec sur l'ancien code |
+| 2026-09-30 | Domain des events | `TestMiddlewareLogsNormalizedDomain` | pass | `Example.TEST:8080` journalisé tel quel sur l'ancien code |
+| 2026-09-30 | CSP de la page de challenge | `TestMiddlewareChallengePageHasNonceCSP`, `TestChallengePageInlineCodeCarriesTheNonce` + navigateur réel | pass | Page → PoW → `/waf/verify` → origine, aucune violation CSP en console |
+| 2026-09-30 | 405 de `/waf/verify` | `TestConformanceVerifyRejectsNonPost` | pass | `Allow` absent sur l'ancien code |
 | 2026-09-30 | Sprint 24 (audit 9) | `go test ./...` | pass | 865 tests et sous-tests, 49 paquets |
 | 2026-09-30 | Sprint 24 (audit 9) | `make gates` (spectral, vet/build, conformance, behavior, govulncheck) | pass | spectral 0 erreur ; 0 vulnérabilité atteignable |
 | 2026-09-30 | Sprint 24 (audit 9) | `go test -race ./...` | pass | |
@@ -381,6 +389,31 @@ last-reviewed: 2026-09-30
 | 2026-09-24 | Pool d'upstreams | `BenchmarkPoolPick`, `TestPoolPickDoesNotAllocate` | pass | 1 alloc (48 B/op) avant, 0 après, 4 stratégies |
 | 2026-09-24 | Verrous visiteurs / DDoS | Benchmarks parallèles (non versionnés), 1 et 8 cœurs | mesure | `observe` 93 / 131 ns/op ; `Record` 60 / 117 ; `Observe` 98 / 284 : verrous occupés < 1 % à 20 000 req/s |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` + `strict_host` | pass | Host non déclaré : 400, `BLOCK host_not_declared` journalisé, `waf_blocked_total{domain="_undeclared"}` ; `/waf/metrics` par IP 400 ; `/waf/health` 200 |
+
+### Sprint 25 — dixième audit du 2026-09-30 : ce qui était exact, ce qui ne l'était pas
+
+- **Exact et corrigé** : test G4 rouge, `domain` non normalisé des events,
+  `X-Frame-Options` (FR-21), taille de l'audit (FR-27), rétention RGPD (FR-28,
+  promesse réalignée et non implémentée), `degraded_mode` cité par une feature
+  (FR-20), absence de CSP sur la page de challenge, duplication de
+  `normalizedAction`, `panic` de `trust`, couverture nulle du health-checker et
+  de l'effacement RGPD.
+- **Exact, différent de sa description** : le test G4 échouait sur un
+  `NO_COLOR` hérité, pas sur `isTerminal`. Le health-checker n'était pas
+  seulement non testé : il suivait les redirections et ignorait
+  `upstream.tls_verify`. Le drift FR-21/FR-22 dépassait `X-Frame-Options`
+  (quatre en-têtes et deux blocs de config sans implémentation). FR-28 : les
+  events étaient déjà bornés à 24 h à la lecture ; ce sont les clés, la purge
+  par âge et le rapport qui n'existaient pas. `config.example.yaml` : écarts
+  voulus (commit d29d24e), désormais commentés.
+- **Infirmé** : enum `VerifyError` (le 405 n'a pas de corps JSON) ;
+  `GET /waf/stats` comme DoS (endpoint authentifié de l'API admin) ; timeout
+  de `ListVisitors` (budget du parcours complet, pas d'un appel).
+- **Différé** : G6 (k6 absent), Redis sur le chemin chaud, couverture de
+  `cluster/redis.go` et des `build*` de `app.go`.
+- **Non retenu** : anti-rejeu fail-open (saturation au prix de 65 536 PoW
+  réussies, liées IP + domaine) ; conventions de processus SDD, optimisations
+  sans mesure, dette `@deferred` (roadmap).
 
 ### Sprint 24 — neuvième audit du 2026-09-30 : ce qui était exact, ce qui ne l'était pas
 

@@ -6,6 +6,32 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — dixième audit du 2026-09-30 (phase 25)
+
+- La page de challenge est servie sous une `Content-Security-Policy` stricte à
+  nonce tiré par réponse : seuls son script et son style s'exécutent, elle ne
+  joint que `/waf/verify` et ne s'affiche dans aucune iframe (FR-06).
+
+### Fixed — dixième audit du 2026-09-30
+
+- La sonde de santé des upstreams ne suit plus les redirections (un 3xx est un
+  succès) et applique `upstream.tls_verify` comme le proxy : une origine HTTPS
+  auto-signée avec `tls_verify: false` sortait du pool (FR-25).
+- Le `domain` des événements de sécurité est normalisé comme celui du
+  `VisitorState` (minuscules, sans port).
+- Le 405 de `/waf/verify` annonce `Allow: POST` (`public.openapi.yaml` 1.5.1).
+- `TestColorsEnabled` ne dépend plus d'un `NO_COLOR` hérité de l'environnement.
+
+### Changed — dixième audit du 2026-09-30
+
+- Specs réalignées sur le comportement livré, le reste explicitement différé :
+  FR-20 (canal unique `cluster.channel`), FR-21/FR-22 (`X-Frame-Options: DENY`
+  par défaut, `Permissions-Policy` opt-in), FR-27 (1 000 entrées d'audit par
+  défaut), FR-28 (`gdpr.anonymize_ip`, rétention = `trust.score_ttl` / 24 h /
+  `audit.max_entries`). ADR-011 et ADR-013 amendés.
+- Journaux et métriques classent l'action d'une requête par une seule fonction
+  (`wafheader.EffectiveAction`).
+
 ### Security — neuvième audit du 2026-09-30 (phase 24)
 
 - Le token de challenge et le cookie de clearance sont signés avec des clés
