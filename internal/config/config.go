@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"net"
+	"net/http"
 	"net/url"
 	"os"
 	"slices"
@@ -20,6 +21,9 @@ const (
 	envRedisPassword      = "WAF_REDIS_PASSWORD"
 	envOriginSecret       = "WAF_ORIGIN_SECRET"
 	envAbuseIPDBKey       = "WAF_ABUSEIPDB_KEY"
+	// minHeaderBytes est le plus petit server.max_header_bytes accepté : sous
+	// 4 Kio, des en-têtes de navigateur ordinaires (cookies) seraient refusés.
+	minHeaderBytes = 4 << 10
 	// envWebhookURLFormat nomme la variable qui remplace
 	// alerting.webhooks[i].url : l'URL d'un webhook Slack ou Discord porte son
 	// jeton d'accès (WAF_ALERTING_WEBHOOKS_0_URL pour le premier).
@@ -78,6 +82,9 @@ type ServerConfig struct {
 	// requête (FR-23, http.Server.MaxHeaderValueCount — Go 1.27+). 0 laisse le
 	// défaut Go (http.DefaultMaxHeaderValueCount, 500).
 	MaxHeaderValueCount int `yaml:"max_header_value_count"`
+	// MaxHeaderBytes borne la taille des en-têtes d'une requête (FR-23,
+	// http.Server.MaxHeaderBytes). 0 laisse le défaut Go (1 Mio).
+	MaxHeaderBytes int `yaml:"max_header_bytes"`
 	// StrictHost refuse en 400 un Host qui ne correspond à aucune entrée
 	// domains[] (ADR-020 option 1C). Opt-in : activé par défaut, il casserait
 	// l'accès par IP et tout déploiement sans domains[].
@@ -497,6 +504,9 @@ func Default() Config {
 			IdleTimeout:             "60s",
 			GracefulShutdownTimeout: "15s",
 			MaxHeaderValueCount:     100,
+			// 64 Kio : au-delà de ce qu'accepte Cloudflare ou OpenResty par
+			// défaut ; le défaut Go (1 Mio) laissait parser 1 Mio par requête.
+			MaxHeaderBytes: 64 << 10,
 			TLS: ServerTLS{
 				Enabled:      false, // opt-in : terminaison TLS par domaine (FR-40)
 				Listen:       ":443",
@@ -765,6 +775,9 @@ func (c *Config) Validate() error {
 	// fait la protection FR-23 ; alignée sur config.schema.json.
 	if c.Server.MaxHeaderValueCount < 0 || c.Server.MaxHeaderValueCount > 10000 {
 		fields = append(fields, "server.max_header_value_count must be between 0 and 10000")
+	}
+	if c.Server.MaxHeaderBytes != 0 && (c.Server.MaxHeaderBytes < minHeaderBytes || c.Server.MaxHeaderBytes > http.DefaultMaxHeaderBytes) {
+		fields = append(fields, fmt.Sprintf("server.max_header_bytes must be 0 or between %d and %d", minHeaderBytes, http.DefaultMaxHeaderBytes))
 	}
 	if c.Server.StrictHost && len(c.Domains) == 0 {
 		// Sans domains[], strict_host refuserait tout sauf /waf/health.

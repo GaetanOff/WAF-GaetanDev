@@ -70,6 +70,11 @@ Feature: Protection Slowloris & Slow HTTP
     Then le serveur HTTP rejette la requête avant d'exécuter le moindre middleware
     And la mémoire consommée par le parsing des en-têtes reste bornée
 
+  Scenario: En-têtes trop volumineux — refusés au parsing
+    Given server.max_header_bytes = 65536 (défaut)
+    When un client envoie une requête dont les en-têtes pèsent 200 Kio
+    Then le serveur HTTP répond 431 avant d'exécuter le moindre middleware
+
   Scenario: Requête légitime sous la limite d'en-têtes
     Given max_header_value_count = 100
     When un navigateur envoie une requête portant ~25 lignes d'en-tête

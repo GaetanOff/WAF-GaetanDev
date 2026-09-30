@@ -679,3 +679,29 @@ func TestValidateRequiresWebhookURL(t *testing.T) {
 		t.Fatalf("Validate() error = %v, want the missing webhook url", err)
 	}
 }
+
+// FR-23 — borne de la taille des en-têtes (http.Server.MaxHeaderBytes).
+func TestValidateServerMaxHeaderBytes(t *testing.T) {
+	tests := []struct {
+		name    string
+		value   int
+		wantErr bool
+	}{
+		{name: "default is valid", value: Default().Server.MaxHeaderBytes, wantErr: false},
+		{name: "zero means go default", value: 0, wantErr: false},
+		{name: "lower bound accepted", value: 4096, wantErr: false},
+		{name: "upper bound accepted", value: 1 << 20, wantErr: false},
+		{name: "below lower bound rejected", value: 1024, wantErr: true},
+		{name: "above upper bound rejected", value: 2 << 20, wantErr: true},
+		{name: "negative rejected", value: -1, wantErr: true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			cfg := validBaseConfig()
+			cfg.Server.MaxHeaderBytes = tt.value
+			if err := cfg.Validate(); (err != nil) != tt.wantErr {
+				t.Fatalf("Validate() error = %v, wantErr = %v", err, tt.wantErr)
+			}
+		})
+	}
+}

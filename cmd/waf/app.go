@@ -559,6 +559,7 @@ func (a *app) serve(timeouts serverTimeouts) error {
 		// FR-23 : borne le coût de parsing d'une requête portant des milliers de
 		// lignes d'en-tête, en amont de tout middleware.
 		MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
+		MaxHeaderBytes:      cfg.Server.MaxHeaderBytes,
 	}
 	acmeManager, tlsManager, err := a.configureTLS(server)
 	if err != nil {
@@ -646,6 +647,7 @@ func (a *app) newSideServer(addr string, handler http.Handler, headerTimeout tim
 		Handler:             handler,
 		ReadHeaderTimeout:   headerTimeout,
 		MaxHeaderValueCount: a.cfg.Server.MaxHeaderValueCount,
+		MaxHeaderBytes:      a.cfg.Server.MaxHeaderBytes,
 	}
 }
 

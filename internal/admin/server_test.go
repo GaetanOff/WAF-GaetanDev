@@ -399,3 +399,37 @@ func TestAdminRemovalRestoresEntryWhenRulesSyncFails(t *testing.T) {
 		t.Fatalf("blacklist = %v, want the entry restored", entries)
 	}
 }
+
+// FR-23 — server.max_header_bytes est transmis au http.Server : des en-têtes
+// au-delà de la borne sont refusés (431) sans atteindre le handler.
+func TestAdminServerEnforcesMaxHeaderBytes(t *testing.T) {
+	server := newTestServerWith(t, func(cfg *config.Config) {
+		cfg.Server.MaxHeaderBytes = 4096
+	})
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("net.Listen() error = %v", err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	go func() { _ = server.httpServer.Serve(listener) }()
+	url := fmt.Sprintf("http://%s/waf/admin/blacklist", listener.Addr().String())
+
+	for _, tc := range []struct {
+		size int
+		want int
+	}{{1024, http.StatusUnauthorized}, {64 << 10, http.StatusRequestHeaderFieldsTooLarge}} {
+		request, err := http.NewRequest(http.MethodGet, url, nil)
+		if err != nil {
+			t.Fatalf("http.NewRequest() error = %v", err)
+		}
+		request.Header.Set("X-Filler", strings.Repeat("x", tc.size))
+		response, err := (&http.Client{Timeout: 5 * time.Second}).Do(request)
+		if err != nil {
+			t.Fatalf("header of %d bytes: %v", tc.size, err)
+		}
+		_ = response.Body.Close()
+		if response.StatusCode != tc.want {
+			t.Fatalf("header of %d bytes: status = %d, want %d", tc.size, response.StatusCode, tc.want)
+		}
+	}
+}

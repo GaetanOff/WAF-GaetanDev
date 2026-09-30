@@ -50,6 +50,7 @@ server:
   write_timeout: "30s"
   idle_timeout: "60s"
   graceful_shutdown_timeout: "15s"
+  max_header_bytes: 65536
   strict_host: false
 ```
 
@@ -58,8 +59,9 @@ server:
 | `listen` | string | — | Adresse d'écoute du port public (trafic entrant depuis Cloudflare). Ex : `":8080"`, `"0.0.0.0:443"`. **Obligatoire.** |
 | `admin_listen` | string | `"127.0.0.1:9090"` | Adresse d'écoute de l'API d'administration (HTTP clair, jeton `Bearer`). **Ne jamais exposer publiquement.** Boucle locale par défaut ; dans un conteneur, la lier explicitement à l'interface du réseau interne (ex. `0.0.0.0:9090` sans publier le port). |
 | `read_timeout` | durée | `"30s"` | Délai max pour lire la requête entière (headers + body). Protège contre les connexions lentes (Slowloris). |
-| `write_timeout` | durée | `"30s"` | Délai max pour envoyer la réponse complète au client. |
+| `write_timeout` | durée | `"30s"` | Délai max pour envoyer la réponse complète au client, **streaming compris** : un téléchargement ou un flux (SSE, long polling) plus long que ce délai est coupé. L'augmenter pour une origine qui sert de tels contenus. Les WebSockets n'y sont pas soumis (l'échéance est levée à l'upgrade). |
 | `idle_timeout` | durée | `"60s"` | Délai max d'inactivité sur une connexion keep-alive avant fermeture. |
+| `max_header_bytes` | int | `65536` | Taille maximale des en-têtes d'une requête (64 Kio). Au-delà : `431`, avant tout middleware. `0` = défaut Go (1 Mio) ; sinon entre `4096` et `1048576`. |
 | `graceful_shutdown_timeout` | durée | `"15s"` | Délai accordé aux connexions en cours pour se terminer proprement lors d'un arrêt (SIGTERM). |
 | `strict_host` | bool | `false` | Répond `400` (`X-WAF-Reason: host_not_declared`) à toute requête dont le `Host` ne correspond à aucune entrée [`domains`](#domains--configuration-par-domaine), `/waf/health` excepté ([ADR-020](specs/decisions/ADR-020-host-header-routing-trust.md)). Exige au moins une entrée `domains[]`. `/waf/metrics` n'est **pas** exempté : un scraper Prometheus doit alors présenter un `Host` déclaré. **Opt-in** : activé, il coupe l'accès par IP. |
 

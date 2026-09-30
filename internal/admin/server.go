@@ -107,6 +107,7 @@ func NewServer(cfg config.Config, store storage.Store, scores *trust.ScoreManage
 		// Même borne FR-23 que le listener public : l'API admin est censée être
 		// sur loopback, mais la défense en profondeur ne coûte rien ici.
 		MaxHeaderValueCount: cfg.Server.MaxHeaderValueCount,
+		MaxHeaderBytes:      cfg.Server.MaxHeaderBytes,
 	}
 	return server, nil
 }
