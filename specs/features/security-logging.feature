@@ -42,6 +42,13 @@ Feature: Journalisation des événements de sécurité et formats de sortie (FR-
     And le niveau configuré filtre les événements comme en format json
     And le compteur d'événements abandonnés reste exposé
 
+  Scenario: Tampon de log saturé — événements perdus comptés
+    Given la sortie des logs ne suit plus (disque lent, pipe non lu)
+    And le tampon asynchrone est plein
+    When de nouveaux événements de sécurité sont émis
+    Then ils sont abandonnés sans bloquer les requêtes
+    And GET /waf/metrics expose waf_log_events_dropped_total égal au nombre d'événements perdus
+
   Scenario: Valeur de format inconnue rejetée au démarrage
     Given logging.format = "logfmt"
     When le WAF démarre

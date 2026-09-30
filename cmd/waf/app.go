@@ -461,6 +461,7 @@ func (a *app) buildLogging() error {
 	a.securityLogger = waflogger.New(a.cfg.Logging)
 	a.stop.add(func() { _ = a.securityLogger.Close() })   // vide le writer async à l'arrêt
 	a.securityLogger.AnonymizeIP = a.cfg.GDPR.AnonymizeIP // RGPD (FR-28)
+	a.metrics.WithLogDrops(a.securityLogger.Dropped)
 	if a.cfg.Alerting.Enabled {
 		if err := a.buildAlerting(); err != nil {
 			return err
