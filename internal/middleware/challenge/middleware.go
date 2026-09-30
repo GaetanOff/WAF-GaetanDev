@@ -53,6 +53,7 @@ type Middleware struct {
 	minElapsedMS int
 	maxElapsedMS int
 	humanCredit  func(ip string, domain string, fpHash string)
+	crawlerCheck func(ip string, userAgent string) (verified bool, spoofed bool)
 	usedTokens   *usedTokens
 }
 
@@ -62,6 +63,30 @@ type Middleware struct {
 func (m Middleware) WithHumanCredit(fn func(ip string, domain string, fpHash string)) Middleware {
 	m.humanCredit = fn
 	return m
+}
+
+// WithCrawlerCheck branche la vérification reverse-DNS des crawlers (FR-36) sur
+// l'exemption whitelist_user_agents. check rend l'état du crawler déclaré par
+// le User-Agent : vérifié, ou démasqué (spoofed).
+func (m Middleware) WithCrawlerCheck(check func(ip string, userAgent string) (verified bool, spoofed bool)) Middleware {
+	m.crawlerCheck = check
+	return m
+}
+
+// exemptsCrawler décide si un User-Agent de whitelist_user_agents échappe au
+// challenge proactif. Un User-Agent se forge : sous attaque (FR-39), seul un
+// crawler vérifié par reverse-DNS a une clearance — Slurp, Twitterbot et les
+// autres UA non vérifiables passaient le mode sous attaque sans PoW. Hors
+// attaque, l'exemption tient sauf pour un crawler déjà démasqué.
+func (m Middleware) exemptsCrawler(r *http.Request, underAttack bool) bool {
+	if m.crawlerCheck == nil {
+		return !underAttack
+	}
+	verified, spoofed := m.crawlerCheck(cloudflare.RealIP(r), r.UserAgent())
+	if underAttack {
+		return verified
+	}
+	return !spoofed
 }
 
 // WithDifficultyProvider branche un fournisseur de difficulté adaptative
@@ -185,10 +210,11 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
+		underAttack := r.Header.Get(wafheader.UnderAttackEnforce) == "true"
 		// whitelist_user_agents exempte du seul challenge proactif : un crawler
 		// n'exécute pas le JS. Une décision CHALLENGE du moteur de risque (faux
 		// crawler démasqué par reverse-DNS) reste appliquée par l'Enforcer.
-		if r.Header.Get(access.HeaderUserAgentWhitelisted) == "true" {
+		if r.Header.Get(access.HeaderUserAgentWhitelisted) == "true" && m.exemptsCrawler(r, underAttack) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -196,7 +222,6 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 		// HTML de premier niveau). Les appels API/XHR (fetch, axios, mobile…) ne
 		// peuvent pas exécuter le JS : on ne les challenge pas, sinon ils cassent.
 		// Ils restent couverts par le reste de la chaîne (rate-limit, risk engine…).
-		underAttack := r.Header.Get(wafheader.UnderAttackEnforce) == "true"
 		if !shouldChallenge(r, underAttack) {
 			next.ServeHTTP(w, r)
 			return

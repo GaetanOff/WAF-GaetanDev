@@ -410,7 +410,7 @@ Vérifie que les bots déclarant être Googlebot, Bingbot, etc. le sont vraiment
 | `enabled` | bool | `true` | Active la vérification des bots légitimes. |
 | `success_cache_ttl` | durée | `"12h"` | Durée de mise en cache d'une vérification réussie (évite de re-vérifier à chaque requête). |
 | `failure_cache_ttl` | durée | `"10m"` | Durée de mise en cache d'un échec de vérification. |
-| `crawlers` | liste | `["googlebot", ...]` | Liste de sous-chaînes de user-agents à vérifier. La comparaison est insensible à la casse. |
+| `crawlers` | liste | `["googlebot", "bingbot", "duckduckbot", "applebot", "slurp", "baiduspider"]` | Liste de sous-chaînes de user-agents à vérifier. La comparaison est insensible à la casse. Seuls ces six crawlers ont un domaine reverse-DNS connu ; un autre nom reste `spoofed`. |
 
 ---
 
@@ -994,6 +994,8 @@ whitelist_user_agents:
 ```
 
 User-agents de bots légitimes **exemptés du challenge JS proactif** (un crawler n'exécute pas le JS) **et des heuristiques anti-bot « client non navigateur »** (en-têtes `Accept-Language`/`Accept-Encoding` absents, UA d'outil type `curl/`) : un crawler n'envoie pas les en-têtes d'un navigateur. Honeypots, UA d'automation (Selenium, Puppeteer) et navigateurs headless restent pénalisés. Chaque entrée est une **expression régulière** (syntaxe RE2) recherchée dans le header `User-Agent`, **sensible à la casse** — préfixer par `(?i)` pour l'ignorer.
+
+L'exemption consulte `risk_engine.verified_bots` : un crawler démasqué (reverse-DNS non conforme) n'en bénéficie pas, et **en mode sous attaque** (`antiddos.under_attack`) seul un crawler **vérifié** par reverse-DNS en bénéficie — un User-Agent non vérifiable (facebookexternalhit, LinkedInBot, Twitterbot…) reçoit alors le challenge.
 
 Ce n'est **pas** un bypass : un `User-Agent` se forge. La blacklist, l'anti-DDoS, le rate limiting et le moteur de risque s'appliquent. Un faux crawler démasqué par `risk_engine.verified_bots` (reverse-DNS) voit sa réputation dégradée et reçoit le challenge ou le blocage que décide le moteur ; un crawler vérifié est autorisé (`ALLOW`). Pour un bypass total, utiliser `whitelist` (IP ou CIDR).
 

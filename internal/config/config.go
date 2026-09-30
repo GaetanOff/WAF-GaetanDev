@@ -571,7 +571,7 @@ func Default() Config {
 				Enabled:         true,
 				SuccessCacheTTL: "12h",
 				FailureCacheTTL: "10m",
-				Crawlers:        []string{"googlebot", "bingbot", "duckduckbot", "applebot"},
+				Crawlers:        []string{"googlebot", "bingbot", "duckduckbot", "applebot", "slurp", "baiduspider"},
 			},
 		},
 		Integrity: Integrity{

@@ -416,6 +416,9 @@ func (a *app) buildChallenge() error {
 	if a.cfg.RiskEngine.Enabled {
 		challengeMiddleware = challengeMiddleware.WithHumanCredit(a.riskMiddleware.GrantChallengePass)
 	}
+	// Construit moteur de risque actif ou non, le vérificateur reverse-DNS
+	// décide aussi de l'exemption whitelist_user_agents (FR-36, FR-39).
+	challengeMiddleware = challengeMiddleware.WithCrawlerCheck(a.riskMiddleware.CrawlerStatus)
 	a.challengeMiddleware = challengeMiddleware
 	return nil
 }

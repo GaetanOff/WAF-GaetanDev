@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 1.4.1
+version: 1.5.0
 last-reviewed: 2026-09-30
 reviewed-by: GaetanDev
 extends: requirements-advanced.md (v2.1.0), requirements-ops.md
-change: "FR-38 : défaut de `shadow_mode` corrigé dans l'exemple de configuration (true, comme le code et config.schema.json). Précédent (1.4.0) — FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
+change: "FR-36/FR-39 : l'exemption whitelist_user_agents consulte la vérification reverse-DNS — sous attaque, seul un crawler vérifié passe sans challenge ; Slurp et Baiduspider vérifiables. Précédent (1.4.1) — FR-38 : défaut de `shadow_mode` corrigé dans l'exemple de configuration (true, comme le code et config.schema.json). Précédent (1.4.0) — FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
 ---
 
 # Requirements Detection — Moteur de Risque & Décision (v4)
@@ -163,7 +163,15 @@ explicites (issus de la revue de spec) :
 - Le WAF DOIT vérifier l'authenticité des crawlers déclarés par **reverse-DNS +
   forward-confirm** (rDNS de l'IP → hostname attendu, puis résolution directe du
   hostname → doit re-contenir l'IP). Couvre au minimum : Googlebot, Bingbot,
-  DuckDuckBot, Applebot.
+  DuckDuckBot, Applebot, Yahoo Slurp (`*.crawl.yahoo.net`) et Baiduspider
+  (`*.baidu.com`, `*.baidu.jp`).
+- L'exemption de challenge proactif de `whitelist_user_agents` DOIT consulter
+  cette vérification : un crawler déjà démasqué (`spoofed`) NE DOIT PAS en
+  bénéficier. Sous attaque (FR-39), seul un crawler `verified` en bénéficie ; un
+  User-Agent whitelisté non vérifiable (facebookexternalhit, LinkedInBot,
+  Twitterbot…) ou encore `pending` reçoit le challenge. Le User-Agent se forge :
+  l'exemption inconditionnelle laissait tout client passer le mode sous attaque
+  sans PoW en se déclarant Slurp ou Twitterbot.
 - Un crawler **vérifié** DOIT être placé en `ALLOW` et NE DOIT JAMAIS être bloqué
   ni challengé par une décision **heuristique** (il reste soumis au rate limiting
   global et aux blacklists explicites).
@@ -172,10 +180,12 @@ explicites (issus de la revue de spec) :
   - **`verified`** (rDNS forward-confirm OK) → `ALLOW`.
   - **`pending`** (vérification non encore résolue, cache miss) → la décision DOIT
     être plafonnée à `OBSERVE` (laissé passer, vérification lancée en async). Un
-    crawler déclaré en attente NE DOIT JAMAIS recevoir de **challenge JS** : un
-    vrai crawler n'exécute pas JavaScript, le challenger reviendrait à le bloquer
-    (faux positif). La décision est révisée à la requête suivante une fois la
-    vérification résolue.
+    crawler déclaré en attente NE DOIT JAMAIS recevoir de **challenge JS** hors
+    mode sous attaque : un vrai crawler n'exécute pas JavaScript, le challenger
+    reviendrait à le bloquer (faux positif). La décision est révisée à la requête
+    suivante une fois la vérification résolue. Sous attaque (FR-39), l'état
+    `pending` n'est pas une clearance : un crawler réel, vérifié en cache pour
+    `success_cache_ttl`, n'est challengé que le temps de sa première résolution.
   - **`unverified`** (vérification non planifiée : file de vérification pleine) →
     visiteur évalué normalement, **sans** le plafond OBSERVE de `pending` — sinon
     saturer la file exempterait un faux crawler. Les vérifications tournent sur un
@@ -245,6 +255,8 @@ explicites (issus de la revue de spec) :
   - bot **vérifié** par reverse-DNS forward-confirm (FR-36),
   - IP/CIDR en **whitelist** explicite (FR-04),
   - **trust persistant** « sticky » consécutif à un challenge réussi (FR-37).
+  Un User-Agent de `whitelist_user_agents` N'EST PAS une clearance : il se forge
+  (voir FR-36).
 - Une requête **avec** clearance DOIT passer **sans friction ajoutée** par le mode
   sous attaque (récupération : un seul PoW résolu débloque le visiteur ensuite).
 - Le mode sous attaque NE DOIT PAS, à lui seul, produire un `503`, `403` ou blocage

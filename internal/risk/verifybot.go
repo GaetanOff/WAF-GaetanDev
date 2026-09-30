@@ -98,7 +98,7 @@ func DefaultBotVerifierConfig() BotVerifierConfig {
 		Enabled:         true,
 		SuccessCacheTTL: 12 * time.Hour,
 		FailureCacheTTL: 10 * time.Minute,
-		Crawlers:        []string{"googlebot", "bingbot", "duckduckbot", "applebot"},
+		Crawlers:        []string{"googlebot", "bingbot", "duckduckbot", "applebot", "slurp", "baiduspider"},
 	}
 }
 
@@ -286,6 +286,10 @@ func crawlerHostMatches(bot string, host string) bool {
 		return strings.HasSuffix(host, ".duckduckgo.com")
 	case "applebot":
 		return strings.HasSuffix(host, ".applebot.apple.com")
+	case "slurp":
+		return strings.HasSuffix(host, ".crawl.yahoo.net")
+	case "baiduspider":
+		return strings.HasSuffix(host, ".baidu.com") || strings.HasSuffix(host, ".baidu.jp")
 	default:
 		return false
 	}

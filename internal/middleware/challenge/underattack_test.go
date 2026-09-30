@@ -101,3 +101,48 @@ func cloneReq(r *http.Request) *http.Request {
 	clone := r.Clone(r.Context())
 	return clone
 }
+
+// whitelistedCrawlerRequest simule un User-Agent de whitelist_user_agents
+// (marqué en amont par le middleware access).
+func whitelistedCrawlerRequest(underAttack bool) *http.Request {
+	request := httptest.NewRequest(http.MethodGet, "http://status.test/", nil)
+	request.RemoteAddr = "9.9.9.9:1234"
+	request.Header.Set("Accept", "text/html")
+	request.Header.Set("User-Agent", "Twitterbot/1.0")
+	request.Header.Set("X-WAF-UA-Whitelisted", "true")
+	if underAttack {
+		request.Header.Set("X-WAF-Under-Attack-Enforce", "true")
+	}
+	return request
+}
+
+// Sous attaque (FR-39), un User-Agent whitelisté n'est pas une clearance : seul
+// un crawler vérifié par reverse-DNS passe sans challenge. Hors attaque,
+// l'exemption tient, sauf pour un crawler démasqué.
+func TestWhitelistedUserAgentExemption(t *testing.T) {
+	base, _ := newTestChallengeMiddleware(t)
+	cases := []struct {
+		name        string
+		check       func(string, string) (bool, bool)
+		underAttack bool
+		challenged  bool
+	}{
+		{"no verifier, normal", nil, false, false},
+		{"no verifier, under attack", nil, true, true},
+		{"unverifiable UA, normal", func(string, string) (bool, bool) { return false, false }, false, false},
+		{"unverifiable UA, under attack", func(string, string) (bool, bool) { return false, false }, true, true},
+		{"verified crawler, under attack", func(string, string) (bool, bool) { return true, false }, true, false},
+		{"spoofed crawler, normal", func(string, string) (bool, bool) { return false, true }, false, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			middleware := base
+			if tc.check != nil {
+				middleware = base.WithCrawlerCheck(tc.check)
+			}
+			if got := servedChallenge(t, middleware, whitelistedCrawlerRequest(tc.underAttack)); got != tc.challenged {
+				t.Fatalf("challenged = %v, want %v", got, tc.challenged)
+			}
+		})
+	}
+}
