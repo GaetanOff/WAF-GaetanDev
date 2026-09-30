@@ -16,7 +16,8 @@ caractère personnel.
 | Adresse IP (réelle, via `CF-Connecting-IP`) | Détection bot/DDoS, scoring de confiance, rate limiting | Intérêt légitime (sécurité du SI) | TTL `trust.score_ttl` (défaut 1h), puis purge automatique |
 | `ip_hash` (HMAC-SHA256 à clé[:16], IPv6 par /64) | Corrélation des événements sans exposer l'IP | Intérêt légitime | Idem visiteur (purge) |
 | User-Agent, JA3, empreinte navigateur | Détection d'automatisation | Intérêt légitime | Durée de la session de challenge |
-| Journaux de sécurité (`SecurityEvent`) | Traçabilité, investigation d'incident | Intérêt légitime | Rétention des logs (hors WAF) |
+| Journaux de sécurité (`SecurityEvent`) | Traçabilité, investigation d'incident | Intérêt légitime | Flux admin en mémoire : 10 000 dernières mitigations, non servies au-delà de 24 h ; journal sur la sortie standard : rétention des logs (hors WAF) |
+| Audit trail admin (cible de l'action : IP de whitelist/blacklist ou `ip_hash`) | Traçabilité des actions d'administration | Intérêt légitime | `audit.max_entries` entrées en mémoire (1 000 par défaut) ; fichier `audit.file` : rotation par l'opérateur |
 
 ## Mesures de protection
 
