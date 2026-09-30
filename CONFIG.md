@@ -19,6 +19,14 @@ Ne mettez **jamais** de secrets dans `config.yaml`. Fournissez-les via l'environ
 | `WAF_ADMIN_TOKEN` | `admin.token` | 32 caractères |
 | `WAF_REDIS_PASSWORD` | `storage.redis.password` | — |
 | `WAF_ORIGIN_SECRET` | `origin_protection.secret` | 16 caractères |
+| `WAF_ABUSEIPDB_KEY` | `threat_intel.abuseipdb.api_key` | — |
+| `WAF_ALERTING_WEBHOOKS_<i>_URL` | `alerting.webhooks[i].url` (index à partir de 0) | — |
+
+L'URL d'un webhook Slack ou Discord **porte son jeton d'accès** : c'est un secret.
+Déclarez l'entrée (et son `type`) dans le fichier, sans `url`, et fournissez l'URL
+par `WAF_ALERTING_WEBHOOKS_<i>_URL`. Une variable ne crée pas d'entrée : elle
+remplace l'URL de l'entrée `i` déclarée. Alertes actives, une entrée sans URL est
+refusée au démarrage.
 
 ---
 
@@ -794,8 +802,7 @@ alerting:
   webhooks:
     - type: "slack"
       url: "https://hooks.slack.com/services/..."
-    - type: "discord"
-      url: "https://discord.com/api/webhooks/..."
+    - type: "discord"      # url fournie par WAF_ALERTING_WEBHOOKS_1_URL
 ```
 
 Envoie des notifications vers Slack, Discord ou tout endpoint HTTP générique lors d'événements de sécurité critiques (pression globale critique, IP bloquée, circuit-breaker, honeypot, etc.).
@@ -806,7 +813,7 @@ Envoie des notifications vers Slack, Discord ou tout endpoint HTTP générique l
 | `cooldown` | durée | `"5m"` | Délai minimum entre deux alertes identiques (même trigger + même domaine). Évite le flood de notifications. |
 | `max_retries` | int | `3` | Nombre de tentatives en cas d'échec d'envoi du webhook. |
 | `webhooks[].type` | string | — | Type de webhook : `"slack"`, `"discord"`, ou `"generic"` (POST JSON brut). |
-| `webhooks[].url` | string | — | URL du webhook. |
+| `webhooks[].url` | string | — | URL absolue du webhook, requise quand `enabled`. Elle porte le jeton d'accès : **préférer `WAF_ALERTING_WEBHOOKS_<i>_URL`**. |
 
 ---
 

@@ -624,3 +624,58 @@ func TestValidateStaticAssetsPaths(t *testing.T) {
 		})
 	}
 }
+
+// NFR-03 : la clé AbuseIPDB et l'URL d'un webhook (qui porte son jeton) se
+// fournissent par l'environnement, comme les autres secrets.
+func TestLoadAppliesThreatIntelAndWebhookEnvOverrides(t *testing.T) {
+	t.Setenv(envChallengeSecretKey, testSecret)
+	t.Setenv(envAdminToken, testSecret)
+	t.Setenv(envAbuseIPDBKey, "abuseipdb-key-from-env")
+	t.Setenv("WAF_ALERTING_WEBHOOKS_1_URL", "https://discord.com/api/webhooks/1/secret")
+
+	path := writeConfig(t, `
+version: "1.0"
+server:
+  listen: ":8080"
+upstream:
+  address: "http://example.test"
+alerting:
+  enabled: true
+  webhooks:
+    - type: "slack"
+      url: "https://hooks.slack.com/services/from-file"
+    - type: "discord"
+`)
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	if cfg.ThreatIntel.AbuseIPDB.APIKey != "abuseipdb-key-from-env" {
+		t.Fatalf("abuseipdb api_key = %q, want the env value", cfg.ThreatIntel.AbuseIPDB.APIKey)
+	}
+	if cfg.Alerting.Webhooks[0].URL != "https://hooks.slack.com/services/from-file" {
+		t.Fatalf("webhook 0 url = %q, want the file value", cfg.Alerting.Webhooks[0].URL)
+	}
+	if cfg.Alerting.Webhooks[1].URL != "https://discord.com/api/webhooks/1/secret" {
+		t.Fatalf("webhook 1 url = %q, want the env value", cfg.Alerting.Webhooks[1].URL)
+	}
+}
+
+// Un webhook sans URL, ni dans le fichier ni dans l'environnement, est refusé
+// au démarrage au lieu d'échouer à chaque alerte.
+func TestValidateRequiresWebhookURL(t *testing.T) {
+	cfg := Default()
+	cfg.Version = "1.0"
+	cfg.Server.Listen = ":8080"
+	cfg.Upstream.Address = "http://example.test"
+	cfg.Challenge.SecretKey = testSecret
+	cfg.Admin.Token = testSecret
+	cfg.Alerting.Enabled = true
+	cfg.Alerting.Webhooks = []AlertWebhook{{Type: "discord"}}
+
+	err := cfg.Validate()
+	if err == nil || !strings.Contains(err.Error(), "alerting.webhooks[0].url is required; set WAF_ALERTING_WEBHOOKS_0_URL") {
+		t.Fatalf("Validate() error = %v, want the missing webhook url", err)
+	}
+}

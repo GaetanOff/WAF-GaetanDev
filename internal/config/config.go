@@ -19,6 +19,11 @@ const (
 	envChallengeSecretKey = "WAF_CHALLENGE_SECRET_KEY"
 	envRedisPassword      = "WAF_REDIS_PASSWORD"
 	envOriginSecret       = "WAF_ORIGIN_SECRET"
+	envAbuseIPDBKey       = "WAF_ABUSEIPDB_KEY"
+	// envWebhookURLFormat nomme la variable qui remplace
+	// alerting.webhooks[i].url : l'URL d'un webhook Slack ou Discord porte son
+	// jeton d'accès (WAF_ALERTING_WEBHOOKS_0_URL pour le premier).
+	envWebhookURLFormat = "WAF_ALERTING_WEBHOOKS_%d_URL"
 )
 
 // Config mirrors specs/schemas/config.schema.json.
@@ -853,6 +858,13 @@ func (c *Config) Validate() error {
 		if len(c.Alerting.Webhooks) == 0 {
 			fields = append(fields, "alerting.webhooks must not be empty when enabled")
 		}
+		for i, webhook := range c.Alerting.Webhooks {
+			name := fmt.Sprintf("alerting.webhooks[%d].url", i)
+			if strings.TrimSpace(webhook.URL) == "" {
+				fields = append(fields, fmt.Sprintf("%s is required; set %s", name, fmt.Sprintf(envWebhookURLFormat, i)))
+			}
+			validateURL(&fields, name, webhook.URL)
+		}
 	}
 	if c.ACME.Enabled && len(c.ACME.Domains) == 0 {
 		fields = append(fields, "acme.domains must not be empty when enabled")
@@ -1181,6 +1193,16 @@ func (c *Config) applyEnvOverrides() {
 			c.Storage.Redis = &RedisConfig{}
 		}
 		c.Storage.Redis.Password = value
+	}
+	if value := os.Getenv(envAbuseIPDBKey); value != "" {
+		c.ThreatIntel.AbuseIPDB.APIKey = value
+	}
+	// Une variable ne crée pas de webhook : elle remplace l'URL d'une entrée
+	// déclarée (et typée) dans le fichier.
+	for i := range c.Alerting.Webhooks {
+		if value := os.Getenv(fmt.Sprintf(envWebhookURLFormat, i)); value != "" {
+			c.Alerting.Webhooks[i].URL = value
+		}
 	}
 }
 

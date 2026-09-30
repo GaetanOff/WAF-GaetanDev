@@ -28,6 +28,21 @@ Feature: Alerting & Webhooks
           severity: ["info", "warning", "critical"]
 
   @deferred
+  Scenario: URL de webhook fournie par l'environnement
+    # L'URL d'un webhook Discord ou Slack porte son jeton d'accès : elle ne doit
+    # pas avoir à figurer en clair dans config.yaml.
+    Given alerting.webhooks[0] est déclaré avec type = "discord" et sans url
+    And la variable WAF_ALERTING_WEBHOOKS_0_URL contient l'URL du webhook
+    When le WAF démarre
+    Then les alertes sont envoyées à l'URL fournie par l'environnement
+    And GET /waf/admin/config la masque
+
+  Scenario: Webhook sans URL — refusé au démarrage
+    Given alerting.enabled = true
+    And alerting.webhooks[0] n'a d'url ni dans le fichier ni dans l'environnement
+    When le WAF démarre
+    Then le démarrage échoue avec "alerting.webhooks[0].url is required; set WAF_ALERTING_WEBHOOKS_0_URL"
+
   Scenario: Alerte DDoS envoyée sur Slack
     Given le trafic dépasse 200% du baseline (niveau Critical)
     When le trigger "ddos_detected" se déclenche
