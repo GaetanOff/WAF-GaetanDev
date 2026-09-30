@@ -66,7 +66,12 @@ Feature: TLS Termination & ACME / Let's Encrypt
 
   Scenario: Requête HTTP ordinaire sur le listener HTTP-01 — redirection HTTPS
     When un client envoie GET "http://example.com/page" sur acme.http_challenge_listen
-    Then le WAF répond une redirection vers "https://example.com/page"
+    Then le WAF répond une redirection 301 vers "https://example.com/page"
+
+  Scenario: Host hors de acme.domains sur le listener HTTP-01 — pas de redirection
+    When un client envoie GET "/page" sur acme.http_challenge_listen avec Host "evil.test"
+    Then le WAF répond HTTP 400
+    And aucun en-tête Location n'est émise (pas d'open-redirect)
 
   Scenario: TLS 1.2 minimum, TLS 1.0/1.1 refusés
     When un client tente de se connecter en TLS 1.0
