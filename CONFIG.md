@@ -712,7 +712,7 @@ static_assets:
   exact_paths: ["/favicon.ico", "/robots.txt", "/sitemap.xml"]
 ```
 
-Les requêtes vers des assets statiques (CSS, JS, images, fonts…) ne déclenchent pas le challenge JS et n'affectent pas le trust score. Cela évite que la page de challenge elle-même soit bloquée par le WAF. La blacklist et le rate limit s'appliquent toujours : les requêtes d'assets sont comptées dans les buckets de l'IP. Chaque requête bypassée est comptée dans `waf_asset_requests_total{domain}`.
+Les requêtes `GET` et `HEAD` vers des assets statiques (CSS, JS, images, fonts…) ne déclenchent pas le challenge JS et n'affectent pas le trust score. Une écriture (`POST`, `PUT`, `PATCH`, `DELETE`) vers un chemin d'asset traverse le pipeline complet : `POST /login.css` n'est pas un asset. Cela évite que la page de challenge elle-même soit bloquée par le WAF. La blacklist et le rate limit s'appliquent toujours : les requêtes d'assets sont comptées dans les buckets de l'IP. Chaque requête bypassée est comptée dans `waf_asset_requests_total{domain}`.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
@@ -879,7 +879,7 @@ maintenance:
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
-| `enabled` | bool | `false` | Passe le WAF en **mode maintenance** : toutes les requêtes reçoivent une page 503 brandée, sauf `/waf/health` et `/waf/metrics` (sondes de monitoring). À activer lors d'une maintenance planifiée de l'upstream. |
+| `enabled` | bool | `false` | Passe le WAF en **mode maintenance** : toutes les requêtes, assets statiques compris, reçoivent une page 503 brandée avec `Retry-After: 300`, sauf `/waf/health` et `/waf/metrics` (sondes de monitoring). Lu au démarrage (pas de bascule par l'API admin). À activer lors d'une maintenance planifiée de l'upstream. |
 | `error_pages` | bool | `true` | Remplace les corps de réponses d'erreur (4xx/5xx) en texte brut par une page HTML brandée. N'affecte pas les réponses qui ont déjà un body HTML. |
 
 ---
