@@ -32,6 +32,8 @@ Feature: Backend de stockage de l'état visiteurs (ADR-002, ADR-021)
     And la métrique "waf_storage_degraded" passe à 1
     And "waf_storage_errors_total" est incrémentée
     And les requêtes continuent d'être traitées (FR-20)
+    And GET /waf/health sur le port admin répond HTTP 200 avec status = "degraded"
+    And GET /waf/health sur le listener public reste {"status": "ok"} (le nœud sert)
 
   Scenario: Retour de Redis — sortie du mode dégradé
     Given le nœud est en mode dégradé

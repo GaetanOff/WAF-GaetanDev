@@ -40,6 +40,7 @@ Feature: API d'administration (FR-10)
   Scenario: Health check non authentifié
     When GET /waf/health sans token
     Then la réponse est HTTP 200 avec status et version
+    And status vaut "ok", ou "degraded" quand le stockage partagé sert son état local (ADR-021)
 
   # --- CRUD whitelist / blacklist ---
 
