@@ -1,6 +1,6 @@
 ---
 status: implemented
-sprint: 26
+sprint: 27
 last-updated: 2026-10-01
 ---
 
@@ -1214,4 +1214,44 @@ last-updated: 2026-10-01
 - [x] 4.11 Processus SDD (`SPEC-INDEX.md`, frontmatter des OpenAPI/JSON Schema, `specs/slos/`, oasdiff, AJV, job k6, `release.yml`, `CHANGELOG.md` racine, tri des `@deferred`) : **non retenus** dans ce sprint (T25.3 3.7)
 - [ ] 4.12 Protection de branche (jobs `ci.yml`, `semgrep`, `trivy` requis) : **a verifier cote GitHub** par l'operateur
 - **Validation 2026-10-01** : `make spec-lint typecheck conformance behavior security` (spectral 6.16.3 0 erreur, vet/build, conformance, behavior `-race` + couverture 82,6 %, govulncheck 0 vulnerabilite atteignable), `golangci-lint` v2.14.0 (0 issue), `go test ./...` (927 tests et sous-tests, 49 paquets).
+- **Statut** : implemente.
+
+## Sprint 27 - Remediation du douzieme audit du 2026-10-01 (Phase 27)
+
+> Douzieme audit du 2026-10-01 (« analyse complete », SEC-01 a SEC-09, specs,
+> perf) : chaque point a ete verifie contre le code avant correction, sur la
+> branche `fix/audit-12-remediation`, a raison d'un commit par correction (spec
+> d'abord quand le contrat change).
+
+### T27.1 - Securite et stabilite
+- [x] 1.1 SEC-01 bypass d'assets sans controle de methode : `POST /login.css` recevait `PASS static_asset` et echappait a l'integrite, aux regles, a la geo, au threat intel, a l'anti-bot et a l'anti-DDoS. GET/HEAD seuls eligibles ; FR-24 3.13.1
+- [x] 1.2 SEC-02 IPv4 mappee : `::ffff:198.51.100.5` echappait a l'entree `198.51.100.5` et au CIDR `198.51.100.0/24` de la whitelist/blacklist. Adresses et entrees (CIDR mappes compris) demappees ; FR-04 2.6.8. Exploitabilite reelle faible (Go normalise `RemoteAddr`, Cloudflare reecrit `CF-Connecting-IP`), corrige en defense en profondeur
+- [x] 1.3 SEC-03 `GET /waf/admin/config` rendait `metrics.auth_token` en clair. Masque ; test structurel par reflexion sur tout champ `Secret*`/`*Token`/`Password`/`APIKey` ; `admin.openapi.yaml` 1.4.2
+- [x] 1.4 SEC-04 anti-brute-force admin par adresse complete : un /64 IPv6 donnait 2^64 essais. Cle `ipkey.Subject` ; FR-30 3.13.2
+- [x] 1.5 SEC-09 `?page=9223372036854775807` : debordement de `(page-1)*limit`, panic reproduit. Page comparee au nombre de pages
+- [x] 1.6 SEC-05 listener HTTP-01 : `HTTPHandler(nil)` = redirection 302 d'autocert vers `https://<Host>` pour tout Host (open-redirect). Repli sur `redirectToHTTPS(acme.domains)` (301 / 400) ; FR-31 3.13.3
+- [x] 1.7 SEC-06 crawler declare exempte du challenge : **partiellement exact**. La correction proposee (n'exempter que `verified`) contredit FR-36 (un crawler `pending` n'est jamais challenge hors attaque : il n'execute pas JS). Le vrai trou : un crawler `unverified` (file de verification saturee) restait exempte. `CrawlerStatus` le rend suspect ; FR-36 1.6.1
+- [x] 1.8 Aucun `recover` : middleware `internal/middleware/recovery` sous le journal (500 journalise avec `request_id`), en tete du handler public et de l'API admin ; journal error + pile, `waf_panics_total`, 500 ou connexion interrompue si la reponse est entamee ; `http.ErrAbortHandler` propage ; NFR-04 2.7.0
+
+### T27.2 - Specs contre code
+- [x] 2.1 `maintenance-page.feature` / FR-32 : page sur pool DOWN, templates, pages par code, bascule PATCH, `Retry-After` configurable, assets et champ `maintenance` du health inexistants -> `@deferred` ; contrat reel ecrit (503 + `Retry-After: 300` hors `/waf/health` et `/waf/metrics`, assets compris) ; FR-32 3.14.0
+- [x] 2.2 `webhook-alerts.feature` : `WAF_ALERTING_WEBHOOKS_0_URL` implemente (tag retire), `ddos_detected` non emis (`@deferred`)
+- [x] 2.3 `behavioral-analysis.feature` : `behavioral.max_records`, file de 1024 ; `likely_bot` non expose (`@deferred`) ; `waf_behavioral_events_dropped_total` promis et absent -> implemente (le drop etait silencieux)
+- [x] 2.4 `trust-score.feature` (`waf_visitors_by_state{state}`), `anti-ddos.feature` (`under_attack_start`/`_end`), `request-integrity.feature` (`integrity.`), `storage-backend.feature` (`/waf/admin/visitors`)
+- [x] 2.5 FR-27 champs d'audit realignes sur `audit-entry.schema.json` (3.14.1) ; FR-38 commutation a chaud shadow/profil differee (1.6.2)
+- [x] 2.6 ADR amendes : 003 (duree mesuree serveur, bornes 0 / 60 000 ms), 005 (`internal/tlsfp`, `tls_fingerprint.*`, liste vide), 011 (cles plates), 013 (champs d'audit). ADR-007 et le reste d'ADR-013 : **infirme**, deja amendes (« Suivi 2026-09-24 », « Amendement 2026-09-30 »)
+- [x] 2.7 Comportements codes non specifies : scenario du retrait des `X-WAF-*` de reponse (FR-01), `degraded` du health admin (FR-10 2.7.1), plancher 4 Kio de `max_header_bytes` (schema `anyOf`, FR-23 3.14.2), tampon de 8 192 lignes (NFR-16). L'exemption `/waf/metrics` de la maintenance est couverte par 2.1
+- [x] 2.8 README : Go 1.27+ ; CONFIG.md (bypass GET/HEAD, contrat maintenance)
+
+### T27.3 - Performance (quick wins)
+- [x] 3.1 `signing.Verify` sans double Base64 ; `hashKey` FNV-1a en place ; `threatintel.Verdict` cache avant parsing ; `gdpr.AnonymizeIP` en `netip` (tronque aussi une IPv6 zonee, journalisee entiere avant) ; log async : drop avant copie
+- [x] 3.2 `FlushInterval` SSE : **infirme** — `httputil.ReverseProxy` flushe immediatement `text/event-stream` et les reponses sans `Content-Length`
+
+### T27.4 - Differe ou non retenu
+- [ ] 4.1 P1-P8 (Redis Lua, verrous globaux, allocations, workers behavioral, cache de cookies, `VisitorState` en contexte, logger bufferise, eviction memoire) : **differe**, sans mesure de reference (G6 k6 a executer d'abord) ; les chiffres de l'audit (15k req/s) ne sont pas mesures
+- [ ] 4.2 `specs/slos/` : **differe**, a ecrire avec la baseline k6
+- [ ] 4.3 `@deferred` critiques (`admin.allowed_ips`, alerte brute-force admin, 401 audite, alerte expiration TLS, retry/alertes upstream) : **differe**, roadmap
+- [ ] 4.4 Refactorings structurants (split `Store`, `hostname.Matcher` unique, `HashIP` vers `ipkey`, decoupage de `config.go`), enveloppe d'erreur unique, 422, version binaire, `release.yml`, job CI G3 dedie (les tests de conformance tournent deja dans `make behavior`), `SPEC-INDEX.md` (non retenu, T26) : **differe**
+- [ ] 4.5 Slowloris : purge periodique au lieu du `delete` a la liberation : **non retenu** sans mesure
+- **Validation 2026-10-01** : `make spec-lint typecheck conformance behavior security` (spectral 6.16.3 0 erreur, vet/build, conformance, behavior `-race`, couverture 82,8 %, govulncheck 0 vulnerabilite atteignable), `golangci-lint` v2.14.0 (0 issue), `go test ./...` (957 tests et sous-tests).
 - **Statut** : implemente.

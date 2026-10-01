@@ -295,6 +295,17 @@ last-reviewed: 2026-10-01
 | 2026-09-24 | `ttlcache` sous contention | Benchmark `Get` parallèle (non versionné), 1/4/8/16 cœurs | mesure | 37 / 91 / 85 / 108 ns/op : ~10 M lectures/s par cache, sharding non justifié |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `Example.com:8080` compté sous `domain="example.com"` ; `attack-1.test`, `attack-2.test` sous `_undeclared` ; `GET /waf/admin/config` masque les secrets |
 
+| 2026-10-01 | Sprint 27 (audit 12) | `go test ./...` | pass | 957 tests et sous-tests |
+| 2026-10-01 | Sprint 27 (audit 12) | `make spec-lint typecheck conformance behavior security` | pass | spectral 6.16.3 0 erreur ; couverture 82,8 % (gate 80 %) ; 0 vulnérabilité atteignable |
+| 2026-10-01 | Sprint 27 (audit 12) | `golangci-lint` v2.14.0 `run ./...` | pass | 0 issue |
+| 2026-10-01 | Bypass d'assets GET/HEAD | `TestOnlyReadMethodsAreBypassed` | pass | `POST /login.css` marqué PASS sur l'ancien code |
+| 2026-10-01 | IPv4 mappée (FR-04) | `TestIPv4MappedAddressMatchesIPv4Entries` | pass | En échec sur l'ancien code (204 au lieu de 403) |
+| 2026-10-01 | Secrets masqués | `TestSanitizedConfigMasksEverySecretField` | pass | `metrics.auth_token` en clair sur l'ancien code |
+| 2026-10-01 | Admin /64 et pagination | `TestAdminLocksOutIPv6ByPrefix`, `TestAdminPaginationSurvivesHugePage` | pass | Ancien code : 200 depuis le même /64, panic `slice bounds out of range [:-1000]` |
+| 2026-10-01 | Redirection HTTP-01 | `TestACMEChallengeListenerRedirectsOnlyDeclaredHosts` | pass | Ancien repli autocert : 302 vers `https://<Host>` quel que soit le Host |
+| 2026-10-01 | Crawler `unverified` | `TestMiddlewareCrawlerStatusFlagsUnverifiedAsSuspect`, `TestWhitelistedUserAgentExemption` | pass | `unverified` non suspect sur l'ancien code |
+| 2026-10-01 | Recovery (NFR-04) | `TestPanicIsLoggedCountedAndAnswered500`, `TestPanicAfterHeadersAbortsTheConnection`, `TestAbortHandlerIsPropagatedUntouched`, `TestRoutesRecoverPipelinePanic`, `TestAdminRecoversHandlerPanic` | pass | `waf_panics_total` ; WebSocket et streaming inchangés (`Unwrap`) |
+| 2026-10-01 | Drops comportementaux | `TestObserveCountsDroppedEventsWhenQueueIsFull`, `TestBehavioralDropsMetric` | pass | `waf_behavioral_events_dropped_total` |
 | 2026-10-01 | Sprint 26 (audit 11) | `go test ./...` | pass | 927 tests et sous-tests, 49 paquets |
 | 2026-10-01 | Sprint 26 (audit 11) | `make spec-lint typecheck conformance behavior security` | pass | spectral 6.16.3 0 erreur ; couverture 82,6 % (gate 80 %) ; 0 vulnérabilité atteignable |
 | 2026-10-01 | Sprint 26 (audit 11) | `golangci-lint` v2.14.0 `run ./...` | pass | 0 issue |
@@ -397,6 +408,27 @@ last-reviewed: 2026-10-01
 | 2026-09-24 | Pool d'upstreams | `BenchmarkPoolPick`, `TestPoolPickDoesNotAllocate` | pass | 1 alloc (48 B/op) avant, 0 après, 4 stratégies |
 | 2026-09-24 | Verrous visiteurs / DDoS | Benchmarks parallèles (non versionnés), 1 et 8 cœurs | mesure | `observe` 93 / 131 ns/op ; `Record` 60 / 117 ; `Observe` 98 / 284 : verrous occupés < 1 % à 20 000 req/s |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` + `strict_host` | pass | Host non déclaré : 400, `BLOCK host_not_declared` journalisé, `waf_blocked_total{domain="_undeclared"}` ; `/waf/metrics` par IP 400 ; `/waf/health` 200 |
+
+### Sprint 27 — douzième audit du 2026-10-01 : ce qui était exact, ce qui ne l'était pas
+
+- **Exact et corrigé** : bypass d'assets pour toute méthode (SEC-01), IPv4
+  mappée hors whitelist/blacklist (SEC-02, exploitabilité faible), Bearer de
+  `/waf/metrics` dans `GET /waf/admin/config` (SEC-03), verrouillage admin
+  par adresse IPv6 complète (SEC-04), open-redirect du listener HTTP-01
+  (SEC-05), panic de pagination (SEC-09), absence de `recover`,
+  `maintenance-page.feature` fictive, scénarios dérivants (webhook, behavioral,
+  trust-score, anti-ddos, integrity, storage), FR-27, FR-38, ADR-003/005/011,
+  comportements codés non spécifiés, README Go 1.26, quick wins 1 à 5.
+- **Exact, différent de sa description** : SEC-06 — n'exempter que `verified`
+  contredirait FR-36 (un crawler `pending` n'exécute pas JS) ; le trou réel
+  était l'état `unverified` d'une file saturée. Le drop comportemental
+  silencieux était une métrique promise par la spec, désormais exposée.
+- **Infirmé** : ADR-007 et ADR-013 (déjà amendés), `FlushInterval` SSE
+  (`ReverseProxy` flushe déjà les flux), G3 absent de la CI (les tests de
+  conformance tournent dans `make behavior`, sans job séparé).
+- **Différé** : chantiers perf P1–P8 et SLO (sans baseline k6 mesurée),
+  `@deferred` critiques, refactorings structurants, version binaire,
+  `release.yml`, enveloppe d'erreur unique.
 
 ### Sprint 26 — onzième audit du 2026-10-01 : ce qui était exact, ce qui ne l'était pas
 
