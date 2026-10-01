@@ -285,6 +285,17 @@ func (m *Metrics) WithLogDrops(dropped func() int64) *Metrics {
 	return m
 }
 
+// WithBehavioralDrops publie waf_behavioral_events_dropped_total, le nombre
+// d'événements de l'analyse comportementale abandonnés file pleine, lu à
+// chaque scrape. Le drop restait invisible sous flood.
+func (m *Metrics) WithBehavioralDrops(dropped func() int64) *Metrics {
+	m.registry.MustRegister(prometheus.NewCounterFunc(prometheus.CounterOpts{
+		Name: "waf_behavioral_events_dropped_total",
+		Help: "Behavioral analysis events dropped because the analysis queue was full.",
+	}, func() float64 { return float64(dropped()) }))
+	return m
+}
+
 // WithClusterRejected publie waf_cluster_rejected_events_total, le nombre de
 // messages du bus cluster ignorés (signature absente ou invalide, JSON
 // malformé, type inconnu — FR-20), lu à chaque scrape. Un secret différent

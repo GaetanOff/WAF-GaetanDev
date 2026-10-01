@@ -12,6 +12,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
@@ -81,7 +82,14 @@ type Tracker struct {
 	done   chan struct{}
 	closed bool
 	now    func() time.Time
+	// dropped compte les événements abandonnés file pleine
+	// (waf_behavioral_events_dropped_total) : le drop était silencieux.
+	dropped atomic.Int64
 }
+
+// queueSize borne les événements en attente d'analyse ; au-delà, ils sont
+// abandonnés et comptés.
+const queueSize = 1024
 
 // New construit un tracker gardant maxRecords requêtes par visiteur pour au
 // plus maxVisitors visiteurs (trust.max_visitors).
@@ -95,7 +103,7 @@ func New(maxRecords int, maxVisitors int) *Tracker {
 	t := &Tracker{
 		profiles: ttlcache.New[string, profile](maxVisitors, profileIdleTTL),
 		max:      maxRecords,
-		queue:    make(chan event, 1024),
+		queue:    make(chan event, queueSize),
 		stop:     make(chan struct{}),
 		done:     make(chan struct{}),
 		now:      time.Now,
@@ -133,7 +141,13 @@ func (t *Tracker) enqueue(e event) {
 	default:
 		// File pleine : on laisse tomber l'événement plutôt que de bloquer la
 		// requête (NFR-07 : ne jamais bloquer le pipeline).
+		t.dropped.Add(1)
 	}
+}
+
+// Dropped rend le nombre d'événements abandonnés faute de place dans la file.
+func (t *Tracker) Dropped() int64 {
+	return t.dropped.Load()
 }
 
 // Forget efface le profil comportemental d'un visiteur — les chemins qu'il a

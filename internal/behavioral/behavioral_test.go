@@ -175,6 +175,21 @@ func TestComputeAnomalyIgnoresAssetBurstsForNavigationSignals(t *testing.T) {
 
 // Régression : les profils vivaient dans des maps jamais purgées. Le nombre de
 // visiteurs suivis est désormais borné.
+// behavioral-analysis.feature — « Channel plein — événements droppés sans
+// blocage » : au-delà de la file, Observe rend la main et compte l'abandon.
+func TestObserveCountsDroppedEventsWhenQueueIsFull(t *testing.T) {
+	tracker := New(50, 100)
+	tracker.Close() // worker arrêté : la file ne se vide plus
+
+	for range queueSize + 3 {
+		tracker.Observe("hash", "/")
+	}
+
+	if got := tracker.Dropped(); got != 3 {
+		t.Fatalf("Dropped() = %d, want 3 beyond a %d-event queue", got, queueSize)
+	}
+}
+
 func TestTrackerBoundsTrackedVisitors(t *testing.T) {
 	tracker := New(50, 10)
 	defer tracker.Close()

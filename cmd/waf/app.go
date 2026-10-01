@@ -365,6 +365,7 @@ func (a *app) buildDetectors() error {
 		a.stop.add(behavioralTracker.Close)
 		a.detectors = append(a.detectors, behavioralTracker.Handler)
 		a.erasers = append(a.erasers, behavioralTracker.Forget)
+		a.metrics.WithBehavioralDrops(behavioralTracker.Dropped)
 	}
 	if cfg.ThreatIntel.Enabled {
 		if err := a.addThreatIntelDetector(); err != nil {

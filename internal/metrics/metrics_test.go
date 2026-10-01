@@ -205,6 +205,13 @@ func TestLogDropsMetric(t *testing.T) {
 	assertMetricContains(t, scrape(t, metrics), `waf_log_events_dropped_total 7`)
 }
 
+// behavioral-analysis.feature — « Channel plein » : les événements abandonnés
+// sont comptés.
+func TestBehavioralDropsMetric(t *testing.T) {
+	metrics := New().WithBehavioralDrops(func() int64 { return 4 })
+	assertMetricContains(t, scrape(t, metrics), `waf_behavioral_events_dropped_total 4`)
+}
+
 // FR-20 : les messages du bus cluster ignorés (non signés, mal signés) sont comptés.
 func TestClusterRejectedMetric(t *testing.T) {
 	metrics := New().WithClusterRejected(func() int64 { return 3 })
