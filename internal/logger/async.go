@@ -46,6 +46,13 @@ func newAsyncWriter(out io.Writer, buffer int) *asyncWriter {
 // Write n'écrit jamais directement : il copie (slog réutilise son tampon après
 // le retour) puis enfile sans bloquer. Tampon plein → drop.
 func (w *asyncWriter) Write(p []byte) (int, error) {
+	// Tampon déjà plein : abandonner sans copier. La copie était allouée avant
+	// le constat, pour chaque ligne perdue sous flood. Le test est indicatif
+	// (le worker peut libérer une place entre-temps) ; le select fait foi.
+	if len(w.queue) == cap(w.queue) {
+		w.dropped.Add(1)
+		return len(p), nil
+	}
 	line := make([]byte, len(p))
 	copy(line, p)
 	select {

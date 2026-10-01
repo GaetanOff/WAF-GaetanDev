@@ -8,21 +8,23 @@ import (
 )
 
 func Sign(key []byte, payload string) string {
-	mac := hmac.New(sha256.New, key)
-	_, _ = mac.Write([]byte(payload))
-	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
+	return base64.RawURLEncoding.EncodeToString(sum(key, payload))
 }
 
+func sum(key []byte, payload string) []byte {
+	mac := hmac.New(sha256.New, key)
+	_, _ = mac.Write([]byte(payload))
+	return mac.Sum(nil)
+}
+
+// Verify compare la signature décodée au HMAC brut : Sign encodait le HMAC
+// attendu en Base64 pour aussitôt le redécoder, à chaque cookie de clearance.
 func Verify(key []byte, payload string, sig string) bool {
-	expected, err := base64.RawURLEncoding.DecodeString(Sign(key, payload))
-	if err != nil {
-		return false
-	}
 	actual, err := base64.RawURLEncoding.DecodeString(sig)
 	if err != nil {
 		return false
 	}
-	return hmac.Equal(actual, expected)
+	return hmac.Equal(actual, sum(key, payload))
 }
 
 // Derive dérive du secret une clé propre à un usage (HMAC-SHA256(secret,

@@ -5,7 +5,6 @@
 package upstream
 
 import (
-	"hash/fnv"
 	"sync/atomic"
 )
 
@@ -165,8 +164,17 @@ func (p *Pool) firstOfGroup(backup bool) *Upstream {
 	return p.upstreams[0]
 }
 
+// hashKey est FNV-1a 32 bits, calculé en place : fnv.New32a et la conversion
+// []byte(key) allouaient à chaque requête routée par affinité.
 func hashKey(key string) uint32 {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(key))
-	return h.Sum32()
+	const (
+		offset32 = 2166136261
+		prime32  = 16777619
+	)
+	hash := uint32(offset32)
+	for i := range len(key) {
+		hash ^= uint32(key[i])
+		hash *= prime32
+	}
+	return hash
 }
