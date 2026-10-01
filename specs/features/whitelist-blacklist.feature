@@ -32,6 +32,12 @@ Feature: Gestion Whitelist / Blacklist
     When une requête provient de "198.51.100.150"
     Then la requête reçoit HTTP 403
 
+  Scenario: IPv4 mappée en IPv6 — même verdict que l'IPv4
+    Given le CIDR "198.51.100.0/24" est ajouté en blacklist
+    When une requête provient de "::ffff:198.51.100.150"
+    Then la requête reçoit HTTP 403
+    And le log indique action="BLOCK" reason="blacklist_cidr"
+
   Scenario: IP dans whitelist ET blacklist — whitelist prioritaire
     Given "172.16.0.1" est dans la whitelist
     And "172.16.0.1" est dans la blacklist
@@ -57,6 +63,15 @@ Feature: Gestion Whitelist / Blacklist
     Then elle reçoit HTTP 429 comme tout visiteur
     And la vérification reverse-DNS (risk_engine.verified_bots) la classe "spoofed"
     # Régression : la whitelist UA posait X-WAF-Action=PASS et contournait toute la chaîne.
+
+  Scenario: User-Agent whitelisté non vérifiable faute de place — challengé
+    Given le pattern "Googlebot" est dans la whitelist_user_agents
+    And le challenge est actif sur le domaine
+    And la file de vérification reverse-DNS est pleine
+    When une IP non planifiée envoie GET "/" avec User-Agent "Googlebot" et Accept "text/html"
+    Then l'état de vérification est "unverified"
+    And elle reçoit la page de challenge comme tout visiteur sans clearance
+    # Régression : seul « spoofed » retirait l'exemption ; saturer la file la rendait inconditionnelle.
 
   Scenario: User-Agent whitelisté — pas de pénalité d'en-têtes navigateur
     Given le pattern "Googlebot" est dans la whitelist_user_agents

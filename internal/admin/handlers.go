@@ -11,7 +11,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gaetandev/waf/internal/ipkey"
 	"github.com/gaetandev/waf/internal/jsonstrict"
+	"github.com/gaetandev/waf/internal/middleware/recovery"
 	"github.com/gaetandev/waf/internal/signing"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
@@ -113,7 +115,21 @@ func (s *Server) routes() http.Handler {
 		}
 		mux.Handle(r.method+" "+r.pattern, limitBody(handler))
 	}
-	return mux
+	return recovery.Middleware(mux, s.notifyPanic, internalError)
+}
+
+// notifyPanic lit l'observateur au moment du panic : routes est construit par
+// NewServer, avant WithPanicObserver.
+func (s *Server) notifyPanic() {
+	if s.onPanic != nil {
+		s.onPanic()
+	}
+}
+
+// internalError répond à un panic récupéré (NFR-04) dans l'enveloppe d'erreur
+// de l'API admin.
+func internalError(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "internal_error", Message: "Internal server error"})
 }
 
 // limitBody plafonne la lecture du corps : sans borne, jsonstrict.Decode
@@ -168,8 +184,10 @@ func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		ip := clientIP(r)
-		// Anti-brute-force (FR-30) : verrouille l'IP après trop d'échecs.
+		// Anti-brute-force (FR-30) : verrouille l'IP après trop d'échecs. Une
+		// IPv6 compte par son /64 (FR-02) : par adresse complète, un /64
+		// offrait 2⁶⁴ essais sans jamais atteindre le seuil.
+		ip := ipkey.Subject(clientIP(r))
 		if s.brute != nil && s.brute.Limited(ip) {
 			w.Header().Set("Retry-After", "300")
 			writeJSON(w, http.StatusTooManyRequests, errorResponse{Error: "locked", Message: "Too many failed attempts"})
@@ -467,10 +485,14 @@ func paged[T any](items []T, r *http.Request) listResponse[T] {
 	total := len(items)
 	page := queryInt(r, "page", 1)
 	limit := min(queryInt(r, "limit", 50), 1000)
-	start := (page - 1) * limit
-	if start >= total {
+	// Comparer la page au nombre de pages, et non (page-1)*limit au total : ce
+	// produit débordait pour ?page=9223372036854775807 et l'indice négatif
+	// faisait paniquer le handler.
+	pages := (total + limit - 1) / limit
+	if page > pages {
 		return listResponse[T]{Items: []T{}, Total: total}
 	}
+	start := (page - 1) * limit
 	end := min(start+limit, total)
 	return listResponse[T]{Items: items[start:end], Total: total}
 }

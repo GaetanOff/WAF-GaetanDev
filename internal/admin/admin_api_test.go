@@ -30,6 +30,46 @@ func TestAdminLocksOutIPAfterRepeatedFailures(t *testing.T) {
 	}
 }
 
+// admin-api.feature — « Brute-force IPv6 — verrouillage par préfixe /64 ».
+func TestAdminLocksOutIPv6ByPrefix(t *testing.T) {
+	server := newTestServer(t)
+	handler := server.Handler()
+	for i := range server.cfg.SelfProtection.AdminMaxFailures {
+		request := requestWithAuth(http.MethodGet, "/waf/stats", "")
+		request.RemoteAddr = fmt.Sprintf("[2001:db8:1:2::%x]:1234", i+1)
+		request.Header.Set("Authorization", "Bearer wrong-token")
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+	}
+
+	request := requestWithAuth(http.MethodGet, "/waf/stats", "")
+	request.RemoteAddr = "[2001:db8:1:2:ffff::1]:1234"
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+
+	if response.Code != http.StatusTooManyRequests {
+		t.Fatalf("status = %d, want 429: failures from the same /64 must share one lockout", response.Code)
+	}
+}
+
+// admin-api.feature — « Pagination — bornes » : une page hors bornes rend une
+// liste vide, sans débordement de (page-1)*limit.
+func TestAdminPaginationSurvivesHugePage(t *testing.T) {
+	server := newTestServer(t)
+	server.scores.Set("10.0.0.1", "example.test", 50)
+	for _, query := range []string{"?page=9223372036854775807&limit=1000", "?page=9223372036854775807", "?page=4611686018427387904&limit=2"} {
+		response := httptest.NewRecorder()
+		server.Handler().ServeHTTP(response, requestWithAuth(http.MethodGet, "/waf/admin/visitors"+query, ""))
+
+		var body listResponse[VisitorInfo]
+		if err := json.NewDecoder(response.Body).Decode(&body); err != nil {
+			t.Fatalf("%s: status %d, decode: %v", query, response.Code, err)
+		}
+		if response.Code != http.StatusOK || len(body.Items) != 0 || body.Total != 1 {
+			t.Fatalf("%s: status %d, %d items total %d, want 200 with 0 of 1", query, response.Code, len(body.Items), body.Total)
+		}
+	}
+}
+
 // admin-api.feature — « Pagination des listes » et « Pagination — bornes ».
 func TestAdminPaginatesLists(t *testing.T) {
 	server := newTestServer(t)

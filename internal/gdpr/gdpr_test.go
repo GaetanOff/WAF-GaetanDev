@@ -20,3 +20,16 @@ func TestAnonymizeInvalidIPUnchanged(t *testing.T) {
 		t.Fatalf("AnonymizeIP(invalid) = %q, want unchanged", got)
 	}
 }
+
+// Une IPv4 mappée se tronque comme une IPv4, une IPv6 zonée sans sa zone :
+// net.ParseIP refusait la zone et l'adresse était journalisée entière.
+func TestAnonymizeMappedAndZonedAddresses(t *testing.T) {
+	for ip, want := range map[string]string{
+		"::ffff:203.0.113.42":      "203.0.113.0",
+		"fe80::1234:5678:9abc%en0": "fe80::",
+	} {
+		if got := AnonymizeIP(ip); got != want {
+			t.Errorf("AnonymizeIP(%q) = %q, want %q", ip, got, want)
+		}
+	}
+}

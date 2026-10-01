@@ -8,6 +8,10 @@ import (
 	"sync"
 )
 
+// ipv4MappedPrefixBits est la longueur du préfixe ::ffff:0:0/96 qui porte une
+// IPv4 mappée en IPv6.
+const ipv4MappedPrefixBits = 96
+
 type RuleSet struct {
 	mu sync.RWMutex
 
@@ -74,7 +78,7 @@ func (r *RuleSet) AddBlacklist(value string) error {
 // IsWhitelisted indique si l'IP est en whitelist (bypass total des protections,
 // hors blacklist d'une autre entrée : la whitelist IP a priorité).
 func (r *RuleSet) IsWhitelisted(ip string) (bool, string) {
-	addr, err := netip.ParseAddr(ip)
+	addr, err := parseAddr(ip)
 	if err != nil {
 		return false, ""
 	}
@@ -104,7 +108,7 @@ func (r *RuleSet) MatchesUserAgent(userAgent string) bool {
 }
 
 func (r *RuleSet) IsBlacklisted(ip string) (bool, string) {
-	addr, err := netip.ParseAddr(ip)
+	addr, err := parseAddr(ip)
 	if err != nil {
 		return false, ""
 	}
@@ -127,20 +131,45 @@ func compileIPRules(values []string) (RuleMatcher, error) {
 			continue
 		}
 		if strings.Contains(value, "/") {
-			prefix, err := netip.ParsePrefix(value)
+			prefix, err := parsePrefix(value)
 			if err != nil {
 				return matcher, err
 			}
-			matcher.cidrs = append(matcher.cidrs, prefix.Masked())
+			matcher.cidrs = append(matcher.cidrs, prefix)
 			continue
 		}
-		addr, err := netip.ParseAddr(value)
+		addr, err := parseAddr(value)
 		if err != nil {
 			return matcher, err
 		}
 		matcher.exact[addr] = struct{}{}
 	}
 	return matcher, nil
+}
+
+// parseAddr ramène une IPv4 mappée (::ffff:a.b.c.d) à l'IPv4 et retire la
+// zone (FR-04) : sans cela, « ::ffff:198.51.100.5 » échappait à l'entrée
+// « 198.51.100.5 » comme au CIDR « 198.51.100.0/24 ».
+func parseAddr(value string) (netip.Addr, error) {
+	addr, err := netip.ParseAddr(value)
+	if err != nil {
+		return netip.Addr{}, err
+	}
+	return addr.Unmap().WithZone(""), nil
+}
+
+// parsePrefix masque le CIDR et ramène un préfixe IPv4 mappé
+// (::ffff:198.51.100.0/120) au préfixe IPv4 équivalent (198.51.100.0/24), que
+// parseAddr fait correspondre aux adresses démappées.
+func parsePrefix(value string) (netip.Prefix, error) {
+	prefix, err := netip.ParsePrefix(value)
+	if err != nil {
+		return netip.Prefix{}, err
+	}
+	if addr := prefix.Addr(); addr.Is4In6() && prefix.Bits() >= ipv4MappedPrefixBits {
+		prefix = netip.PrefixFrom(addr.Unmap(), prefix.Bits()-ipv4MappedPrefixBits)
+	}
+	return prefix.Masked(), nil
 }
 
 func compileUserAgents(values []string) ([]*regexp.Regexp, error) {

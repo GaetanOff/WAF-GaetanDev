@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/gaetandev/waf/internal/acme"
 	"github.com/gaetandev/waf/internal/config"
 	waflogger "github.com/gaetandev/waf/internal/logger"
 	wafmetrics "github.com/gaetandev/waf/internal/metrics"
@@ -60,6 +61,40 @@ func TestRoutesRejectsForgedCloudflareHeaderWhenTrusted(t *testing.T) {
 
 	if response.Code != http.StatusBadRequest {
 		t.Fatalf("status = %d, want 400", response.Code)
+	}
+}
+
+// reverse-proxy.feature — « Panic d'un middleware — 500 journalisé et compté »
+// (NFR-04) : le panic devient un 500, waf_panics_total le compte et le
+// pipeline sert la requête suivante.
+func TestRoutesRecoverPipelinePanic(t *testing.T) {
+	cfg := config.Default()
+	cfg.Challenge.Enabled = false
+	metrics := newTestMetrics()
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), metrics, newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/boom" {
+			panic("upstream selection bug")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	send := func(path string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test"+path, nil)
+		request.RemoteAddr = "203.0.113.10:443"
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+
+	if response := send("/boom"); response.Code != http.StatusInternalServerError || response.Header().Get("X-Request-Id") == "" {
+		t.Fatalf("status = %d X-Request-Id = %q, want 500 with a request id", response.Code, response.Header().Get("X-Request-Id"))
+	}
+	if response := send("/ok"); response.Code != http.StatusNoContent {
+		t.Fatalf("status after the panic = %d, want 204", response.Code)
+	}
+	scrape := httptest.NewRecorder()
+	metrics.Handler().ServeHTTP(scrape, httptest.NewRequest(http.MethodGet, "/waf/metrics", nil))
+	if !strings.Contains(scrape.Body.String(), "waf_panics_total 1") {
+		t.Fatalf("metrics do not count the panic:\n%s", scrape.Body.String())
 	}
 }
 
@@ -1068,7 +1103,7 @@ func TestGeoChallengeInertWithoutRiskEngine(t *testing.T) {
 }
 
 func TestRedirectToHTTPSNormalizesTheHost(t *testing.T) {
-	handler := redirectToHTTPS([]config.DomainConfig{{Host: "Example.com"}, {Host: "*.boxaria.fr"}})
+	handler := redirectToHTTPS(domainHosts([]config.DomainConfig{{Host: "Example.com"}, {Host: "*.boxaria.fr"}}))
 	cases := []struct {
 		host     string
 		wantCode int
@@ -1094,6 +1129,33 @@ func TestRedirectToHTTPSNormalizesTheHost(t *testing.T) {
 		}
 		if got := response.Header().Get("Location"); got != tc.wantURL {
 			t.Fatalf("%s: Location = %q, want %q", tc.host, got, tc.wantURL)
+		}
+	}
+}
+
+// FR-31 : le listener HTTP-01 d'ACME redirige un Host de acme.domains et
+// refuse les autres. La redirection par défaut d'autocert (fallback nil)
+// envoyait « Host: evil.test » vers https://evil.test/.
+func TestACMEChallengeListenerRedirectsOnlyDeclaredHosts(t *testing.T) {
+	manager := acme.NewManager(config.ACME{Domains: []string{"example.com"}, CacheDir: t.TempDir()})
+	handler := manager.HTTPHandler(redirectToHTTPS([]string{"example.com"}))
+	cases := []struct {
+		host     string
+		wantCode int
+		wantURL  string
+	}{
+		{host: "example.com", wantCode: http.StatusMovedPermanently, wantURL: "https://example.com/page?q=1"},
+		{host: "evil.test", wantCode: http.StatusBadRequest},
+	}
+	for _, tc := range cases {
+		request := httptest.NewRequest(http.MethodGet, "http://placeholder/page?q=1", nil)
+		request.Host = tc.host
+		response := httptest.NewRecorder()
+
+		handler.ServeHTTP(response, request)
+
+		if response.Code != tc.wantCode || response.Header().Get("Location") != tc.wantURL {
+			t.Fatalf("%s: status = %d Location = %q, want %d %q", tc.host, response.Code, response.Header().Get("Location"), tc.wantCode, tc.wantURL)
 		}
 	}
 }

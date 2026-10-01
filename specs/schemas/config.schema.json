@@ -49,8 +49,7 @@
         },
         "max_header_bytes": {
           "type": "integer",
-          "minimum": 0,
-          "maximum": 1048576,
+          "anyOf": [{ "const": 0 }, { "minimum": 4096, "maximum": 1048576 }],
           "default": 65536,
           "description": "FR-23 — taille maximale des en-têtes d'une requête, en octets (Server.MaxHeaderBytes). 0 = défaut Go (1 Mio) ; sinon entre 4096 et 1048576."
         },

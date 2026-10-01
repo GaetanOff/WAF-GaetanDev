@@ -60,6 +60,12 @@ Feature: Bypass des Assets Statiques
     And si le rate limit est déclenché → 429 (même pour les assets)
     Note: Le bypass concerne challenge + trust score, pas le rate limit
 
+  Scenario: Méthode d'écriture vers un chemin d'asset — pas de bypass
+    When un visiteur envoie POST "/login.css"
+    Then la requête n'est pas marquée PASS static_asset
+    And le pipeline sécurité complet s'applique (intégrité, règles, challenge, anti-bot)
+    Note: seuls GET et HEAD lisent un asset ; une écriture n'en est jamais une
+
   Scenario: Extension ambiguë — traitement comme non-asset (sécurité > perf)
     Given une requête GET "/api/data.json"
     And ".json" n'est pas dans la liste des extensions d'assets

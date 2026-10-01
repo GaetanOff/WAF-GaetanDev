@@ -31,9 +31,16 @@ Feature: API d'administration (FR-10)
     Then la réponse est HTTP 429 avec {"error": "locked"}
     And l'en-tête "Retry-After" est présent
 
+  Scenario: Brute-force IPv6 — verrouillage par préfixe /64
+    Given 5 tokens invalides envoyés depuis 5 adresses distinctes de 2001:db8:1:2::/64
+    When une autre adresse du même /64 envoie une requête, même avec le bon token
+    Then la réponse est HTTP 429 avec {"error": "locked"}
+    Note: compter par adresse complète donnait 2⁶⁴ essais à quiconque dispose d'un /64
+
   Scenario: Health check non authentifié
     When GET /waf/health sans token
     Then la réponse est HTTP 200 avec status et version
+    And status vaut "ok", ou "degraded" quand le stockage partagé sert son état local (ADR-021)
 
   # --- CRUD whitelist / blacklist ---
 
@@ -80,6 +87,8 @@ Feature: API d'administration (FR-10)
     Then au plus 1000 éléments sont retournés
     When GET /waf/admin/visitors?page=0&limit=-1
     Then les valeurs par défaut s'appliquent (page = 1, limit = 50)
+    When GET /waf/admin/visitors?page=9223372036854775807&limit=1000
+    Then la réponse est HTTP 200 avec 0 élément et le total réel
 
   Scenario: Filtre et tri des visiteurs
     When GET /waf/admin/visitors?state=CHALLENGED&sort=score_asc
@@ -96,6 +105,7 @@ Feature: API d'administration (FR-10)
     When GET /waf/admin/config
     Then challenge.secret_key, admin.token et storage.redis.password valent "***"
     And origin_protection.secret, threat_intel.abuseipdb.api_key et alerting.webhooks[].url valent "***"
+    And metrics.auth_token vaut "***" (le Bearer de /waf/metrics, servi sur le listener public)
     And la configuration active garde ses secrets (seule la réponse est masquée)
 
   Scenario: Modification à chaud de la configuration

@@ -53,7 +53,7 @@ type Middleware struct {
 	minElapsedMS int
 	maxElapsedMS int
 	humanCredit  func(ip string, domain string, fpHash string)
-	crawlerCheck func(ip string, userAgent string) (verified bool, spoofed bool)
+	crawlerCheck func(ip string, userAgent string) (verified bool, suspect bool)
 	// challengeNonBrowser : antiddos.under_attack.challenge_non_browser (FR-39).
 	challengeNonBrowser bool
 	usedTokens          *usedTokens
@@ -69,8 +69,9 @@ func (m Middleware) WithHumanCredit(fn func(ip string, domain string, fpHash str
 
 // WithCrawlerCheck branche la vérification reverse-DNS des crawlers (FR-36) sur
 // l'exemption whitelist_user_agents. check rend l'état du crawler déclaré par
-// le User-Agent : vérifié, ou démasqué (spoofed).
-func (m Middleware) WithCrawlerCheck(check func(ip string, userAgent string) (verified bool, spoofed bool)) Middleware {
+// le User-Agent : vérifié, ou suspect (démasqué, ou non vérifiable faute de
+// place dans la file de vérification).
+func (m Middleware) WithCrawlerCheck(check func(ip string, userAgent string) (verified bool, suspect bool)) Middleware {
 	m.crawlerCheck = check
 	return m
 }
@@ -79,16 +80,18 @@ func (m Middleware) WithCrawlerCheck(check func(ip string, userAgent string) (ve
 // challenge proactif. Un User-Agent se forge : sous attaque (FR-39), seul un
 // crawler vérifié par reverse-DNS a une clearance — Slurp, Twitterbot et les
 // autres UA non vérifiables passaient le mode sous attaque sans PoW. Hors
-// attaque, l'exemption tient sauf pour un crawler déjà démasqué.
+// attaque, l'exemption tient sauf pour un crawler suspect (démasqué, ou non
+// vérifiable faute de place) ; un crawler en attente de vérification la garde,
+// un vrai crawler n'exécutant pas JavaScript.
 func (m Middleware) exemptsCrawler(r *http.Request, underAttack bool) bool {
 	if m.crawlerCheck == nil {
 		return !underAttack
 	}
-	verified, spoofed := m.crawlerCheck(cloudflare.RealIP(r), r.UserAgent())
+	verified, suspect := m.crawlerCheck(cloudflare.RealIP(r), r.UserAgent())
 	if underAttack {
 		return verified
 	}
-	return !spoofed
+	return !suspect
 }
 
 // WithDifficultyProvider branche un fournisseur de difficulté adaptative

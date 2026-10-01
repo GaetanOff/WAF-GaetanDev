@@ -80,7 +80,8 @@ Feature: Système de score de confiance
   Scenario: Métriques exposées par score range
     When GET /waf/metrics est appelé
     Then les métriques contiennent:
-      | waf_visitors_trusted_total    | nombre de visiteurs avec score 70-100  |
-      | waf_visitors_monitored_total  | nombre de visiteurs avec score 40-69   |
-      | waf_visitors_challenged_total | nombre de visiteurs avec score 11-39   |
-      | waf_visitors_blocked_total    | nombre de visiteurs avec score 0-10    |
+      | waf_visitors_by_state{state="TRUSTED"}    | nombre de visiteurs avec score 70-100  |
+      | waf_visitors_by_state{state="MONITORED"}  | nombre de visiteurs avec score 40-69   |
+      | waf_visitors_by_state{state="CHALLENGED"} | nombre de visiteurs avec score 11-39   |
+      | waf_visitors_by_state{state="BLOCKED"}    | nombre de visiteurs avec score 0-10    |
+    And waf_visitors_by_state est une jauge (visiteurs actifs), pas un compteur _total

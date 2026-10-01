@@ -73,6 +73,20 @@ Liste extensible via `threat_intel.ja3_blacklist` en config.
 - `VisitorProfile` étendu avec champ `ja3_hash string`
 - Feature désactivée proprement si ni CF header ni TLS direct disponible
 
+## Amendement — implémentation livrée (2026-10-01)
+
+Constat d'audit : les conséquences ci-dessus décrivent un câblage qui n'a pas
+été livré sous cette forme.
+
+- Le paquet est `internal/tlsfp` (pas `internal/tls`). Le hash JA3 est lu dans
+  l'en-tête `tls_fingerprint.ja3_header` (défaut `Cf-Bot-Management-Ja3Hash`)
+  par `internal/tlsfp/middleware.go`, honoré seulement venant de Cloudflare
+  (ADR-019). Le calcul depuis un `ClientHello` (`ja3.go`) est un utilitaire pur ;
+  le listener TLS qui l'injecterait est différé.
+- La liste est `tls_fingerprint.ja3_blacklist` (pas `threat_intel.ja3_blacklist`)
+  et elle est **vide par défaut** : les hashes cités plus haut ne sont pas
+  embarqués.
+
 ## Spec References
 
 - [requirements-advanced.md](../requirements-advanced.md) FR-11

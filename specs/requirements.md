@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 2.6.7
+version: 2.7.1
 last-reviewed: 2026-10-01
 reviewed-by: GaetanDev
-change: "FR-01 : les en-têtes X-WAF-* d'une réponse de l'upstream sont supprimés — ils se lisaient comme une décision du WAF (violation FR-08, action et raison FR-09). Précédent (2.6.6) — FR-06 : la page de challenge porte une Content-Security-Policy stricte à nonce. Précédent (2.6.5) — FR-09 : événements de log abandonnés exposés (waf_log_events_dropped_total). Précédent (2.6.4) — FR-06 : la durée du challenge est mesurée par le serveur depuis l'émission signée du token ; elapsed_ms du client devient indicatif. Précédent (2.6.3) — NFR-03 : server.admin_listen vaut 127.0.0.1:9090 par défaut (boucle locale) au lieu de toutes les interfaces. Précédent (2.6.2) — NFR-03 : clé AbuseIPDB (WAF_ABUSEIPDB_KEY) et URL de webhook (WAF_ALERTING_WEBHOOKS_<i>_URL) configurables par l'environnement. Précédent (2.6.1) — FR-05 : les écritures de l'état d'un visiteur sont atomiques (compare-and-set Redis) — une pénalité concurrente n'est plus écrasée. Précédent (2.6.0) — FR-02 : identité client des contrôles par IP — une IPv6 compte par son /64 (rate limit, score, breaker, slowloris, auto-protection, ip_hash). Précédent (2.5.1) — FR-06 : token de challenge et cookie de clearance signés avec des clés dérivées distinctes — le token, remis à tout visiteur, se validait comme cookie et franchissait le challenge sans PoW. Précédent (2.5.0) — FR-01 : seuls X-WAF-Score et X-WAF-Origin-Token sont transmis à l'upstream, les autres X-WAF-* restent internes. Précédent (2.4.2) — FR-03 : les limites par domaine et par route sont différées, conformément à ADR-022 (la surcharge inerte a été retirée) ; FR-03 les exigeait encore. Précédent (2.4.1) — NFR-05 : arrêt parallèle de tous les serveurs, chacun avec le délai de grâce entier, y compris sur échec d'un listener. Précédent (2.4.0) — FR-09 : les refus slowloris, flood de /waf/verify et strict_host sont journalisés et comptés. FR-07 : un User-Agent de `whitelist_user_agents` n'est plus pénalisé par les heuristiques « client non navigateur » (en-têtes manquants, UA d'outil) — Googlebot était bloqué en huit requêtes. Précédent (2.3.2) — FR-09 : le label `domain` des métriques est borné aux hôtes de `domains[]`, tout autre hôte est compté sous `_undeclared`. Précédent (2.3.1) — FR-08 : seul un refus du rate limit du WAF (`X-WAF-Action: RATE_LIMIT`) est une violation de circuit-breaker, jamais un 429 de l'upstream. Précédent (2.3.0) — FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
+change: "FR-10 : GET /waf/health de l'API admin répond degraded quand Redis sert l'état local ; le health public reste ok. Précédent (2.7.0) — NFR-04 : un panic d'un handler public ou admin est récupéré par le WAF — journal error avec request_id, compteur waf_panics_total, 500 si aucun en-tête n'est parti. Précédent (2.6.9) — FR-02 : l'anti-brute-force de l'API admin (FR-30) suit l'identité client (IPv6 par /64). Précédent (2.6.8) — FR-04 : une IPv4 mappée en IPv6 (::ffff:a.b.c.d) est évaluée comme l'IPv4 par la whitelist et la blacklist, adresse cliente comme entrée de liste. Précédent (2.6.7) — FR-01 : les en-têtes X-WAF-* d'une réponse de l'upstream sont supprimés — ils se lisaient comme une décision du WAF (violation FR-08, action et raison FR-09). Précédent (2.6.6) — FR-06 : la page de challenge porte une Content-Security-Policy stricte à nonce. Précédent (2.6.5) — FR-09 : événements de log abandonnés exposés (waf_log_events_dropped_total). Précédent (2.6.4) — FR-06 : la durée du challenge est mesurée par le serveur depuis l'émission signée du token ; elapsed_ms du client devient indicatif. Précédent (2.6.3) — NFR-03 : server.admin_listen vaut 127.0.0.1:9090 par défaut (boucle locale) au lieu de toutes les interfaces. Précédent (2.6.2) — NFR-03 : clé AbuseIPDB (WAF_ABUSEIPDB_KEY) et URL de webhook (WAF_ALERTING_WEBHOOKS_<i>_URL) configurables par l'environnement. Précédent (2.6.1) — FR-05 : les écritures de l'état d'un visiteur sont atomiques (compare-and-set Redis) — une pénalité concurrente n'est plus écrasée. Précédent (2.6.0) — FR-02 : identité client des contrôles par IP — une IPv6 compte par son /64 (rate limit, score, breaker, slowloris, auto-protection, ip_hash). Précédent (2.5.1) — FR-06 : token de challenge et cookie de clearance signés avec des clés dérivées distinctes — le token, remis à tout visiteur, se validait comme cookie et franchissait le challenge sans PoW. Précédent (2.5.0) — FR-01 : seuls X-WAF-Score et X-WAF-Origin-Token sont transmis à l'upstream, les autres X-WAF-* restent internes. Précédent (2.4.2) — FR-03 : les limites par domaine et par route sont différées, conformément à ADR-022 (la surcharge inerte a été retirée) ; FR-03 les exigeait encore. Précédent (2.4.1) — NFR-05 : arrêt parallèle de tous les serveurs, chacun avec le délai de grâce entier, y compris sur échec d'un listener. Précédent (2.4.0) — FR-09 : les refus slowloris, flood de /waf/verify et strict_host sont journalisés et comptés. FR-07 : un User-Agent de `whitelist_user_agents` n'est plus pénalisé par les heuristiques « client non navigateur » (en-têtes manquants, UA d'outil) — Googlebot était bloqué en huit requêtes. Précédent (2.3.2) — FR-09 : le label `domain` des métriques est borné aux hôtes de `domains[]`, tout autre hôte est compté sous `_undeclared`. Précédent (2.3.1) — FR-08 : seul un refus du rate limit du WAF (`X-WAF-Action: RATE_LIMIT`) est une violation de circuit-breaker, jamais un 429 de l'upstream. Précédent (2.3.0) — FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
 ---
 
 # Requirements — WAF Anti-DDoS / Anti-Bot
@@ -32,7 +32,7 @@ change: "FR-01 : les en-têtes X-WAF-* d'une réponse de l'upstream sont supprim
   - Un échec de récupération NE DOIT PAS empêcher le WAF de démarrer ni de servir : il est journalisé et compté (`waf_cloudflare_ranges_update_total{result="error"}`)
   - Le WAF DOIT exposer le nombre de préfixes en vigueur (`waf_cloudflare_ranges`) et l'origine de la liste (compilée ou récupérée)
 - `cloudflare.auto_update_ranges` sans `cloudflare.trusted` est une contradiction (les plages ne servent qu'à valider `CF-Connecting-IP`) et DOIT être rejeté au démarrage
-- **Identité client.** Tout contrôle « par IP » (rate limit FR-03, trust score FR-04/FR-05, circuit-breaker FR-08, borne slowloris FR-23, auto-protection de `/waf/verify` FR-30, détecteurs et moteur de risque, `ip_hash` des cookies et tokens de challenge) DOIT compter une adresse **IPv6 par son préfixe /64** et une IPv4 par son adresse (une IPv4 mappée `::ffff:a.b.c.d` est une IPv4). Un /64 est la plus petite allocation d'un abonné : compté par adresse complète, il donnait 2⁶⁴ identités, et chaque contrôle par IP se contournait en changeant d'adresse. La whitelist et la blacklist restent évaluées sur l'adresse complète (leurs entrées CIDR couvrent un préfixe). L'IP journalisée et transmise à l'upstream (`X-Real-IP`) reste l'adresse complète
+- **Identité client.** Tout contrôle « par IP » (rate limit FR-03, trust score FR-04/FR-05, circuit-breaker FR-08, borne slowloris FR-23, auto-protection de `/waf/verify` et anti-brute-force de l'API admin FR-30, détecteurs et moteur de risque, `ip_hash` des cookies et tokens de challenge) DOIT compter une adresse **IPv6 par son préfixe /64** et une IPv4 par son adresse (une IPv4 mappée `::ffff:a.b.c.d` est une IPv4). Un /64 est la plus petite allocation d'un abonné : compté par adresse complète, il donnait 2⁶⁴ identités, et chaque contrôle par IP se contournait en changeant d'adresse. La whitelist et la blacklist restent évaluées sur l'adresse complète (leurs entrées CIDR couvrent un préfixe). L'IP journalisée et transmise à l'upstream (`X-Real-IP`) reste l'adresse complète
 
 ### FR-03 — Rate Limiting
 - Le WAF DOIT implémenter un rate limiting par IP avec algorithme Token Bucket
@@ -55,6 +55,11 @@ change: "FR-01 : les en-têtes X-WAF-* d'une réponse de l'upstream sont supprim
 - Le WAF DOIT supporter une whitelist d'IPs et de CIDR (ex: `192.168.0.0/16`)
 - Le WAF DOIT supporter une blacklist d'IPs et de CIDR
 - Le WAF DOIT bloquer les IPs en blacklist avec HTTP 403
+- Une IPv4 mappée en IPv6 (`::ffff:a.b.c.d`) DOIT être évaluée comme l'IPv4
+  `a.b.c.d`, côté adresse cliente comme côté entrée de liste (une entrée
+  `::ffff:198.51.100.0/120` vaut `198.51.100.0/24`) : sinon `::ffff:198.51.100.5`
+  échappait à l'entrée `198.51.100.5` et au CIDR `198.51.100.0/24`, comme le
+  prévoit déjà l'identité client (FR-02)
 - Le WAF DOIT laisser passer les IPs en whitelist sans aucune vérification
 - Le WAF DOIT supporter des whitelists de user-agents (pour bots légitimes)
 - Le WAF DOIT permettre la modification des listes sans redémarrage (hot-reload)
@@ -143,6 +148,7 @@ change: "FR-01 : les en-têtes X-WAF-* d'une réponse de l'upstream sont supprim
 
 ### FR-10 — API Admin
 - Le WAF DOIT exposer une API REST admin sur un port séparé (défaut: 9090)
+- `GET /waf/health` de l'API admin (non authentifié) DOIT répondre `status: "degraded"` quand le backend Redis sert son état local (mode dégradé, ADR-021), `"ok"` sinon. Le `/waf/health` du listener public reste `"ok"` : il sonde le processus, pas le stockage
 - L'API DOIT être protégée par un token Bearer
 - L'API DOIT permettre : consulter/modifier config, gérer whitelist/blacklist, visualiser les visiteurs actifs, consulter les événements récents
 
@@ -172,7 +178,16 @@ change: "FR-01 : les en-têtes X-WAF-* d'une réponse de l'upstream sont supprim
 ### NFR-04 — Maintenabilité
 - Code Go avec `gofmt` et `golangci-lint` sans erreur
 - Couverture de tests > 80% sur le code business logic
-- Zéro `panic` non récupéré dans les goroutines de traitement de requêtes
+- Zéro `panic` non récupéré dans les goroutines de traitement de requêtes : un
+  `panic` d'un handler du listener public ou de l'API admin DOIT être récupéré
+  par le WAF lui-même — journal `error` (`request_id`, méthode, chemin, pile),
+  compteur Prometheus `waf_panics_total`, puis `500` si aucun en-tête de
+  réponse n'est encore parti (texte brut sur le listener public, enveloppe
+  `{"error": "internal_error"}` sur l'API admin), connexion interrompue sinon.
+  `http.ErrAbortHandler` (abandon volontaire, ex. copie d'un corps upstream
+  interrompue) n'est pas un incident et reste propagé. La récupération de
+  `net/http` protégeait le processus, mais sans `request_id`, sans métrique, et
+  en coupant la connexion sans réponse
 - Documentation des interfaces publiques (godoc)
 - Fichier de configuration validé au démarrage avec messages d'erreur clairs
 

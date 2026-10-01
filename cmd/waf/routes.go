@@ -13,6 +13,7 @@ import (
 	"github.com/gaetandev/waf/internal/middleware/access"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/middleware/ingress"
+	"github.com/gaetandev/waf/internal/middleware/recovery"
 	"github.com/gaetandev/waf/internal/origin"
 	"github.com/gaetandev/waf/internal/proxy"
 	"github.com/gaetandev/waf/internal/secheaders"
@@ -71,6 +72,10 @@ func (a *app) routes() http.Handler {
 	// journal et les métriques : montés au-dessus, leurs 429 et 400 n'étaient
 	// ni comptés dans Prometheus, ni journalisés, ni publiés sur le flux admin.
 	proxyHandler = guard(proxyHandler)
+	// Récupération d'un panic du pipeline (NFR-04) sous le journal et les
+	// métriques : le 500 qui en résulte est journalisé avec son request_id et
+	// compté dans waf_requests_total.
+	proxyHandler = recovery.Middleware(proxyHandler, a.metrics.IncPanic, recovery.PlainText)
 	proxyHandler = a.securityLogger.Middleware(a.scoreManager, proxyHandler)
 	proxyHandler = a.metrics.Middleware(a.scoreManager, proxyHandler)
 	// Bypass des assets statiques (FR-24) : le plus en amont du pipeline pour
@@ -111,7 +116,9 @@ func (a *app) routes() http.Handler {
 	if cfg.OriginProtection.Enabled {
 		handler = origin.CaptureInboundToken(handler)
 	}
-	return handler
+	// Filet extérieur (NFR-04) : un panic hors du pipeline de proxy (ingress,
+	// en-têtes de sécurité, maintenance, extraction d'IP, journal, /waf/*).
+	return recovery.Middleware(handler, a.metrics.IncPanic, recovery.PlainText)
 }
 
 // envelopeGuard retourne les refus par IP et par Host appliqués à tout chemin
@@ -178,13 +185,16 @@ func healthHandler(w http.ResponseWriter, _ *http.Request) {
 }
 
 // redirectToHTTPS renvoie un handler de redirection HTTP→HTTPS qui valide le
-// Host entrant contre les domaines configurés avant de rediriger. Un Host non
-// reconnu reçoit un 400 : sans cette garde, un attaquant peut injecter un Host
-// arbitraire et forcer une redirection vers un domaine tiers (open-redirect).
-func redirectToHTTPS(domains []config.DomainConfig) http.HandlerFunc {
-	allowed := make([]string, len(domains))
-	for i, d := range domains {
-		allowed[i] = strings.ToLower(d.Host)
+// Host entrant contre hosts (exacts ou wildcards) avant de rediriger. Un Host
+// non reconnu reçoit un 400 : sans cette garde, un attaquant peut injecter un
+// Host arbitraire et forcer une redirection vers un domaine tiers
+// (open-redirect). Sert la redirection FR-40 (domains[]) et le listener
+// HTTP-01 d'ACME (acme.domains, FR-31), dont la redirection par défaut
+// d'autocert suivait n'importe quel Host.
+func redirectToHTTPS(hosts []string) http.HandlerFunc {
+	allowed := make([]string, len(hosts))
+	for i, host := range hosts {
+		allowed[i] = strings.ToLower(host)
 	}
 	return func(w http.ResponseWriter, r *http.Request) {
 		// Même normalisation que le routage : "Example.com" et "[::1]:8080"

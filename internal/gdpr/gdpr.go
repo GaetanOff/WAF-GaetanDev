@@ -4,19 +4,31 @@
 // l'endpoint admin dédié.
 package gdpr
 
-import "net"
+import "net/netip"
+
+// Préfixes conservés par AnonymizeIP (FR-28).
+const (
+	ipv4KeptBits = 24
+	ipv6KeptBits = 48
+)
 
 // AnonymizeIP tronque une IP : IPv4 → /24 (dernier octet à 0), IPv6 → /48
-// (96 bits de poids faible à 0). Retourne la valeur inchangée si non parsable.
+// (80 bits de poids faible à 0). Retourne la valeur inchangée si non parsable.
 func AnonymizeIP(ip string) string {
-	parsed := net.ParseIP(ip)
-	if parsed == nil {
+	addr, err := netip.ParseAddr(ip)
+	if err != nil {
 		return ip
 	}
-	if v4 := parsed.To4(); v4 != nil {
-		masked := v4.Mask(net.CIDRMask(24, 32))
-		return masked.String()
+	// Une IPv4 mappée se tronque comme une IPv4 ; la zone (fe80::1%eth0) est
+	// retirée — net.ParseIP la refusait et l'adresse était journalisée entière.
+	addr = addr.Unmap().WithZone("")
+	bits := ipv6KeptBits
+	if addr.Is4() {
+		bits = ipv4KeptBits
 	}
-	masked := parsed.Mask(net.CIDRMask(48, 128))
-	return masked.String()
+	prefix, err := addr.Prefix(bits)
+	if err != nil {
+		return ip
+	}
+	return prefix.Addr().String()
 }

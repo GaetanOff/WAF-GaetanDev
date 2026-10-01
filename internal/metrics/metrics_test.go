@@ -205,6 +205,13 @@ func TestLogDropsMetric(t *testing.T) {
 	assertMetricContains(t, scrape(t, metrics), `waf_log_events_dropped_total 7`)
 }
 
+// behavioral-analysis.feature — « Channel plein » : les événements abandonnés
+// sont comptés.
+func TestBehavioralDropsMetric(t *testing.T) {
+	metrics := New().WithBehavioralDrops(func() int64 { return 4 })
+	assertMetricContains(t, scrape(t, metrics), `waf_behavioral_events_dropped_total 4`)
+}
+
 // FR-20 : les messages du bus cluster ignorés (non signés, mal signés) sont comptés.
 func TestClusterRejectedMetric(t *testing.T) {
 	metrics := New().WithClusterRejected(func() int64 { return 3 })
@@ -247,4 +254,14 @@ func TestGlobalPressureGaugeFollowsLevelChanges(t *testing.T) {
 	request.Header.Set("X-WAF-Global-Pressure", "bogus")
 	metrics.observeGlobalPressure(request)
 	assertMetricContains(t, scrape(t, metrics), `waf_global_pressure{level="elevated"} 0`)
+}
+
+// NFR-04 : les panics récupérés sont comptés, à 0 avant le premier.
+func TestPanicMetric(t *testing.T) {
+	metrics := New()
+	assertMetricContains(t, scrape(t, metrics), `waf_panics_total 0`)
+
+	metrics.IncPanic()
+
+	assertMetricContains(t, scrape(t, metrics), `waf_panics_total 1`)
 }

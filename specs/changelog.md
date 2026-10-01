@@ -6,6 +6,43 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — douzième audit du 2026-10-01 (phase 27)
+
+- Le bypass des assets statiques ne vaut plus que pour `GET` et `HEAD` :
+  `POST /login.css` échappait à l'intégrité, aux règles, à la géo, au threat
+  intel, à l'anti-bot et à l'anti-DDoS (FR-24).
+- La whitelist et la blacklist évaluent une IPv4 mappée (`::ffff:a.b.c.d`)
+  comme l'IPv4, entrées CIDR mappées comprises (FR-04).
+- `GET /waf/admin/config` masque `metrics.auth_token`.
+- Le verrouillage anti-brute-force de l'API admin compte une IPv6 par son /64
+  (FR-30) ; une pagination hors bornes ne fait plus paniquer le handler.
+- Le listener HTTP-01 d'ACME ne redirige plus vers un `Host` arbitraire :
+  `301` pour un domaine de `acme.domains`, `400` sinon (FR-31).
+- Un crawler déclaré dont la vérification reverse-DNS n'a pas pu être planifiée
+  (file saturée) perd l'exemption de challenge de `whitelist_user_agents`
+  (FR-36).
+- L'anonymisation des journaux tronque aussi une IPv6 zonée.
+
+### Added — douzième audit du 2026-10-01
+
+- Récupération des panics de handler (public et admin) : journal avec
+  `request_id` et pile, compteur `waf_panics_total`, réponse `500` (NFR-04).
+- Compteur `waf_behavioral_events_dropped_total`.
+
+### Changed — douzième audit du 2026-10-01
+
+- FR-32 et `maintenance-page.feature` réalignés sur le contrat implémenté
+  (`maintenance.enabled` lu au démarrage, `503` + `Retry-After: 300` hors
+  `/waf/health` et `/waf/metrics`) ; pages par code, templates, bascule à chaud
+  et page automatique sur pool DOWN différés.
+- Scénarios réalignés : webhook (`WAF_ALERTING_WEBHOOKS_0_URL` actif,
+  `ddos_detected` différé), behavioral (`max_records`, `likely_bot` différé),
+  trust-score (`waf_visitors_by_state`), anti-ddos (`under_attack_start/end`),
+  integrity, storage ; FR-27 (champs d'audit), FR-38 (commutation différée),
+  ADR-003/005/011/013 amendés ; `max_header_bytes` 0 ou 4096–1048576.
+- Moins d'allocations par requête (signature des cookies, hash d'affinité,
+  cache threat intel, anonymisation, journal saturé).
+
 ### Security — onzième audit du 2026-10-01 (phase 26)
 
 - Les événements du bus cluster sont signés (HMAC-SHA256, clé dérivée de

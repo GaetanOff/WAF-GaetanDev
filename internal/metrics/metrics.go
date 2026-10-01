@@ -52,6 +52,7 @@ type Metrics struct {
 	storageErrors   *prometheus.CounterVec
 	alertsSent      *prometheus.CounterVec
 	alertsFailed    *prometheus.CounterVec
+	panics          prometheus.Counter
 	visitors        *visitorTracker
 	domains         domainLabels
 	now             func() time.Time
@@ -154,6 +155,10 @@ func New() *Metrics {
 			Name: "waf_alerts_failed_total",
 			Help: "Webhook alert deliveries abandoned, by trigger (FR-29).",
 		}, []string{"trigger"}),
+		panics: prometheus.NewCounter(prometheus.CounterOpts{
+			Name: "waf_panics_total",
+			Help: "Request handler panics recovered by the WAF, public listener and admin API (NFR-04).",
+		}),
 		now: time.Now,
 	}
 	m.visitors = newVisitorTracker(defaultVisitorWindow, defaultMaxVisitors, m.activeVisitors, m.visitorsByState)
@@ -161,7 +166,7 @@ func New() *Metrics {
 		m.pressureGauges[i] = m.globalPressure.WithLabelValues(level)
 	}
 	m.pressureLevel.Store(unpublishedPressure)
-	registry.MustRegister(m.requests, m.assetRequests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors, m.alertsSent, m.alertsFailed)
+	registry.MustRegister(m.requests, m.assetRequests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors, m.alertsSent, m.alertsFailed, m.panics)
 	// La liste compilée est en vigueur au démarrage : publier son cardinal tout
 	// de suite évite une jauge à 0 qui se lirait comme « aucune plage connue ».
 	m.cfRanges.Set(float64(len(cloudflare.Ranges())))
@@ -238,6 +243,11 @@ func (m *Metrics) SetStorageDegraded(degraded bool) {
 	m.storageDegraded.Set(value)
 }
 
+// IncPanic compte un panic de handler récupéré (NFR-04).
+func (m *Metrics) IncPanic() {
+	m.panics.Inc()
+}
+
 // IncStorageError compte une erreur du backend de stockage par opération (ADR-021).
 func (m *Metrics) IncStorageError(operation string) {
 	m.storageErrors.WithLabelValues(operation).Inc()
@@ -271,6 +281,17 @@ func (m *Metrics) WithLogDrops(dropped func() int64) *Metrics {
 	m.registry.MustRegister(prometheus.NewCounterFunc(prometheus.CounterOpts{
 		Name: "waf_log_events_dropped_total",
 		Help: "Security log events dropped because the async log buffer was full (FR-09).",
+	}, func() float64 { return float64(dropped()) }))
+	return m
+}
+
+// WithBehavioralDrops publie waf_behavioral_events_dropped_total, le nombre
+// d'événements de l'analyse comportementale abandonnés file pleine, lu à
+// chaque scrape. Le drop restait invisible sous flood.
+func (m *Metrics) WithBehavioralDrops(dropped func() int64) *Metrics {
+	m.registry.MustRegister(prometheus.NewCounterFunc(prometheus.CounterOpts{
+		Name: "waf_behavioral_events_dropped_total",
+		Help: "Behavioral analysis events dropped because the analysis queue was full.",
 	}, func() float64 { return float64(dropped()) }))
 	return m
 }

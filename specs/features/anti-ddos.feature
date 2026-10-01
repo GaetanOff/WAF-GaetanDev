@@ -215,6 +215,6 @@ Feature: Protection Anti-DDoS
   Scenario: Sous attaque — alerte d'entrée et de sortie
     Given alerting.enabled = true
     When le domaine "status.gaetandev.fr" entre en mode sous attaque
-    Then une alerte est émise avec le trigger "under_attack" et le domaine concerné
+    Then une alerte est émise avec le trigger "under_attack_start" et le domaine concerné
     When le domaine quitte le mode sous attaque
-    Then une alerte de fin est émise
+    Then une alerte de fin est émise avec le trigger "under_attack_end"

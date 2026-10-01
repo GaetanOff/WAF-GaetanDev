@@ -88,12 +88,15 @@ func (m *Middleware) WithThrottle(fn func(ip string)) *Middleware {
 // CrawlerStatus rend l'état de vérification reverse-DNS (FR-36) du crawler
 // que déclare le User-Agent, et planifie la vérification sur cache miss. Le
 // challenge proactif le consulte avant d'honorer whitelist_user_agents.
-func (m *Middleware) CrawlerStatus(ip string, userAgent string) (verified bool, spoofed bool) {
+// suspect couvre le crawler démasqué et celui dont la vérification n'a pas pu
+// être planifiée (file saturée) : seul « spoofed » l'était, et saturer la file
+// rendait l'exemption inconditionnelle.
+func (m *Middleware) CrawlerStatus(ip string, userAgent string) (verified bool, suspect bool) {
 	if m.bots == nil {
 		return false, false
 	}
 	state := m.bots.Check(ip, userAgent).State
-	return state == BotVerificationVerified, state == BotVerificationSpoofed
+	return state == BotVerificationVerified, state == BotVerificationSpoofed || state == BotVerificationUnverified
 }
 
 // GrantChallengePass enregistre la preuve humaine d'un challenge réussi

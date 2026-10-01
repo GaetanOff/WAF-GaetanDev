@@ -36,6 +36,39 @@ func TestNonAssetNotMarked(t *testing.T) {
 	}
 }
 
+// FR-24 : seuls GET et HEAD lisent un asset. Une écriture vers un chemin
+// d'asset traverse le pipeline complet.
+func TestOnlyReadMethodsAreBypassed(t *testing.T) {
+	tests := []struct {
+		method   string
+		wantPass bool
+	}{
+		{method: http.MethodGet, wantPass: true},
+		{method: http.MethodHead, wantPass: true},
+		{method: http.MethodPost, wantPass: false},
+		{method: http.MethodPut, wantPass: false},
+		{method: http.MethodPatch, wantPass: false},
+		{method: http.MethodDelete, wantPass: false},
+		{method: http.MethodOptions, wantPass: false},
+	}
+	for _, tt := range tests {
+		t.Run(tt.method, func(t *testing.T) {
+			counted := 0
+			var action string
+			testBypass().WithCounter(func(string) { counted++ }).Handler(http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+				action = r.Header.Get("X-WAF-Action")
+			})).ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(tt.method, "http://x/login.css", nil))
+
+			if (action == "PASS") != tt.wantPass {
+				t.Fatalf("%s /login.css: X-WAF-Action = %q, want PASS=%v", tt.method, action, tt.wantPass)
+			}
+			if (counted == 1) != tt.wantPass {
+				t.Fatalf("%s /login.css: counted %d asset requests, want PASS=%v", tt.method, counted, tt.wantPass)
+			}
+		})
+	}
+}
+
 func TestDisabledBypassDoesNothing(t *testing.T) {
 	bypass := New(config.StaticAssets{Enabled: false, Extensions: []string{".css"}})
 	var action string

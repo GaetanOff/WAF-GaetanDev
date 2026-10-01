@@ -3,9 +3,13 @@ Feature: Analyse Comportementale Séquentielle
   Je veux analyser les patterns de navigation des visiteurs
   Afin de détecter les bots qui ont passé le challenge JS mais se comportent de manière anormale.
 
+  # Les scénarios @deferred sont spécifiés mais NON implémentés (audit du
+  # 2026-10-01) : ils ne sont pas un critère d'acceptation tant que leur
+  # implémentation n'est pas planifiée (specs/tasks.md).
+
   Background:
     Given le WAF est configuré avec behavioral.enabled = true
-    And behavioral.window_size = 50
+    And behavioral.max_records = 50
 
   Scenario: Visiteur humain — intervalles variables détectés
     Given un visiteur avec cookie valide (score = 75)
@@ -74,16 +78,19 @@ Feature: Analyse Comportementale Séquentielle
     And le résultat de l'analyse est appliqué à la PROCHAINE requête
 
   Scenario: Channel plein — événements droppés sans blocage
-    Given le channel d'analyse comportementale est saturé (1000 événements en attente)
+    Given le channel d'analyse comportementale est saturé (1024 événements en attente)
     When un nouveau visiteur envoie une requête
     Then l'événement comportemental est droppé silencieusement
     And la requête est traitée normalement (pas de blocage)
     And une métrique waf_behavioral_events_dropped_total est incrémentée
 
+  @deferred
   Scenario: Classification finale
     Given un visiteur avec anomaly_score = 85
     Then il est classifié comme "likely_bot"
     And ce classement est visible dans GET /waf/admin/visitors/{ip_hash}
+    # VisitorInfo (admin.openapi.yaml) ne porte aucune classification ; seul le
+    # score X-WAF-Behavioral-Score est publié au moteur de risque.
 
   Scenario: Ring buffer — fenêtre glissante
     Given un visiteur a accumulé 50 requêtes (buffer plein)

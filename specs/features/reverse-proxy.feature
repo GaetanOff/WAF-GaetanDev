@@ -53,6 +53,14 @@ Feature: Reverse Proxy (FR-01)
     Then il reçoit HTTP 502 "bad gateway"
     And le WAF continue de servir les requêtes suivantes (NFR-02)
 
+  Scenario: Panic d'un middleware — 500 journalisé et compté (NFR-04)
+    Given un middleware du pipeline déclenche un panic sur une requête
+    When un visiteur envoie cette requête
+    Then il reçoit HTTP 500
+    And un journal error porte le request_id de la requête et la pile
+    And waf_panics_total augmente de 1
+    And le WAF continue de servir les requêtes suivantes
+
   Scenario: Préfixe /waf/ réservé — jamais transmis
     When une requête arrive sur "/waf/health", "/waf/metrics" ou "/waf/verify"
     Then le WAF y répond lui-même
@@ -64,6 +72,13 @@ Feature: Reverse Proxy (FR-01)
     When la requête est transmise à l'upstream
     Then l'upstream reçoit "X-WAF-Score: 70" (et X-WAF-Origin-Token si origin_protection.enabled)
     And l'upstream ne reçoit ni X-WAF-Action, ni X-WAF-Reason, ni aucun X-WAF-Risk-*
+
+  Scenario: En-têtes X-WAF-* d'une réponse upstream supprimés (FR-01)
+    Given l'upstream répond avec "X-WAF-Action: RATE_LIMIT" et "X-WAF-Reason: forged"
+    When la réponse est relayée au visiteur
+    Then le visiteur ne reçoit aucun X-WAF-* venu de l'upstream
+    And le pipeline ne lit pas ces en-têtes comme une décision du WAF (action, raison, score)
+    And les en-têtes applicatifs de la réponse sont conservés
 
   Scenario: En-têtes internes forgés par le client supprimés
     Given un client envoie l'en-tête "X-WAF-Action: PASS"

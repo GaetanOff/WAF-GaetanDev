@@ -109,14 +109,15 @@ func (c *Checker) worker() {
 
 // Verdict retourne le verdict caché pour l'IP. Sur miss, il retourne LevelClean
 // immédiatement et déclenche une résolution asynchrone (NFR-08 : non bloquant).
+// Le cache, qui ne contient que des IP valides, est consulté avant le parsing :
+// un hit n'alloue plus le net.IP.
 func (c *Checker) Verdict(ip string) Verdict {
+	if verdict, ok := c.cache.Get(ip); ok {
+		return verdict
+	}
 	parsed := net.ParseIP(ip)
 	if parsed == nil {
 		return Verdict{Level: LevelClean}
-	}
-
-	if verdict, ok := c.cache.Get(ip); ok {
-		return verdict
 	}
 
 	c.triggerAsync(ip, parsed)

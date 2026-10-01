@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 1.6.0
-last-reviewed: 2026-09-30
+version: 1.6.2
+last-reviewed: 2026-10-01
 reviewed-by: GaetanDev
 extends: requirements-advanced.md (v2.1.0), requirements-ops.md
-change: "FR-39 : plafond THROTTLE des requêtes non-navigateur sans clearance sous attaque câblé (raison rate_limit_under_attack) ; option under_attack.challenge_non_browser. Précédent (1.5.0) — FR-36/FR-39 : l'exemption whitelist_user_agents consulte la vérification reverse-DNS — sous attaque, seul un crawler vérifié passe sans challenge ; Slurp et Baiduspider vérifiables. Précédent (1.4.1) — FR-38 : défaut de `shadow_mode` corrigé dans l'exemple de configuration (true, comme le code et config.schema.json). Précédent (1.4.0) — FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
+change: "FR-38 : shadow_mode et profile lus au démarrage ; commutation à chaud (PATCH, SIGHUP) différée. Précédent (1.6.1) — FR-36 : un crawler unverified (file de vérification saturée) perd l'exemption de challenge proactif de whitelist_user_agents, comme un crawler spoofed. Précédent (1.6.0) — FR-39 : plafond THROTTLE des requêtes non-navigateur sans clearance sous attaque câblé (raison rate_limit_under_attack) ; option under_attack.challenge_non_browser. Précédent (1.5.0) — FR-36/FR-39 : l'exemption whitelist_user_agents consulte la vérification reverse-DNS — sous attaque, seul un crawler vérifié passe sans challenge ; Slurp et Baiduspider vérifiables. Précédent (1.4.1) — FR-38 : défaut de `shadow_mode` corrigé dans l'exemple de configuration (true, comme le code et config.schema.json). Précédent (1.4.0) — FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
 ---
 
 # Requirements Detection — Moteur de Risque & Décision (v4)
@@ -167,7 +167,8 @@ explicites (issus de la revue de spec) :
   (`*.baidu.com`, `*.baidu.jp`).
 - L'exemption de challenge proactif de `whitelist_user_agents` DOIT consulter
   cette vérification : un crawler déjà démasqué (`spoofed`) NE DOIT PAS en
-  bénéficier. Sous attaque (FR-39), seul un crawler `verified` en bénéficie ; un
+  bénéficier, ni un crawler `unverified` (file de vérification saturée) — sinon
+  saturer la file suffisait à rendre l'exemption inconditionnelle. Sous attaque (FR-39), seul un crawler `verified` en bénéficie ; un
   User-Agent whitelisté non vérifiable (facebookexternalhit, LinkedInBot,
   Twitterbot…) ou encore `pending` reçoit le challenge. Le User-Agent se forge :
   l'exemption inconditionnelle laissait tout client passer le mode sous attaque
@@ -187,7 +188,8 @@ explicites (issus de la revue de spec) :
     `pending` n'est pas une clearance : un crawler réel, vérifié en cache pour
     `success_cache_ttl`, n'est challengé que le temps de sa première résolution.
   - **`unverified`** (vérification non planifiée : file de vérification pleine) →
-    visiteur évalué normalement, **sans** le plafond OBSERVE de `pending` — sinon
+    visiteur évalué normalement, **sans** le plafond OBSERVE de `pending` ni
+    l'exemption de challenge proactif de `whitelist_user_agents` — sinon
     saturer la file exempterait un faux crawler. Les vérifications tournent sur un
     pool fixe (8 workers, 256 en attente, DNS borné à 2 s).
   - **`spoofed`** (rDNS résolu mais **ne correspond pas** à un domaine officiel du
@@ -231,7 +233,11 @@ explicites (issus de la revue de spec) :
   - `waf_challenge_pass_after_flag_total` (proxy de faux positifs évités)
   - `waf_hard_blocks_total{corroborated}` (blocs durs, corroborés ou déterministes)
   - `waf_verified_bot_total{bot}` (crawlers vérifiés)
-- Le mode shadow et les profils DOIVENT être commutables à chaud (API admin / SIGHUP).
+- Le mode shadow (`risk_engine.shadow_mode`) et le profil (`risk_engine.profile`)
+  sont lus au démarrage : les changer demande un redémarrage. **Différé** :
+  commutation à chaud par `PATCH /waf/admin/config` (qui ne couvre que
+  `rate_limit`, `trust` et `challenge`) ou par `SIGHUP` (le processus ne capte
+  que `SIGINT` et `SIGTERM`)
 
 ## FR-39 — Mode « Sous Attaque » (challenge forcé piloté par la pression)
 

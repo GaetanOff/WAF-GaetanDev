@@ -365,6 +365,7 @@ func (a *app) buildDetectors() error {
 		a.stop.add(behavioralTracker.Close)
 		a.detectors = append(a.detectors, behavioralTracker.Handler)
 		a.erasers = append(a.erasers, behavioralTracker.Forget)
+		a.metrics.WithBehavioralDrops(behavioralTracker.Dropped)
 	}
 	if cfg.ThreatIntel.Enabled {
 		if err := a.addThreatIntelDetector(); err != nil {
@@ -563,6 +564,7 @@ func (a *app) buildAdmin() error {
 	}
 	a.securityLogger.Recorder = adminServer.EventRecorder()
 	adminServer.WithErasers(a.erasers...)
+	adminServer.WithPanicObserver(a.metrics.IncPanic)
 	if a.syncer != nil {
 		adminServer.WithBlacklistObserver(a.syncer.PublishBlacklistAdd)
 		a.syncer.WithBlacklistApplier(adminServer.ApplyClusterBlacklist)
@@ -616,14 +618,14 @@ func (a *app) serve(timeouts serverTimeouts) error {
 	}
 	// Serveur HTTP-01 (challenge ACME + redirection HTTPS) sur le port 80.
 	if acmeManager != nil {
-		challengeServer := a.newSideServer(cfg.ACME.HTTPChallengeListen, acmeManager.HTTPHandler(nil), timeouts.header)
+		challengeServer := a.newSideServer(cfg.ACME.HTTPChallengeListen, acmeManager.HTTPHandler(redirectToHTTPS(cfg.ACME.Domains)), timeouts.header)
 		listenInBackground(errs, challengeServer.ListenAndServe)
 		servers = append(servers, namedServer{name: "acme challenge", server: challengeServer})
 	}
 	// Redirection HTTP -> HTTPS (FR-40) quand le WAF termine lui-même le TLS par
 	// domaine et que redirect_http est actif.
 	if tlsManager != nil && cfg.Server.TLS.RedirectHTTP {
-		redirectServer := a.newSideServer(cfg.Server.Listen, redirectToHTTPS(cfg.Domains), timeouts.header)
+		redirectServer := a.newSideServer(cfg.Server.Listen, redirectToHTTPS(domainHosts(cfg.Domains)), timeouts.header)
 		listenInBackground(errs, redirectServer.ListenAndServe)
 		servers = append(servers, namedServer{name: "https redirect", server: redirectServer})
 	}
