@@ -4,9 +4,9 @@ Feature: Analyse d'Intégrité des Requêtes
   Afin d'identifier les tentatives d'injection, de path traversal et d'exploitation.
 
   Background:
-    Given le WAF est configuré avec request_integrity.enabled = true
-    And request_integrity.max_path_length = 2048
-    And request_integrity.max_body_bytes = 10485760  # 10MB
+    Given le WAF est configuré avec integrity.enabled = true
+    And integrity.max_path_length = 2048
+    And integrity.max_body_bytes = 10485760  # 10MB
 
   Scenario: Path traversal — séquence ../
     Given une requête GET "/pages/../../../etc/passwd"
