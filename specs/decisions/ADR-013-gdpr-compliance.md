@@ -92,7 +92,9 @@ n'ont jamais été implémentées ; FR-28 les exigeait comme si elles l'étaient
 - Conservation : `VisitorState` = `trust.score_ttl` (1 h par défaut, purge du
   store) ; events du flux admin = 10 000 dernières mitigations, jamais servies
   au-delà de 24 h ; audit trail = `audit.max_entries` entrées (1 000 par défaut),
-  pas de rétention de 30 jours.
+  pas de rétention de 30 jours. Une entrée d'audit porte `timestamp`, `action`,
+  `target` et `result` (`audit-entry.schema.json`) : ni endpoint ni IP de
+  l'administrateur (amendé le 2026-10-01, cf. FR-27).
 - Différés : durées de rétention configurables, purge par âge des events en
   mémoire, rapport `GET /waf/admin/privacy/report`.
 

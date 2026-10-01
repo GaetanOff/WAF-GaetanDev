@@ -117,6 +117,12 @@ par domaine, remplacement de `Server`) n'ont jamais été ceux du code, de
   remplacement de `Server`, `sanitize_errors`, métrique
   `waf_security_headers_injected_total`. Les pages d'erreur brandées (FR-32,
   `maintenance.error_pages`) masquent déjà les corps d'erreur de l'upstream.
+- Les clés réelles sont plates (`config.schema.json`, bloc `security_headers`) :
+  `hsts_max_age`, `hsts_include_subdomains`, `frame_options`,
+  `content_type_nosniff`, `referrer_policy`, `permissions_policy`, `csp`,
+  `strip_headers`. Il n'existe ni sous-bloc `hsts:`, ni option `preload`, ni
+  clés `strict_transport_security`, `x_frame_options`,
+  `x_content_type_options` ou `content_security_policy` (amendé le 2026-10-01).
 
 ## Spec References
 

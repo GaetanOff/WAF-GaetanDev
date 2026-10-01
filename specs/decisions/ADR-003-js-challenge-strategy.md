@@ -71,6 +71,20 @@ Combinaison des deux approches avec une contrainte temporelle :
 - La difficulté PoW est ajustable sans redémarrage (hot-reload config)
 - Les fingerprints sont stockés hashés (privacy by design)
 
+## Amendement — durée mesurée côté serveur (2026-10-01)
+
+Constat d'audit : la contrainte de timing ci-dessus (`elapsed_ms` ∈ [500,
+10000], déclaré par le client) n'est plus celle du code depuis FR-06 2.6.4.
+
+- La durée est mesurée **par le serveur**, depuis l'instant d'émission signé
+  dans le token (`IssuedAtMS`) jusqu'à la soumission : l'`elapsed_ms` envoyé par
+  le client, qu'il choisit librement, rendait le plancher décoratif. Le champ
+  reste dans la soumission (refusé s'il est négatif), sans effet sur la décision.
+- Les bornes sont `challenge.min_elapsed_ms` (défaut `0` : un navigateur rapide
+  résolvant la PoW en moins de 500 ms bouclait en `challenge_too_fast`) et
+  `challenge.max_elapsed_ms` (défaut `60000`). La résistance anti-bot repose sur
+  la PoW, le fingerprint et le cookie signé, pas sur le chronomètre.
+
 ## Spec References
 
 - [requirements.md](../requirements.md) FR-06 (Challenge JavaScript)
