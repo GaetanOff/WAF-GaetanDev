@@ -280,3 +280,33 @@ func serveAuthorizedProbe(handler http.Handler, probe contractProbe, authorizati
 	handler.ServeHTTP(response, request)
 	return response
 }
+
+// FR-01 : le préfixe /waf/ est réservé. Un chemin inconnu, ou un endpoint dont
+// la fonction est désactivée, reçoit 404 du WAF ; /waf/stats et /waf/admin/*
+// atteignaient l'origine.
+func TestReservedWAFPrefixNeverReachesTheUpstream(t *testing.T) {
+	contract := loadPublicContract(t)
+	cfg := config.Default()
+	cfg.Cloudflare.Trusted = false
+	cfg.Challenge.Enabled = false
+	cfg.OriginProtection.Enabled = false
+	handler := newTestRoutes(cfg, newTestRules(t, nil, nil, nil), newTestLogger(), newTestMetrics(), newTestAntiDDoS(t), newTestRateLimiter(t, cfg), newTestAntiBot(t, cfg), nil, newTestChallenge(t, cfg), newTestScoreManager(t, cfg), nil, http.HandlerFunc(func(_ http.ResponseWriter, r *http.Request) {
+		t.Fatalf("%s %s reached the upstream: /waf/ is reserved", r.Method, r.URL.Path)
+	}))
+
+	for _, probe := range []contractProbe{
+		{http.MethodPost, "/waf/verify", `{}`},
+		{http.MethodGet, "/waf/origin/verify", ""},
+	} {
+		response := serveProbe(handler, probe, "example.test")
+		if response.Code != http.StatusNotFound {
+			t.Fatalf("%s %s while disabled: status = %d, want 404", probe.method, probe.path, response.Code)
+		}
+		contract.assertConforms(t, probe, response)
+	}
+	for _, path := range []string{"/waf/stats", "/waf/admin/visitors", "/waf/unknown"} {
+		if response := serveProbe(handler, contractProbe{http.MethodGet, path, ""}, "example.test"); response.Code != http.StatusNotFound {
+			t.Fatalf("GET %s: status = %d, want 404", path, response.Code)
+		}
+	}
+}

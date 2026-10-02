@@ -195,8 +195,13 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Monté en permanence (challenge.enabled est modifiable à chaud) :
 		// /waf/verify n'est servi que si un hôte au moins peut être challengé,
-		// comme lorsque le middleware n'était monté que dans ce cas.
-		if r.URL.Path == verifyPath && m.domains.anyEnabled() {
+		// et reçoit 404 sinon — il était alors transmis à l'upstream, alors
+		// que le préfixe /waf/ est réservé au WAF (FR-01).
+		if r.URL.Path == verifyPath {
+			if !m.domains.anyEnabled() {
+				http.NotFound(w, r)
+				return
+			}
 			m.verify(w, r)
 			return
 		}
