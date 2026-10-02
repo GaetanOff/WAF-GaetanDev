@@ -71,6 +71,18 @@ blackliste, et rate limit par IP (`429`).
 - L'implementation devra remplacer le compteur global a slice de timestamps par
   un compteur a cout borne (fenetre fixe ou anneau de buckets).
 
+## Amendement — « challenge plus fréquent » (2026-10-02)
+
+Constat d'audit : aucune règle ne rend le challenge plus fréquent sous
+pression, hors du mode sous attaque. La conséquence est assumée et précisée
+dans FR-08 (v2.8.3) :
+
+- le « challenge plus fréquent » est le mode sous attaque (FR-39, ADR-018) :
+  dès `antiddos.under_attack.trigger_pressure`, toute requête sans clearance est
+  challengée, assets statiques compris (FR-24) ;
+- sous ce seuil, la pression n'agit sur le challenge qu'à travers la
+  contribution `rate` du moteur de risque, et sur la PoW (FR-14).
+
 ## Spec References
 
 - [requirements.md](../requirements.md) FR-08

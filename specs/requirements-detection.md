@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 1.8.0
+version: 1.9.0
 last-reviewed: 2026-10-02
 reviewed-by: GaetanDev
 extends: requirements-advanced.md (v2.1.0), requirements-ops.md
-change: "FR-33 : mode de fusion risk_engine.fusion — diluted (défaut, historique) ou available (opt-in : normalisation sur les familles portant une évidence, réputation neutre au score initial) ; tiers, poids et seuils absents prennent la valeur du profil (profile strict/lenient était inerte). Précédent (1.7.0) — FR-39 : une requête d'asset statique est comptée dans la pression et, sans clearance, challengée sous attaque (le bypass d'assets la dispensait du mode). Précédent (1.6.2) — FR-38 : shadow_mode et profile lus au démarrage ; commutation à chaud (PATCH, SIGHUP) différée. Précédent (1.6.1) — FR-36 : un crawler unverified (file de vérification saturée) perd l'exemption de challenge proactif de whitelist_user_agents, comme un crawler spoofed. Précédent (1.6.0) — FR-39 : plafond THROTTLE des requêtes non-navigateur sans clearance sous attaque câblé (raison rate_limit_under_attack) ; option under_attack.challenge_non_browser. Précédent (1.5.0) — FR-36/FR-39 : l'exemption whitelist_user_agents consulte la vérification reverse-DNS — sous attaque, seul un crawler vérifié passe sans challenge ; Slurp et Baiduspider vérifiables. Précédent (1.4.1) — FR-38 : défaut de `shadow_mode` corrigé dans l'exemple de configuration (true, comme le code et config.schema.json). Précédent (1.4.0) — FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
+change: "FR-38 : waf_challenge_pass_after_flag_total compte les visiteurs flaggés CHALLENGE qui réussissent (token marqué) ; décroissance des poids par visiteur différée, FeedbackManager retiré. FR-35 : le blocage seul d'un UA d'automatisation déclaré (anti-bot) est l'exception documentée. FR-36 : chaque crawler vérifiable figure dans whitelist_user_agents par défaut (Applebot). Précédent (1.8.0) — FR-33 : mode de fusion risk_engine.fusion — diluted (défaut, historique) ou available (opt-in : normalisation sur les familles portant une évidence, réputation neutre au score initial) ; tiers, poids et seuils absents prennent la valeur du profil (profile strict/lenient était inerte). Précédent (1.7.0) — FR-39 : une requête d'asset statique est comptée dans la pression et, sans clearance, challengée sous attaque (le bypass d'assets la dispensait du mode). Précédent (1.6.2) — FR-38 : shadow_mode et profile lus au démarrage ; commutation à chaud (PATCH, SIGHUP) différée. Précédent (1.6.1) — FR-36 : un crawler unverified (file de vérification saturée) perd l'exemption de challenge proactif de whitelist_user_agents, comme un crawler spoofed. Précédent (1.6.0) — FR-39 : plafond THROTTLE des requêtes non-navigateur sans clearance sous attaque câblé (raison rate_limit_under_attack) ; option under_attack.challenge_non_browser. Précédent (1.5.0) — FR-36/FR-39 : l'exemption whitelist_user_agents consulte la vérification reverse-DNS — sous attaque, seul un crawler vérifié passe sans challenge ; Slurp et Baiduspider vérifiables. Précédent (1.4.1) — FR-38 : défaut de `shadow_mode` corrigé dans l'exemple de configuration (true, comme le code et config.schema.json). Précédent (1.4.0) — FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
 ---
 
 # Requirements Detection — Moteur de Risque & Décision (v4)
@@ -181,6 +181,11 @@ explicites (issus de la revue de spec) :
   (`corroborating_families ≥ 2`).
 - Un **signal isolé** (une seule famille) NE DOIT JAMAIS produire un BLOCK :
   au pire `CHALLENGE`.
+- Exception de l'anti-bot (FR-07) : un User-Agent qui **se déclare** outil
+  d'automatisation (`selenium`, `puppeteer`) est bloqué seul (403
+  `automation_user_agent`) hors mode shadow. Aucun navigateur humain n'envoie
+  ces jetons : c'est une déclaration explicite, non une heuristique ; en shadow,
+  le blocage est seulement observé (FR-07)
 - Les **signaux déterministes** suivants SONT exemptés de l'exigence de
   corroboration et PEUVENT bloquer seuls (vérité non-ambiguë) :
   - IP/CIDR en **blacklist explicite** (FR-04)
@@ -208,7 +213,11 @@ explicites (issus de la revue de spec) :
   bénéficier, ni un crawler `unverified` (file de vérification saturée) — sinon
   saturer la file suffisait à rendre l'exemption inconditionnelle. Sous attaque (FR-39), seul un crawler `verified` en bénéficie ; un
   User-Agent whitelisté non vérifiable (facebookexternalhit, LinkedInBot,
-  Twitterbot…) ou encore `pending` reçoit le challenge. Le User-Agent se forge :
+  Twitterbot…) ou encore `pending` reçoit le challenge.
+- Chaque crawler de `risk_engine.verified_bots.crawlers` DOIT figurer dans les
+  `whitelist_user_agents` par défaut : l'exemption ne vaut que pour un
+  User-Agent whitelisté, et Applebot, vérifiable mais absent de la liste, était
+  challengé sous attaque même vérifié. Le User-Agent se forge :
   l'exemption inconditionnelle laissait tout client passer le mode sous attaque
   sans PoW en se déclarant Slurp ou Twitterbot.
 - Un crawler **vérifié** DOIT être placé en `ALLOW` et NE DOIT JAMAIS être bloqué
@@ -259,10 +268,18 @@ explicites (issus de la revue de spec) :
 - Toute nouvelle règle, tout nouveau seuil DOIT pouvoir être déployé en **mode
   shadow** (log-only) : la décision est **calculée et journalisée** mais **non
   appliquée**, afin de mesurer l'impact FP avant activation.
-- Le WAF DOIT implémenter une **boucle de feedback FP** : lorsqu'un visiteur
-  flaggé (CHALLENGE) **réussit** le challenge, le poids des familles ayant
-  contribué à tort DOIT décroître pour ce visiteur (apprentissage local borné),
-  et un compteur de "faux positif probable" DOIT être incrémenté.
+- Lorsqu'un visiteur **flaggé** — page de challenge servie sur une décision
+  `CHALLENGE` du moteur de risque ou du trust score — **réussit** le challenge,
+  le compteur de « faux positif probable » `waf_challenge_pass_after_flag_total`
+  DOIT être incrémenté. Le token de la page porte ce marquage (signé) ; la
+  réponse de `/waf/verify` le reflète par `X-WAF-Challenge-Pass-After-Flag:
+  true`. Un challenge proactif ou forcé sous attaque n'est pas un flag. Le
+  compteur, déclaré, n'était jamais incrémenté
+- **Différé** : décroissance, pour ce visiteur, du poids des familles ayant
+  contribué à tort (apprentissage local borné). Le `FeedbackManager` qui la
+  préfigurait n'était instancié nulle part (et sa table par visiteur n'était
+  pas bornée) ; il est retiré. Le crédit de preuve humaine (FR-37) assure
+  aujourd'hui la récupération du visiteur.
 - Le WAF DOIT toujours offrir un **chemin de récupération** : pour toute décision
   fondée sur des signaux non-déterministes, un `CHALLENGE` DOIT précéder tout
   `BLOCK` (l'humain a toujours une chance de prouver son humanité).

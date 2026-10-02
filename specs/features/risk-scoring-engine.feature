@@ -204,6 +204,14 @@ Feature: Moteur de Scoring de Risque & Décision graduée
     Then la requête n'est PAS bloquée
     And la RiskAssessment est journalisée avec shadow_mode = true
 
+  Scenario: Un visiteur flaggé qui réussit le challenge est compté comme faux positif probable
+    Given le moteur de risque a classé le visiteur "CHALLENGE" et l'Enforcer a servi la page
+    When il réussit le challenge
+    Then la réponse de /waf/verify porte X-WAF-Challenge-Pass-After-Flag: true
+    And waf_challenge_pass_after_flag_total est incrémenté
+    And un challenge proactif (sans décision CHALLENGE) réussi ne l'incrémente pas
+
+  @deferred
   Scenario: La boucle de feedback fait décroître le poids d'un faux positif probable
     Given un visiteur flaggé "CHALLENGE" par la famille "behavioral"
     When il réussit le challenge

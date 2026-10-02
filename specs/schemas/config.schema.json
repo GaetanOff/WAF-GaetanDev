@@ -744,7 +744,8 @@
         "Baiduspider",
         "facebookexternalhit",
         "LinkedInBot",
-        "Twitterbot"
+        "Twitterbot",
+        "Applebot"
       ]
     },
     "honeypot_paths": {
