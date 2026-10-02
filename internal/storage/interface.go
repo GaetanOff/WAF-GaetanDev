@@ -23,6 +23,9 @@ type VisitorState struct {
 	StickyTrustUntil     *time.Time `json:"sticky_trust_until"`
 	CircuitOpen          bool       `json:"circuit_open"`
 	CircuitOpenUntil     *time.Time `json:"circuit_open_until"`
+	// HoneypotUntil borne le ban d'un visiteur qui a déclenché un honeypot
+	// (FR-07) ; nil : aucun ban.
+	HoneypotUntil *time.Time `json:"honeypot_until"`
 }
 
 type RateBucket struct {

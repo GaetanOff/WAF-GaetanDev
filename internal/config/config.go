@@ -737,12 +737,13 @@ func Default() Config {
 		// /wp-admin et /wp-login.php en étaient, et bannissaient (score 0, 403)
 		// l'administrateur de tout site WordPress protégé avec les défauts.
 		// /wp-config.php, jamais servi par WordPress, reste un piège sûr.
+		// /admin.php, page d'administration de nombreuses applications PHP,
+		// en a été retiré pour la même raison.
 		HoneypotPaths: []string{
 			"/.env",
 			"/wp-config.php",
 			"/.git/config",
 			"/phpinfo.php",
-			"/admin.php",
 		},
 		Logging: Logging{
 			Level:  "info",

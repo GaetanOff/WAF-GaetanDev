@@ -537,3 +537,49 @@ func TestTrustMiddlewareAppliesOnlyDeterministicTriggersToAssets(t *testing.T) {
 		t.Fatalf("X-WAF-Reason = %q, want deterministic_ja3_blacklist", got)
 	}
 }
+
+// FR-07 : le honeypot bannit le visiteur pendant score_ttl, assets compris ;
+// seul le PASS de la whitelist IP lève le ban.
+func TestHoneypotGuardBansForScoreTTL(t *testing.T) {
+	manager, store, clock := newTestManager(t)
+	defer store.Close()
+	visitor := manager.BanHoneypot("9.9.9.9", "example.test")
+	if visitor.Score != 0 || visitor.HoneypotUntil == nil {
+		t.Fatalf("BanHoneypot() = score %d, until %v; want score 0 and a ban", visitor.Score, visitor.HoneypotUntil)
+	}
+	handler := manager.HoneypotGuard(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	serve := func(path string, reason string) *httptest.ResponseRecorder {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test"+path, nil)
+		request.RemoteAddr = "9.9.9.9:1234"
+		if reason != "" {
+			request.Header.Set("X-WAF-Action", "PASS")
+			request.Header.Set("X-WAF-Reason", reason)
+		}
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		return response
+	}
+
+	for path, reason := range map[string]string{"/": "", "/app.js": "static_asset"} {
+		response := serve(path, reason)
+		if response.Code != http.StatusForbidden {
+			t.Fatalf("GET %s while banned: status = %d, want 403", path, response.Code)
+		}
+		if got := response.Header().Get("X-WAF-Reason"); got != ReasonHoneypotBan {
+			t.Fatalf("X-WAF-Reason = %q, want %s", got, ReasonHoneypotBan)
+		}
+		if got := response.Header().Get("X-WAF-Deterministic-Trigger"); got != "honeypot" {
+			t.Fatalf("X-WAF-Deterministic-Trigger = %q, want honeypot", got)
+		}
+	}
+	if response := serve("/", "whitelist"); response.Code != http.StatusNoContent {
+		t.Fatalf("whitelisted IP: status = %d, want 204", response.Code)
+	}
+
+	clock.advance(manager.TTL())
+	if response := serve("/", ""); response.Code != http.StatusNoContent {
+		t.Fatalf("after score_ttl: status = %d, want 204 (ban expired)", response.Code)
+	}
+}

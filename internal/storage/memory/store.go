@@ -378,5 +378,9 @@ func cloneVisitor(visitor storage.VisitorState) *storage.VisitorState {
 		lastViolation := *visitor.LastViolation
 		visitor.LastViolation = &lastViolation
 	}
+	if visitor.HoneypotUntil != nil {
+		honeypotUntil := *visitor.HoneypotUntil
+		visitor.HoneypotUntil = &honeypotUntil
+	}
 	return &visitor
 }

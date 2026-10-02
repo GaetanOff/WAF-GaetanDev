@@ -28,10 +28,12 @@ const (
 	StateBlocked    = "BLOCKED"
 
 	DeltaChallengePassed = 25
-	DeltaNavigation      = 1
 	DeltaRateLimit       = -10
 	DeltaChallengeFailed = -20
-	DeltaHoneypot        = -50
+
+	// ReasonHoneypotBan est la raison des requêtes refusées pendant le ban
+	// d'un honeypot (FR-07). La requête piège elle-même est un HONEYPOT.
+	ReasonHoneypotBan = "honeypot_ban"
 
 	// CriticalScore : sous ce score, un visiteur est « très dangereux » et son
 	// score est partagé avec les autres nœuds (FR-20).
@@ -228,6 +230,51 @@ func (m *ScoreManager) Apply(ip string, domain string, delta int) storage.Visito
 	})
 	m.notifyCritical(before, visitor)
 	return visitor
+}
+
+// BanHoneypot remet le score à 0 et bannit le visiteur pendant scoreTTL
+// (FR-07). Le score seul ne bloquait que via Middleware, que le moteur de
+// risque remplace : le ban ne durait alors qu'une requête.
+func (m *ScoreManager) BanHoneypot(ip string, domain string) storage.VisitorState {
+	before, visitor := m.update(ip, domain, func(visitor *storage.VisitorState, now time.Time) bool {
+		until := now.Add(m.scoreTTL)
+		visitor.Score = 0
+		visitor.HoneypotUntil = &until
+		visitor.LastSeen = now
+		visitor.ExpiresAt = until
+		return true
+	})
+	m.notifyCritical(before, visitor)
+	return visitor
+}
+
+// isHoneypotBanned : le visiteur a déclenché un honeypot il y a moins de
+// scoreTTL.
+func (m *ScoreManager) isHoneypotBanned(visitor *storage.VisitorState) bool {
+	return visitor.HoneypotUntil != nil && visitor.HoneypotUntil.After(m.now())
+}
+
+// HoneypotGuard refuse en 403 toute requête d'un visiteur banni par un
+// honeypot (FR-07), assets statiques compris, quel que soit le moteur de
+// décision et en mode shadow : le ban est un signal déterministe (FR-35).
+// Monté juste après la blacklist, avant le challenge, qui servirait sinon sa
+// page au visiteur banni. Une simple lecture : il ne crée ni ne prolonge
+// aucun visiteur.
+func (m *ScoreManager) HoneypotGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if wafheader.IsFullPass(r.Header) {
+			next.ServeHTTP(w, r)
+			return
+		}
+		if visitor, ok := m.store.GetVisitor(HashIP(cloudflare.RealIP(r))); ok && m.isHoneypotBanned(visitor) {
+			w.Header().Set(headerDeterministicTrigger, "honeypot")
+			w.Header().Set(wafheader.Action, wafheader.ActionBlock)
+			w.Header().Set(wafheader.Reason, ReasonHoneypotBan)
+			http.Error(w, "forbidden", http.StatusForbidden)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 // PenalizeRateLimit applique DeltaRateLimit au plus une fois par

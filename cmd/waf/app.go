@@ -337,7 +337,9 @@ func (a *app) buildProtection() error {
 	if a.rateLimiter, err = ratelimit.New(a.store, scoreManager, cfg); err != nil {
 		return err
 	}
-	a.antiBot = antibot.New(antibot.NewRules(cfg), scoreManager, cfg.RiskEngine.ShadowMode)
+	// shadow_mode est un réglage du moteur de risque : sans lui, le défaut
+	// (true) désactivait tout blocage heuristique de l'anti-bot (FR-07).
+	a.antiBot = antibot.New(antibot.NewRules(cfg), scoreManager, cfg.RiskEngine.Enabled && cfg.RiskEngine.ShadowMode)
 	if a.riskMiddleware, err = risk.NewMiddleware(a.store, scoreManager, cfg); err != nil {
 		return err
 	}

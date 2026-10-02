@@ -141,3 +141,46 @@ func TestAppChallengesAssetFloodUnderAttack(t *testing.T) {
 		t.Fatalf("asset flood under attack: status = %d, action = %q, want the challenge page", last.Code, last.Header().Get("X-WAF-Action"))
 	}
 }
+
+// FR-07 : le honeypot bannit le visiteur sur toutes ses requêtes suivantes,
+// moteur de risque actif (appliqué ou en shadow) : le score remis à 0 ne
+// bloquait que via le trust score, absent avec le moteur.
+func TestAppHoneypotBanOutlivesTheTrapRequest(t *testing.T) {
+	for _, shadow := range []bool{false, true} {
+		upstream := newUpstreamRecorder(t)
+		cfg := testAppConfig(upstream.server.URL)
+		cfg.RiskEngine.ShadowMode = shadow
+		handler := newTestApp(t, cfg)
+
+		trap := serve(handler, edgeRequest(http.MethodGet, "http://example.test/.env", "198.51.100.20"))
+		if trap.Code != http.StatusForbidden || trap.Header().Get("X-WAF-Action") != "HONEYPOT" {
+			t.Fatalf("shadow=%v GET /.env: status = %d, action = %q; want 403 HONEYPOT", shadow, trap.Code, trap.Header().Get("X-WAF-Action"))
+		}
+		for _, target := range []string{"/", "/page", "/app.js", "/waf/verify"} {
+			request := edgeRequest(http.MethodGet, "http://example.test"+target, "198.51.100.20")
+			request.Header.Set("Accept", "text/html")
+			response := serve(handler, request)
+			if response.Code != http.StatusForbidden || response.Header().Get("X-WAF-Reason") != "honeypot_ban" {
+				t.Errorf("shadow=%v GET %s after the trap: status = %d, reason = %q; want 403 honeypot_ban", shadow, target, response.Code, response.Header().Get("X-WAF-Reason"))
+			}
+		}
+		if len(upstream.hits) != 0 {
+			t.Fatalf("shadow=%v: upstream reached %d times, want 0", shadow, len(upstream.hits))
+		}
+	}
+}
+
+// FR-07 : sans moteur de risque, shadow_mode (true par défaut) ne désactive
+// pas les blocages heuristiques de l'anti-bot.
+func TestAppAntiBotBlocksWithoutRiskEngine(t *testing.T) {
+	upstream := newUpstreamRecorder(t)
+	cfg := testAppConfig(upstream.server.URL)
+	cfg.RiskEngine.Enabled = false
+	handler := newTestApp(t, cfg)
+
+	request := edgeRequest(http.MethodGet, "http://example.test/", "198.51.100.21")
+	request.Header.Set("User-Agent", "Mozilla/5.0 Selenium")
+	if response := serve(handler, request); response.Code != http.StatusForbidden {
+		t.Fatalf("automation UA without risk engine: status = %d, want 403", response.Code)
+	}
+}

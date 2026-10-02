@@ -413,6 +413,7 @@ type legacyVisitorState struct {
 	StickyTrustUntil     *time.Time
 	CircuitOpen          bool
 	CircuitOpenUntil     *time.Time
+	HoneypotUntil        *time.Time
 }
 
 // decodeVisitor lit une valeur au contrat snake_case, et à défaut une valeur

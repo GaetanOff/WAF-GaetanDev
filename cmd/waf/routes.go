@@ -62,6 +62,8 @@ func (a *app) routes() http.Handler {
 	proxyHandler = a.rateLimiter.Handler(proxyHandler)
 	proxyHandler = a.challengeMiddleware.Handler(proxyHandler)
 	proxyHandler = a.antiDDoS.Handler(proxyHandler)
+	// Ban honeypot (FR-07) : juste après la blacklist, avant le challenge.
+	proxyHandler = a.scoreManager.HoneypotGuard(proxyHandler)
 	proxyHandler = access.Middleware(a.accessRules, proxyHandler)
 	// Auto-protection (FR-30) : limite le flood de POST /waf/verify par IP.
 	if cfg.SelfProtection.Enabled {

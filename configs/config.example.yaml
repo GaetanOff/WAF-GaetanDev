@@ -358,7 +358,6 @@ honeypot_paths:
   - "/wp-config.php"
   - "/.git/config"
   - "/phpinfo.php"
-  - "/admin.php"
   - "/config.php"
   - "/.htaccess"
   - "/shell.php"

@@ -376,7 +376,7 @@ Le moteur de risque fusionne plusieurs familles de signaux pour calculer un **sc
 |---|---|---|---|
 | `enabled` | bool | `true` | Active le moteur de risque. Si désactivé, seul le système de confiance `trust` est utilisé. |
 | `profile` | string | `"balanced"` | Profil de sensibilité global. `lenient` : moins de faux positifs, moins de protection. `balanced` : équilibre recommandé. `strict` : plus agressif, risque accru de faux positifs. |
-| `shadow_mode` | bool | `true` | **Mode calibration.** Le moteur calcule et journalise ses décisions sans les appliquer. Permet d'observer les faux positifs avant d'activer le blocage réel. **Passer à `false` après au moins 24h d'observation.** |
+| `shadow_mode` | bool | `true` | **Mode calibration.** Le moteur calcule et journalise ses décisions sans les appliquer. Permet d'observer les faux positifs avant d'activer le blocage réel. **Passer à `false` après au moins 24h d'observation.** Il s'applique aussi aux blocages heuristiques de l'anti-bot, mais seulement moteur actif : avec `enabled: false`, il est sans effet. |
 | `block_min_confidence` | float [0–1] | `0.6` | Niveau de confiance minimum (score interne) pour qu'un blocage soit effectif. Évite les blocages sur des signaux trop faibles. |
 | `min_corroborating_families` | int | `2` | Nombre minimum de familles de signaux différentes qui doivent dépasser le seuil pour déclencher une action. Évite de bloquer sur un seul signal isolé. |
 | `family_corroboration_threshold` | int [0–100] | `50` | Score individuel qu'une famille doit dépasser pour être considérée comme « corroborante ». |
@@ -1054,9 +1054,9 @@ honeypot_paths:
   - "/.git/config"
 ```
 
-Chemins qui ne devraient jamais être accédés par un visiteur légitime. Toute requête vers un chemin honeypot (correspondance **exacte** du chemin) déclenche : score de confiance → 0, log d'événement de sécurité, blocage immédiat.
+Chemins qui ne devraient jamais être accédés par un visiteur légitime. Toute requête vers un chemin honeypot (correspondance **exacte** du chemin) déclenche : score de confiance → 0, log d'événement de sécurité (`HONEYPOT`), blocage immédiat, puis **ban** du visiteur pendant `trust.score_ttl` : toutes ses requêtes suivantes, assets compris, reçoivent `403` (`BLOCK`, `reason=honeypot_ban`), avant tout challenge, moteur de risque actif ou non et en mode shadow.
 
-Défaut : `/.env`, `/wp-config.php`, `/.git/config`, `/phpinfo.php`, `/admin.php`.
+Défaut : `/.env`, `/wp-config.php`, `/.git/config`, `/phpinfo.php`. `/admin.php`, page d'administration légitime de nombreuses applications PHP, n'en fait plus partie.
 
 > ⚠ Ne jamais y mettre un chemin que l'application protégée **sert réellement** :
 > le visiteur qui l'atteint est banni. La liste est globale — elle s'applique à
