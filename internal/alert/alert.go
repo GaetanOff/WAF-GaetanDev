@@ -13,14 +13,26 @@ import (
 	"strconv"
 	"sync"
 	"time"
+	"unicode/utf8"
 
+	"github.com/gaetandev/waf/internal/hostname"
 	"github.com/gaetandev/waf/internal/httpbody"
 	"github.com/gaetandev/waf/internal/ttlcache"
 )
 
 // maxCooldownKeys borne le nombre de couples trigger+domaine suivis par le
-// cooldown. Le domaine est le Host de la requête, fourni par le client.
+// cooldown.
 const maxCooldownKeys = 10000
+
+// Limites des messages Discord (embeds) et Slack (FR-29) : un champ qui les
+// dépasse rend le message invalide (400), et l'alerte est perdue.
+const (
+	maxTitleRunes       = 256
+	maxDescriptionRunes = 4096
+	maxFieldNameRunes   = 256
+	maxFieldValueRunes  = 1024
+	maxFooterRunes      = 2048
+)
 
 // Types de webhook supportés.
 const (
@@ -94,6 +106,13 @@ type Observer interface {
 // workers qui lisent ses champs.
 type Option func(*Notifier)
 
+// WithDomains borne le domaine de déduplication aux entrées de domains[] : un
+// Host non déclaré compte sous hostname.Undeclared. Indexé par le Host reçu,
+// le cooldown se contournait en faisant tourner le Host.
+func WithDomains(hosts []string) Option {
+	return func(n *Notifier) { n.domains = hostname.NewDeclared(hosts) }
+}
+
 // WithObserver branche l'observation des livraisons (métriques d'alertes).
 func WithObserver(observer Observer) Option {
 	return func(n *Notifier) { n.observer = observer }
@@ -128,7 +147,9 @@ type Notifier struct {
 	// Host de la requête, des blocages sous des Host aléatoires y ajoutaient
 	// une entrée chacun, pour toujours.
 	lastSent *ttlcache.Cache[string, time.Time]
-	now      func() time.Time
+	// domains borne le domaine de la clé de déduplication (WithDomains).
+	domains hostname.Declared
+	now     func() time.Time
 }
 
 // sinkQueue est la file d'un sink, consommée par son seul worker.
@@ -262,7 +283,7 @@ func (n *Notifier) enqueue(alert Alert) {
 }
 
 func (n *Notifier) allow(alert Alert) bool {
-	key := alert.Trigger + "|" + alert.Domain
+	key := alert.Trigger + "|" + n.domains.Label(alert.Domain)
 	allowed := false
 	n.lastSent.Update(key, func(last time.Time, found bool) time.Time {
 		now := n.now()
@@ -403,14 +424,14 @@ type discordFooter struct {
 func discordEmbedFor(a Alert) discordEmbed {
 	fields := make([]discordField, 0, 6)
 	for _, kv := range a.fields() {
-		fields = append(fields, discordField{Name: kv[0], Value: kv[1], Inline: true})
+		fields = append(fields, discordField{Name: truncate(kv[0], maxFieldNameRunes), Value: truncate(kv[1], maxFieldValueRunes), Inline: true})
 	}
 	return discordEmbed{
-		Title:       a.Title,
-		Description: a.Message,
+		Title:       truncate(a.Title, maxTitleRunes),
+		Description: truncate(a.Message, maxDescriptionRunes),
 		Color:       discordColor(a.Severity),
 		Fields:      fields,
-		Footer:      discordFooter{Text: footerText(a)},
+		Footer:      discordFooter{Text: truncate(footerText(a), maxFooterRunes)},
 		Timestamp:   a.Timestamp,
 	}
 }
@@ -449,14 +470,14 @@ type slackField struct {
 func slackAttachmentFor(a Alert) slackAttachment {
 	fields := make([]slackField, 0, 6)
 	for _, kv := range a.fields() {
-		fields = append(fields, slackField{Title: kv[0], Value: kv[1], Short: true})
+		fields = append(fields, slackField{Title: truncate(kv[0], maxFieldNameRunes), Value: truncate(kv[1], maxFieldValueRunes), Short: true})
 	}
 	return slackAttachment{
 		Color:  slackColor(a.Severity),
-		Title:  a.Title,
-		Text:   a.Message,
+		Title:  truncate(a.Title, maxTitleRunes),
+		Text:   truncate(a.Message, maxDescriptionRunes),
 		Fields: fields,
-		Footer: footerText(a),
+		Footer: truncate(footerText(a), maxFooterRunes),
 	}
 }
 
@@ -492,6 +513,15 @@ func (a Alert) fields() [][2]string {
 	return out
 }
 
+// truncate borne value à maxRunes caractères, ellipse comprise.
+func truncate(value string, maxRunes int) string {
+	if utf8.RuneCountInString(value) <= maxRunes {
+		return value
+	}
+	runes := []rune(value)
+	return string(runes[:maxRunes-1]) + "…"
+}
+
 func footerText(a Alert) string {
 	if a.RequestID != "" {
 		return "WAF GaetanDev • req " + a.RequestID
@@ -525,7 +555,7 @@ func messageFor(ev Event) string {
 	case TriggerCircuitBreaker:
 		return "Trop de violations consécutives : circuit ouvert pour cette IP."
 	case TriggerUnderAttackStart:
-		return "Pression critique : challenge JS forcé pour les requêtes sans clearance (FR-39)."
+		return "Pression au-delà de under_attack.trigger_pressure : challenge JS forcé pour les requêtes sans clearance (FR-39)."
 	case TriggerUnderAttackEnd:
 		return "Pression retombée : sortie du mode sous attaque, challenge forcé désactivé."
 	case TriggerBlock:

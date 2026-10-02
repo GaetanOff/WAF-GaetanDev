@@ -9,6 +9,18 @@ Le schéma JSON (validation) est dans [`specs/schemas/config.schema.json`](specs
 
 ---
 
+## Modification à chaud
+
+La configuration est lue au démarrage. Sans redémarrage, seuls changent :
+
+- `rate_limit`, `trust` (`challenge_threshold`, `block_threshold`) et `challenge` (`enabled`, `pow_difficulty`), par `PATCH /waf/admin/config` ;
+- les listes `whitelist` et `blacklist`, par l'API admin (elles ne survivent pas à un redémarrage) ;
+- les certificats TLS renouvelés sur disque (`server.tls`, `domains[].tls`), réexaminés chaque minute.
+
+Tout autre réglage — dont `rules.file`, `risk_engine` et `domains[]` — demande un redémarrage. `SIGHUP` ne recharge rien.
+
+---
+
 ## Secrets — variables d'environnement
 
 Ne mettez **jamais** de secrets dans `config.yaml`. Fournissez-les via l'environnement :
@@ -52,6 +64,7 @@ server:
   idle_timeout: "60s"
   graceful_shutdown_timeout: "15s"
   max_header_bytes: 65536
+  max_header_value_count: 100
   strict_host: false
 ```
 
@@ -59,10 +72,11 @@ server:
 |---|---|---|---|
 | `listen` | string | — | Adresse d'écoute du port public (trafic entrant depuis Cloudflare). Ex : `":8080"`, `"0.0.0.0:443"`. **Obligatoire.** |
 | `admin_listen` | string | `"127.0.0.1:9090"` | Adresse d'écoute de l'API d'administration (HTTP clair, jeton `Bearer`). **Ne jamais exposer publiquement.** Boucle locale par défaut ; dans un conteneur, la lier explicitement à l'interface du réseau interne (ex. `0.0.0.0:9090` sans publier le port). |
-| `read_timeout` | durée | `"30s"` | Délai max pour lire la requête entière (headers + body). Protège contre les connexions lentes (Slowloris). |
+| `read_timeout` | durée | `"30s"` | Délai max pour lire la requête entière (headers + body). Protège contre les connexions lentes (Slowloris). Un upload plus long que ce délai est coupé : l'augmenter pour une origine qui reçoit de gros fichiers. |
 | `write_timeout` | durée | `"30s"` | Délai max pour envoyer la réponse complète au client, **streaming compris** : un téléchargement ou un flux (SSE, long polling) plus long que ce délai est coupé. L'augmenter pour une origine qui sert de tels contenus. Les WebSockets n'y sont pas soumis (l'échéance est levée à l'upgrade). |
 | `idle_timeout` | durée | `"60s"` | Délai max d'inactivité sur une connexion keep-alive avant fermeture. |
 | `max_header_bytes` | int | `65536` | Taille maximale des en-têtes d'une requête (64 Kio). Au-delà : `431`, avant tout middleware. `0` = défaut Go (1 Mio) ; sinon entre `4096` et `1048576`. |
+| `max_header_value_count` | int | `100` | Nombre maximal de lignes d'en-tête d'une requête, borné avant tout middleware (FR-23). `0` = défaut Go (500) ; entre `0` et `10000`. |
 | `graceful_shutdown_timeout` | durée | `"15s"` | Délai accordé aux connexions en cours pour se terminer proprement lors d'un arrêt (SIGTERM). |
 | `strict_host` | bool | `false` | Répond `400` (`X-WAF-Reason: host_not_declared`) à toute requête dont le `Host` ne correspond à aucune entrée [`domains`](#domains--configuration-par-domaine), `/waf/health` excepté ([ADR-020](specs/decisions/ADR-020-host-header-routing-trust.md)). Exige au moins une entrée `domains[]`. `/waf/metrics` n'est **pas** exempté : un scraper Prometheus doit alors présenter un `Host` déclaré. **Opt-in** : activé, il coupe l'accès par IP. |
 
@@ -100,6 +114,15 @@ sur le même listener.
 pas au certificat fait **échouer le démarrage** du WAF (on ne sert jamais un
 vhost cassé). La métrique `waf_tls_cert_expiry_seconds{domain}` expose la date
 d'expiration (timestamp Unix) de chaque certificat chargé.
+
+**Renouvellement** : les fichiers de certificats sont réexaminés chaque minute.
+Une paire modifiée sur disque (renouvellement certbot, liens symboliques de
+`live/` suivis) est rechargée et servie aux handshakes suivants, sans
+redémarrage ; `waf_tls_cert_expiry_seconds` suit le nouveau certificat. Une
+paire invalide au rechargement (écriture en cours, clé non concordante) est
+ignorée avec un avertissement : le certificat en service est conservé et la
+paire est retentée à la minute suivante. `SIGHUP` ne déclenche pas de
+rechargement.
 
 ---
 
@@ -322,12 +345,13 @@ Chaque visiteur (identifié par le hash de son IP) se voit attribuer un score de
 | Événement | Variation |
 |---|---|
 | Challenge JS réussi | +25 |
-| Navigation normale | +1 par requête |
 | Challenge JS échoué | -20 |
 | Rate limit atteint | -10 |
 | User-agent suspect | -15 |
 | Pattern bot détecté | -30 |
-| Honeypot déclenché | → 0 immédiat |
+| Honeypot déclenché | → 0 immédiat, puis ban pendant `score_ttl` |
+
+La « navigation normale (+1 par requête) » n'existe pas : la confiance croîtrait avec le volume de requêtes, qu'un bot maîtrise.
 
 ---
 
@@ -337,25 +361,11 @@ Chaque visiteur (identifié par le hash de son IP) se voit attribuer un score de
 risk_engine:
   enabled: true
   profile: "balanced"
+  fusion: "diluted"
   shadow_mode: true
-  block_min_confidence: 0.6
-  min_corroborating_families: 2
-  tiers:
-    observe: 25
-    throttle: 45
-    challenge: 65
-    tarpit: 80
-    block: 90
-  weights:
-    reputation: 1.0
-    behavioral: 1.0
-    tls: 0.8
-    fingerprint: 1.0
-    integrity: 1.2
-    rate: 0.6
-    geo: 0.5
-    human_credit: 1.0
-  family_corroboration_threshold: 50
+  # Absents : valeurs du profil. Une clé explicite prime (poids par poids).
+  # tiers: { block: 95 }
+  # weights: { geo: 0 }
   human_credit:
     challenge_passed: -40
     stable_fingerprint: -15
@@ -370,13 +380,28 @@ risk_engine:
 
 Le moteur de risque fusionne plusieurs familles de signaux pour calculer un **score de risque composite** [0–100] et décider d'une action.
 
+`tiers`, `weights`, `block_min_confidence`, `min_corroborating_families` et `family_corroboration_threshold` prennent la valeur du **profil** quand ils sont absents (ou à 0) ; une valeur explicite prime, poids par poids pour `weights`. Les défauts des tableaux ci-dessous sont ceux du profil `balanced`. Ces clés étaient auparavant pré-remplies avec les valeurs `balanced` et écrasaient le profil : `profile: strict` ou `lenient` était sans effet. Une configuration qui les fixe toutes neutralise encore le profil.
+
+| Clé | lenient | balanced | strict |
+|---|---|---|---|
+| `tiers` (observe/throttle/challenge/tarpit/block) | 35/55/75/88/96 | 25/45/65/80/90 | 15/35/55/72/85 |
+| `block_min_confidence` | 0.75 | 0.6 | 0.5 |
+| `family_corroboration_threshold` | 60 | 50 | 45 |
+| `weights` reputation/behavioral/tls/fingerprint/integrity/rate/geo/human_credit | 0.6/0.7/0.5/0.7/0.9/0.3/0.2/3.0 | 1.0/1.0/0.8/1.0/1.2/0.6/0.5/1.0 | 1.8/1.5/1.2/1.5/1.6/1.0/0.8/0.5 |
+
+**Mode de fusion** (`fusion`) :
+
+- `diluted` (défaut, historique) : la somme pondérée est divisée par la somme de **tous** les poids. Sept familles à 100 donnent 86, un scanner réaliste (réputation 60, intégrité 100, rate 80) 32 : un `BLOCK` heuristique est inatteignable avec les paliers par défaut, seuls les déclencheurs déterministes (blacklist, honeypot, JA3, threat intel critique, circuit-breaker) bloquent en pratique.
+- `available` : la somme est divisée par la somme des poids des seules familles qui portent une évidence, et la réputation est neutre au score initial (`(initial_score - score) × 100 / initial_score`) — un nouveau visiteur obtient 0, ce même scanner (trust 30) 74 (`CHALLENGE`). Les heuristiques deviennent effectives : « assets absents » se déclenche dès qu'un CDN met les assets en cache et « intervalles réguliers » touche tout polling d'API. **Activer après au moins 24 h en `shadow_mode: true`**, en observant `waf_decisions_total{tier}`.
+
 ### Options principales
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `true` | Active le moteur de risque. Si désactivé, seul le système de confiance `trust` est utilisé. |
-| `profile` | string | `"balanced"` | Profil de sensibilité global. `lenient` : moins de faux positifs, moins de protection. `balanced` : équilibre recommandé. `strict` : plus agressif, risque accru de faux positifs. |
-| `shadow_mode` | bool | `true` | **Mode calibration.** Le moteur calcule et journalise ses décisions sans les appliquer. Permet d'observer les faux positifs avant d'activer le blocage réel. **Passer à `false` après au moins 24h d'observation.** |
+| `profile` | string | `"balanced"` | Profil de sensibilité global. `lenient` : moins de faux positifs, moins de protection. `balanced` : équilibre recommandé. `strict` : plus agressif, risque accru de faux positifs. Fournit les clés absentes ci-dessous. |
+| `fusion` | string | `"diluted"` | Mode de fusion : `diluted` ou `available` (voir ci-dessus). |
+| `shadow_mode` | bool | `true` | **Mode calibration.** Le moteur calcule et journalise ses décisions sans les appliquer. Permet d'observer les faux positifs avant d'activer le blocage réel. **Passer à `false` après au moins 24h d'observation.** Il s'applique aussi aux blocages heuristiques de l'anti-bot, mais seulement moteur actif : avec `enabled: false`, il est sans effet. |
 | `block_min_confidence` | float [0–1] | `0.6` | Niveau de confiance minimum (score interne) pour qu'un blocage soit effectif. Évite les blocages sur des signaux trop faibles. |
 | `min_corroborating_families` | int | `2` | Nombre minimum de familles de signaux différentes qui doivent dépasser le seuil pour déclencher une action. Évite de bloquer sur un seul signal isolé. |
 | `family_corroboration_threshold` | int [0–100] | `50` | Score individuel qu'une famille doit dépasser pour être considérée comme « corroborante ». |
@@ -414,8 +439,8 @@ Récompense les visiteurs qui prouvent leur nature humaine, en réduisant leur s
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
-| `challenge_passed` | int | `-40` | Réduction du score de risque quand le challenge JS est réussi (valeur négative). |
-| `stable_fingerprint` | int | `-15` | Réduction du score si le fingerprint navigateur est identique entre les sessions. |
+| `challenge_passed` | int [-100–0] | `-40` | Réduction du score de risque quand le challenge JS est réussi (valeur négative). |
+| `stable_fingerprint` | int [-100–0] | `-15` | Réduction du score si le fingerprint navigateur est identique entre les sessions. |
 | `sticky_trust_ttl` | durée | `"30m"` | Durée pendant laquelle le crédit humain est maintenu sans nouvelle preuve. |
 
 ### `risk_engine.verified_bots` — Bots légitimes vérifiés
@@ -447,8 +472,10 @@ Détecte les requêtes malformées ou suspectes : chemins trop longs, bodies tro
 |---|---|---|---|
 | `enabled` | bool | `true` | Active l'analyse d'intégrité. |
 | `max_body_bytes` | int | `10485760` | Taille maximale du body acceptée (en octets). 10 485 760 = 10 MB. Les requêtes plus lourdes reçoivent un HTTP 413. |
-| `max_path_length` | int | `2048` | Longueur maximale du chemin URL (sans la query string). Les chemins plus longs reçoivent un HTTP 414. |
-| `max_query_length` | int | `4096` | Longueur maximale de la query string. |
+| `max_path_length` | int | `2048` | Longueur au-delà de laquelle le chemin URL (sans la query string) est jugé excessif : contribution `integrity` de 25 au moteur de risque, sans refus (aucun 414). |
+| `max_query_length` | int | `4096` | Même seuil pour la query string. |
+
+Les détections (path traversal 60, null byte 60, injection 40, longueur 25 — cumulées, bornées à 100) ne bloquent pas : elles alimentent la famille `integrity` du moteur de risque, et restent sans effet sans lui (`risk_engine.enabled: false`). Seul le body trop lourd est refusé. Les assets statiques ne sont pas analysés.
 
 ---
 
@@ -465,7 +492,7 @@ Analyse les N dernières requêtes d'un visiteur pour détecter des patterns ano
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `true` | Active l'analyse comportementale. |
-| `max_records` | int | `50` | Nombre de requêtes conservées par visiteur pour l'analyse. Plus la valeur est haute, plus la détection est précise mais plus la mémoire consommée est importante. |
+| `max_records` | int [≥ 5] | `50` | Nombre de requêtes conservées par visiteur pour l'analyse. Plus la valeur est haute, plus la détection est précise mais plus la mémoire consommée est importante. Sous 5, aucun score n'est calculé : la valeur est refusée au démarrage. |
 
 ---
 
@@ -490,12 +517,14 @@ Consulte des listes de réputation IP (locales ou via l'API AbuseIPDB) pour enri
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `false` | Active le module threat intel. Nécessite au moins une source (listes locales ou AbuseIPDB). |
-| `cache_ttl` | durée | `"1h"` | Durée de mise en cache des résultats de lookup. Évite de re-interroger la même IP à chaque requête. |
-| `blocklist_cidrs` | liste | `[]` | Plages CIDR considérées comme **malveillantes** → verdict `malicious` → score de risque maximum. |
-| `suspect_cidrs` | liste | `[]` | Plages CIDR considérées comme **suspectes** (Tor, datacenter, VPN) → verdict `suspect` → contribution partielle au score de risque. |
+| `cache_ttl` | durée | `"1h"` | Durée de mise en cache des résultats de lookup. Évite de re-interroger la même IP à chaque requête. Un lookup dont une source n'a pas répondu (erreur, timeout, quota) n'est gardé qu'une minute. |
+| `blocklist_cidrs` | liste | `[]` | Plages CIDR considérées comme **malveillantes** → verdict `malicious` → trust score plafonné à 20. |
+| `suspect_cidrs` | liste | `[]` | Plages CIDR considérées comme **suspectes** (Tor, datacenter, VPN) → verdict `suspect` → trust score plafonné à 35. |
 | `abuseipdb.enabled` | bool | `false` | Active la consultation de l'API AbuseIPDB en complément des listes locales. |
 | `abuseipdb.url` | string | URL AbuseIPDB | URL de l'endpoint AbuseIPDB. Ne pas modifier sauf si vous utilisez un proxy interne. |
 | `abuseipdb.api_key` | string | `""` | Clé API AbuseIPDB. **Préférer la variable d'environnement `WAF_ABUSEIPDB_KEY`.** |
+
+Score AbuseIPDB ≥ 80 : déclencheur déterministe `threat_intel_critical` (403) ; ≥ 50 : trust score plafonné à 20. Le lookup est asynchrone : la première requête d'une IP inconnue est traitée comme « propre ». Un `429` d'AbuseIPDB (quota du plan gratuit : 1 000 requêtes par jour) suspend les appels jusqu'à son `Retry-After` (1 h à défaut, 24 h au plus) ; les plages locales restent évaluées.
 
 ---
 
@@ -504,7 +533,7 @@ Consulte des listes de réputation IP (locales ou via l'API AbuseIPDB) pour enri
 ```yaml
 adaptive:
   enabled: true
-  max_difficulty: 24
+  max_difficulty: 20
   decay_tau: "5m"
 ```
 
@@ -513,7 +542,7 @@ Ajuste dynamiquement la difficulté du challenge Proof-of-Work selon l'intensit�
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `true` | Active l'adaptation automatique de la difficulté PoW. |
-| `max_difficulty` | int [8–32] | `24` | Plafond de bits de difficulté. 24 bits ≈ 3–5 secondes sur un CPU standard. Doit être ≥ `challenge.pow_difficulty`. |
+| `max_difficulty` | int [8–24] | `20` | Plafond de bits de difficulté. Une PoW de `n` bits coûte en moyenne `2ⁿ` hachages SHA-256 : 20 bits ≈ 0,4 s sur un poste récent et 2 à 4 s sur un mobile ; 24 bits ≈ 6,5 s sur poste et 35 à 55 s sur mobile, au-delà de `challenge.token_ttl` (30 s) — les mobiles boucleraient sur `token_expired`. Doit être ≥ `challenge.pow_difficulty`. Une valeur au-delà de 24 est refusée au démarrage. |
 | `decay_tau` | durée | `"5m"` | Constante de temps du retour à la normale (décroissance exponentielle). Avec `5m`, la difficulté revient à ~37% de son pic après 5 minutes. |
 
 ---
@@ -634,9 +663,9 @@ cluster:
   channel: "waf:events"
 ```
 
-Synchronise les décisions (blacklist, ouverture de circuit, score critique) entre plusieurs instances WAF via Redis Pub/Sub, sur la connexion `storage.redis` (quel que soit `storage.backend`).
+Synchronise les décisions (ajouts et retraits de blacklist par l'API admin, ouverture de circuit, score critique) entre plusieurs instances WAF via Redis Pub/Sub, sur la connexion `storage.redis` (quel que soit `storage.backend`).
 
-Chaque événement est signé (HMAC-SHA256, clé dérivée de `challenge.secret_key`) : un message non signé, mal signé ou de type inconnu est ignoré et compté dans `waf_cluster_rejected_events_total`. Tous les nœuds doivent donc partager le même `challenge.secret_key` (`WAF_CHALLENGE_SECRET_KEY`). La signature n'empêche pas le rejeu d'un message capturé : garder Redis sur un réseau privé, avec mot de passe, TLS et une ACL qui réserve `PUBLISH`/`SUBSCRIBE` sur le canal aux nœuds WAF.
+Chaque événement est signé (HMAC-SHA256, clé dérivée de `challenge.secret_key`) : un message non signé, mal signé ou de type inconnu est ignoré et compté dans `waf_cluster_rejected_events_total`. Tous les nœuds doivent donc partager le même `challenge.secret_key` (`WAF_CHALLENGE_SECRET_KEY`). Chaque événement porte aussi son instant d'émission, signé : un événement à plus de 2 minutes de l'horloge du récepteur est ignoré (rejeu d'un message capturé). Les nœuds doivent avoir des horloges synchronisées (NTP) ; pendant une mise à jour progressive, les événements des nœuds pas encore à jour (sans horodatage) sont ignorés. Un rejeu reste possible dans la fenêtre de 2 minutes : garder Redis sur un réseau privé, avec mot de passe, TLS et une ACL qui réserve `PUBLISH`/`SUBSCRIBE` sur le canal aux nœuds WAF. Un retrait reçu d'un autre nœud ne retire qu'une entrée ajoutée à l'exécution : une entrée de `blacklist` dans la configuration du nœud reste en place. Les listes modifiées par l'API admin ne survivent pas à un redémarrage.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
@@ -712,7 +741,7 @@ static_assets:
   exact_paths: ["/favicon.ico", "/robots.txt", "/sitemap.xml"]
 ```
 
-Les requêtes `GET` et `HEAD` vers des assets statiques (CSS, JS, images, fonts…) ne déclenchent pas le challenge JS et n'affectent pas le trust score. Une écriture (`POST`, `PUT`, `PATCH`, `DELETE`) vers un chemin d'asset traverse le pipeline complet : `POST /login.css` n'est pas un asset. Cela évite que la page de challenge elle-même soit bloquée par le WAF. La blacklist et le rate limit s'appliquent toujours : les requêtes d'assets sont comptées dans les buckets de l'IP. Chaque requête bypassée est comptée dans `waf_asset_requests_total{domain}`.
+Les requêtes `GET` et `HEAD` vers des assets statiques (CSS, JS, images, fonts…) ne déclenchent pas le challenge JS proactif et échappent aux décisions heuristiques (trust score, anti-bot, intégrité, score du moteur de risque). Une écriture (`POST`, `PUT`, `PATCH`, `DELETE`) vers un chemin d'asset traverse le pipeline complet : `POST /login.css` n'est pas un asset. Les contrôles déterministes et la défense volumétrique s'appliquent toujours aux assets : blacklist, géo-blocage, règles custom, threat intel, blacklist JA3, ban honeypot, rate limit, comptage de pression anti-DDoS et circuit-breaker. Sous attaque (`antiddos.under_attack`), un asset sans cookie de clearance est challengé comme une page — un navigateur qui a franchi le challenge renvoie son cookie sur chaque asset du domaine. Chaque requête bypassée est comptée dans `waf_asset_requests_total{domain}`.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
@@ -810,14 +839,14 @@ alerting:
     - type: "discord"      # url fournie par WAF_ALERTING_WEBHOOKS_1_URL
 ```
 
-Envoie des notifications vers Slack, Discord ou tout endpoint HTTP générique lors d'événements de sécurité critiques (pression globale critique, IP bloquée, circuit-breaker, honeypot, etc.).
+Envoie des notifications vers Slack, Discord ou tout endpoint HTTP générique lors d'événements de sécurité : requête bloquée (`block`), circuit-breaker ouvert, honeypot, entrée et sortie du mode sous attaque. Les champs des messages Slack et Discord sont tronqués aux limites de ces plateformes (valeur de champ : 1 024 caractères).
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `false` | Active les alertes webhook. **Opt-in.** |
-| `cooldown` | durée | `"5m"` | Délai minimum entre deux alertes identiques (même trigger + même domaine). Évite le flood de notifications. |
+| `cooldown` | durée | `"5m"` | Délai minimum entre deux alertes identiques (même trigger + même domaine). Évite le flood de notifications. Le domaine est borné à `domains[]` : tout Host non déclaré partage la clé `_undeclared`, pour qu'une rotation du Host ne multiplie pas les alertes. Les transitions du mode sous attaque n'y sont pas soumises. |
 | `max_retries` | int | `3` | Nombre de tentatives en cas d'échec d'envoi du webhook. |
-| `webhooks[].type` | string | — | Type de webhook : `"slack"`, `"discord"`, ou `"generic"` (POST JSON brut). |
+| `webhooks[].type` | string | `"generic"` | Type de webhook : `"slack"`, `"discord"`, ou `"generic"` (POST JSON brut, valeur par défaut). Une autre valeur est refusée au démarrage. |
 | `webhooks[].url` | string | — | URL absolue du webhook, requise quand `enabled`. Elle porte le jeton d'accès : **préférer `WAF_ALERTING_WEBHOOKS_<i>_URL`**. |
 
 ---
@@ -1041,6 +1070,8 @@ User-agents de bots légitimes **exemptés du challenge JS proactif** (un crawle
 
 L'exemption consulte `risk_engine.verified_bots` : un crawler démasqué (reverse-DNS non conforme) n'en bénéficie pas, et **en mode sous attaque** (`antiddos.under_attack`) seul un crawler **vérifié** par reverse-DNS en bénéficie — un User-Agent non vérifiable (facebookexternalhit, LinkedInBot, Twitterbot…) reçoit alors le challenge.
 
+Défaut : `Googlebot`, `Bingbot`, `Slurp`, `DuckDuckBot`, `Baiduspider`, `facebookexternalhit`, `LinkedInBot`, `Twitterbot`, `Applebot`. Chaque crawler de `risk_engine.verified_bots.crawlers` doit y figurer : un crawler vérifiable absent de cette liste est challengé sous attaque, même vérifié. Une liste explicite remplace la liste par défaut.
+
 Ce n'est **pas** un bypass : un `User-Agent` se forge. La blacklist, l'anti-DDoS, le rate limiting et le moteur de risque s'appliquent. Un faux crawler démasqué par `risk_engine.verified_bots` (reverse-DNS) voit sa réputation dégradée et reçoit le challenge ou le blocage que décide le moteur ; un crawler vérifié est autorisé (`ALLOW`). Pour un bypass total, utiliser `whitelist` (IP ou CIDR).
 
 ---
@@ -1054,9 +1085,9 @@ honeypot_paths:
   - "/.git/config"
 ```
 
-Chemins qui ne devraient jamais être accédés par un visiteur légitime. Toute requête vers un chemin honeypot (correspondance **exacte** du chemin) déclenche : score de confiance → 0, log d'événement de sécurité, blocage immédiat.
+Chemins qui ne devraient jamais être accédés par un visiteur légitime. Toute requête vers un chemin honeypot (correspondance **exacte** du chemin) déclenche : score de confiance → 0, log d'événement de sécurité (`HONEYPOT`), blocage immédiat, puis **ban** du visiteur pendant `trust.score_ttl` : toutes ses requêtes suivantes, assets compris, reçoivent `403` (`BLOCK`, `reason=honeypot_ban`), avant tout challenge, moteur de risque actif ou non et en mode shadow.
 
-Défaut : `/.env`, `/wp-config.php`, `/.git/config`, `/phpinfo.php`, `/admin.php`.
+Défaut : `/.env`, `/wp-config.php`, `/.git/config`, `/phpinfo.php`. `/admin.php`, page d'administration légitime de nombreuses applications PHP, n'en fait plus partie.
 
 > ⚠ Ne jamais y mettre un chemin que l'application protégée **sert réellement** :
 > le visiteur qui l'atteint est banni. La liste est globale — elle s'applique à

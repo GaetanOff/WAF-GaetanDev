@@ -91,6 +91,11 @@
       "type": ["string", "null"],
       "format": "date-time",
       "description": "Date jusqu'à laquelle le circuit-breaker reste ouvert"
+    },
+    "honeypot_until": {
+      "type": ["string", "null"],
+      "format": "date-time",
+      "description": "Date jusqu'à laquelle le visiteur reste banni après avoir déclenché un honeypot (FR-07) : déclenchement + trust.score_ttl. Absent ou null : aucun ban"
     }
   }
 }

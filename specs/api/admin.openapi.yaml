@@ -8,7 +8,7 @@ info:
     Ne jamais exposer ce port publiquement.
     Tout corps de requête est borné à 64 Kio : au-delà, le décodage échoue et
     l'opération répond son 400.
-  version: 1.4.2
+  version: 1.5.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -277,7 +277,9 @@ components:
       description: >-
         IP verrouillée après self_protection.admin_max_failures échecs
         d'authentification (FR-30), pendant self_protection.admin_lockout,
-        token valide compris.
+        token valide compris. Retry-After vaut les secondes restantes avant la
+        fin du verrouillage (au plus admin_lockout) : il valait 300 quel que
+        soit admin_lockout.
       headers:
         Retry-After:
           $ref: "#/components/headers/RetryAfter"
@@ -375,7 +377,9 @@ paths:
       operationId: getConfig
       summary: Récupérer la configuration active
       description: >-
-        Retourne la configuration courante du WAF, secrets masqués par "***" :
+        Retourne la configuration courante du WAF, sous les clés snake_case
+        de config.schema.json (les clés Go en PascalCase, « Token », étaient
+        rendues faute de balises JSON), secrets masqués par "***" :
         challenge.secret_key, admin.token, metrics.auth_token,
         origin_protection.secret, threat_intel.abuseipdb.api_key,
         storage.redis.password et alerting.webhooks[].url (une URL de webhook

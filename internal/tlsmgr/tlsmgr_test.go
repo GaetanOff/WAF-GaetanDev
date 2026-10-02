@@ -272,3 +272,64 @@ func TestNewRejectsUnknownCipherSuite(t *testing.T) {
 		t.Fatal("expected New() to reject an unknown cipher suite")
 	}
 }
+
+// touch avance la date de modification : deux écritures dans la même seconde
+// garderaient sinon la même date sur certains systèmes de fichiers.
+func touch(t *testing.T, at time.Time, files ...string) {
+	t.Helper()
+	for _, file := range files {
+		if err := os.Chtimes(file, at, at); err != nil {
+			t.Fatalf("chtimes %s: %v", file, err)
+		}
+	}
+}
+
+// FR-40 : une paire renouvelée sur disque est servie sans redémarrage ; une
+// paire invalide garde le certificat en service et est retentée.
+func TestReloadServesRenewedCertificateAndKeepsItOnInvalidPair(t *testing.T) {
+	dir := t.TempDir()
+	certFile, keyFile := writeCertPair(t, dir, "alpha", "alpha.example.com")
+	mgr, err := New(baseConfig(
+		config.DomainConfig{Host: "alpha.example.com", Upstream: "http://a", TLS: &config.DomainTLS{CertFile: certFile, KeyFile: keyFile}},
+	))
+	if err != nil {
+		t.Fatalf("New() error = %v", err)
+	}
+	served := func() []byte {
+		cert, err := mgr.getCertificate(&tls.ClientHelloInfo{ServerName: "alpha.example.com"})
+		if err != nil {
+			t.Fatalf("getCertificate() error = %v", err)
+		}
+		return cert.Leaf.Raw
+	}
+	original := served()
+
+	if reloaded, err := mgr.Reload(); reloaded || err != nil {
+		t.Fatalf("Reload() without change = %v, %v; want false, nil", reloaded, err)
+	}
+
+	writeCertPair(t, dir, "alpha", "alpha.example.com")
+	touch(t, time.Now().Add(time.Minute), certFile, keyFile)
+	if reloaded, err := mgr.Reload(); !reloaded || err != nil {
+		t.Fatalf("Reload() after renewal = %v, %v; want true, nil", reloaded, err)
+	}
+	renewed := served()
+	if string(renewed) == string(original) {
+		t.Fatal("the renewed certificate is not served")
+	}
+
+	otherKey, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
+	otherDER, _ := x509.MarshalECPrivateKey(otherKey)
+	if err := os.WriteFile(keyFile, pem.EncodeToMemory(&pem.Block{Type: "EC PRIVATE KEY", Bytes: otherDER}), 0o600); err != nil {
+		t.Fatalf("write mismatched key: %v", err)
+	}
+	touch(t, time.Now().Add(2*time.Minute), keyFile)
+	for range 2 { // retentée à chaque tour tant qu'elle reste invalide
+		if reloaded, err := mgr.Reload(); reloaded || err == nil {
+			t.Fatalf("Reload() with a mismatched key = %v, %v; want false and an error", reloaded, err)
+		}
+		if string(served()) != string(renewed) {
+			t.Fatal("an invalid pair replaced the certificate in service")
+		}
+	}
+}

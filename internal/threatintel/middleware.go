@@ -34,7 +34,8 @@ func NewMiddleware(checker *Checker, scores *trust.ScoreManager) Middleware {
 
 func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get(wafheader.Action) == wafheader.ActionPass {
+		// La réputation s'applique aux assets statiques (FR-24).
+		if wafheader.IsFullPass(r.Header) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -49,10 +50,10 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			}
 		case LevelMalicious:
 			m.applyCeiling(ip, r.Host, ceilingMalicious)
-			r.Header.Set(headerReason, reasonOr(verdict, "threat_intel_malicious"))
+			setReason(r, reasonOr(verdict, "threat_intel_malicious"))
 		case LevelSuspect:
 			m.applyCeiling(ip, r.Host, ceilingSuspect)
-			r.Header.Set(headerReason, reasonOr(verdict, "threat_intel_suspect"))
+			setReason(r, reasonOr(verdict, "threat_intel_suspect"))
 		}
 
 		next.ServeHTTP(w, r)
@@ -74,4 +75,14 @@ func reasonOr(verdict Verdict, fallback string) string {
 		return verdict.Reason
 	}
 	return fallback
+}
+
+// setReason publie la raison de la réputation, sauf sur un asset statique :
+// remplacer sa raison static_asset en ferait un PASS de whitelist IP, que les
+// middlewares suivants honorent sans réserve (FR-24).
+func setReason(r *http.Request, reason string) {
+	if wafheader.IsAssetPass(r.Header) {
+		return
+	}
+	r.Header.Set(headerReason, reason)
 }

@@ -54,11 +54,12 @@ func (h *Handler) WithPool(pool *upstream.Pool, tlsVerify bool, maxIdleConns int
 		proxy := newReverseProxy(target, tlsVerify, maxIdleConns, timeout, preserveHost)
 		member := u
 		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-			// Failover : exclure dès l'échec de l'upstream. Un client parti
-			// (context.Canceled) n'en est pas un : une seule annulation retirait
-			// le membre, et un pool d'un membre répondait « no healthy upstream »
-			// à tous jusqu'aux sondes suivantes.
-			if !isClientCancellation(r, err) {
+			// Failover : exclure dès l'échec de connexion à l'upstream. Un délai
+			// de réponse ou une coupure après connexion n'en est pas un, ni un
+			// client parti (context.Canceled) : une seule requête lente
+			// retirait le membre, et un pool d'un membre répondait « no healthy
+			// upstream » à tous jusqu'aux sondes suivantes (FR-25).
+			if isConnectFailure(err) && !isClientCancellation(r, err) {
 				member.SetHealthy(false)
 			}
 			logUpstreamError(r, target, err)
@@ -198,12 +199,14 @@ func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout 
 	proxy := &httputil.ReverseProxy{BufferPool: sharedBuffers}
 	// Rewrite remplace Director (déprécié depuis Go 1.26). SetURL route vers
 	// l'upstream (scheme/host/path) et fixe l'hôte sortant ; SetXForwarded
-	// préserve les en-têtes X-Forwarded-* que l'ancien director ajoutait.
+	// pose les X-Forwarded-* que l'ancien director ajoutait, mais d'après la
+	// connexion reçue : derrière Cloudflare, celle du point de présence.
 	proxy.Rewrite = func(pr *httputil.ProxyRequest) {
 		clientIP := realIP(pr.In)
 		inHost := pr.In.Host
 		pr.SetURL(target)
 		pr.SetXForwarded()
+		setClientForwarding(pr, clientIP)
 		// Par défaut, l'hôte sortant est celui de l'upstream. Avec preserveHost,
 		// on conserve le Host entrant pour que l'upstream route par vhost.
 		if preserveHost {
@@ -245,6 +248,21 @@ func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout 
 	}
 
 	return proxy
+}
+
+// setClientForwarding rapporte à l'upstream le client et non la connexion
+// reçue (FR-01) : X-Forwarded-For valait l'IP du point de présence Cloudflare,
+// et une origine en « real_ip_header X-Forwarded-For » attribuait tout le
+// trafic à Cloudflare ; X-Forwarded-Proto valait http pour un client en HTTPS
+// derrière Cloudflare. Tout X-Forwarded-For reçu est remplacé.
+func setClientForwarding(pr *httputil.ProxyRequest, clientIP string) {
+	pr.Out.Header.Set("X-Forwarded-For", clientIP)
+	if pr.In.TLS != nil {
+		return
+	}
+	if scheme := cloudflare.VisitorScheme(pr.In); scheme != "" {
+		pr.Out.Header.Set("X-Forwarded-Proto", scheme)
+	}
 }
 
 // forwardedInternalHeaders sont les seuls en-têtes internes transmis à
@@ -290,6 +308,14 @@ func logUpstreamError(r *http.Request, target *url.URL, err error) {
 		return
 	}
 	slog.Warn("upstream request failed", "upstream", target.Host, "method", r.Method, "path", r.URL.Path, "error", err)
+}
+
+// isConnectFailure : l'upstream n'a pas pu être joint (connexion refusée,
+// hôte injoignable, délai de connexion). Le transport rend alors une
+// *net.OpError d'opération « dial ».
+func isConnectFailure(err error) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == "dial"
 }
 
 // isClientCancellation indique que l'échec vient du départ du client, pas de

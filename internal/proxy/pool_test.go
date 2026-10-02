@@ -63,3 +63,34 @@ func TestPoolMarksMemberUnhealthyOnConnectionError(t *testing.T) {
 		t.Fatal("a refused connection must take the member out of service")
 	}
 }
+
+// FR-25 : un délai de réponse dépassé n'est pas un échec de connexion. Une
+// seule requête lente retirait le membre, et un pool d'un membre répondait
+// « no healthy upstream » à tous.
+func TestPoolKeepsMemberHealthyOnResponseTimeout(t *testing.T) {
+	release := make(chan struct{})
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		select {
+		case <-release:
+		case <-r.Context().Done():
+		}
+	}))
+	t.Cleanup(origin.Close)
+	t.Cleanup(func() { close(release) })
+	handler := newTestHandler(t, origin.URL, nil)
+	member := &upstream.Upstream{Address: origin.URL}
+	pool := upstream.NewPool(upstream.StrategyRoundRobin, []*upstream.Upstream{member})
+	if err := handler.WithPool(pool, false, 10, 100*time.Millisecond, false); err != nil {
+		t.Fatalf("WithPool() error = %v", err)
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "http://example.test/slow", nil))
+
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status = %d, want 502", response.Code)
+	}
+	if !member.Healthy() {
+		t.Fatal("a response timeout marked the upstream unhealthy")
+	}
+}

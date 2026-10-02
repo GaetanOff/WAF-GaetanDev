@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 2.8.0
-last-reviewed: 2026-10-01
+version: 2.10.3
+last-reviewed: 2026-10-02
 reviewed-by: GaetanDev
-extends: requirements.md (v2.0.0)
-change: "FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de challenge.secret_key, exigé avec cluster.enabled) ; messages non signés, invalides ou de type inconnu ignorés et comptés dans waf_cluster_rejected_events_total. Précédent (2.7.1) — FR-20 : réaligné sur le code — canal unique cluster.channel, métrique waf_cluster_sync_events_total{type} ; publication de la pression (degraded_mode) et waf_cluster_lag_seconds différés. Précédent (2.7.0) — FR-14 : la difficulté décroît dans le câblage réel (la pression publiée à chaque requête ne réarme plus l'horloge) ; baseline de l'AII fonction du temps (1 h), plus du nombre de challenges servis. Précédent (2.6.1) — FR-16 : avertissement au démarrage quand geo.challenge_countries est inerte faute de moteur de risque. Précédent (2.6.0) — FR-14 : anti-rétrogradation spécifiée en `invalid_pow`, plancher de pression précisé, message de page, métrique d'intensité et baseline 24 h marqués différés. Précédent (2.5.5) — FR-13 : paliers AbuseIPDB réalignés sur le vérificateur (≥ 80 déclencheur threat_intel_critical, ≥ 50 trust score plafonné à 20), plages locales et échec de source spécifiés. Précédent (2.5.4) — FR-16 : exigences réalignées sur le bloc `geo` implémenté, rate limit et score par pays, règles par domaine et métriques par pays marqués différés. Précédent (2.5.3) — FR-11 : sans moteur de risque, le middleware de trust score applique le déclencheur `ja3_blacklist` (403) — la blacklist JA3 était sans effet. Précédent (2.5.2) — FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par le moteur de risque, FR-35), la clause « score -= 40 et challenge immédiat » antérieure au moteur est retirée. Précédent (2.5.1) — FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
+extends: requirements.md (v2.8.6)
+change: "FR-11 : réaligné — JA3 du ClientHello et API ja3-blacklist différés, dernier JA3 retenu en cache (24 h), swap = contribution tls 50. FR-12 : réaligné sur les cinq signaux implémentés (30/25/25/20/20), score publié au moteur de risque sans delta de trust. ADR-006/008/009/010 amendées. Précédent (2.10.2) — FR-18 : réaligné sur le code — contributions integrity 60/60/40/25 (traversal, null byte, injection, longueur), sans blocage ni delta de trust ; 413 sur body trop grand ; 400/414, normalisation et contrôle du Content-Type différés. Précédent (2.10.1) — FR-12 : behavioral.max_records ≥ 5. FR-17 : une règle sans name ou sans condition, une condition header/query_param sans name sont refusées au chargement. Précédent (2.10.0) — FR-20 : retraits de blacklist admin propagés (blacklist_remove) ; événements horodatés (ts signé), ignorés à plus de 2 minutes de l'horloge du récepteur (rejeu). Précédent (2.9.1) — FR-13 : un verdict propre obtenu sur source indisponible n'est mis en cache qu'une minute (et non cache_ttl) ; un 429 d'AbuseIPDB suspend les appels jusqu'à Retry-After. Précédent (2.9.0) — FR-14 : plafond adaptive.max_difficulty abaissé à 20 bits par défaut et borné à 24 (32 auparavant) — à 24 bits, un mobile dépassait le token_ttl de 30 s sous pression critique. Précédent (2.8.0) — FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de challenge.secret_key, exigé avec cluster.enabled) ; messages non signés, invalides ou de type inconnu ignorés et comptés dans waf_cluster_rejected_events_total. Précédent (2.7.1) — FR-20 : réaligné sur le code — canal unique cluster.channel, métrique waf_cluster_sync_events_total{type} ; publication de la pression (degraded_mode) et waf_cluster_lag_seconds différés. Précédent (2.7.0) — FR-14 : la difficulté décroît dans le câblage réel (la pression publiée à chaque requête ne réarme plus l'horloge) ; baseline de l'AII fonction du temps (1 h), plus du nombre de challenges servis. Précédent (2.6.1) — FR-16 : avertissement au démarrage quand geo.challenge_countries est inerte faute de moteur de risque. Précédent (2.6.0) — FR-14 : anti-rétrogradation spécifiée en `invalid_pow`, plancher de pression précisé, message de page, métrique d'intensité et baseline 24 h marqués différés. Précédent (2.5.5) — FR-13 : paliers AbuseIPDB réalignés sur le vérificateur (≥ 80 déclencheur threat_intel_critical, ≥ 50 trust score plafonné à 20), plages locales et échec de source spécifiés. Précédent (2.5.4) — FR-16 : exigences réalignées sur le bloc `geo` implémenté, rate limit et score par pays, règles par domaine et métriques par pays marqués différés. Précédent (2.5.3) — FR-11 : sans moteur de risque, le middleware de trust score applique le déclencheur `ja3_blacklist` (403) — la blacklist JA3 était sans effet. Précédent (2.5.2) — FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par le moteur de risque, FR-35), la clause « score -= 40 et challenge immédiat » antérieure au moteur est retirée. Précédent (2.5.1) — FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)
@@ -16,29 +16,31 @@ change: "FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de ch
 
 ## FR-11 — TLS / JA3 Fingerprinting
 
-- Le WAF DOIT calculer le hash JA3 du ClientHello TLS quand il termine lui-même le TLS (mode direct)
+- **Différé** : calcul du hash JA3 depuis le ClientHello quand le WAF termine lui-même le TLS (mode direct) ; seul l'en-tête Cloudflare est lu aujourd'hui
 - Le WAF DOIT lire le header `Cf-Bot-Management-Ja3Hash` quand disponible (Cloudflare Bot Management)
 - Le WAF DOIT maintenir une liste de hashes JA3 connus malveillants (configurable)
-- Le WAF DOIT stocker le JA3 dans le `VisitorProfile` pour détection d'incohérence entre sessions
+- Le WAF DOIT retenir le dernier JA3 de chaque visiteur (cache mémoire borné à `trust.max_visitors`, 24 h) pour détecter une incohérence entre sessions ; le `VisitorProfile` n'est pas étendu
 - Un hash JA3 en blacklist DOIT être déclaré **déclencheur déterministe** `ja3_blacklist` (requirements-detection FR-35, ADR-015) : le moteur de risque le bloque (HTTP 403) sans exigence de corroboration, et la raison journalisée est `ja3_blacklisted`. Aucun delta de trust score n'est appliqué. Cette clause remplace « score -= 40 et challenge immédiat », antérieure au moteur de risque
 - En `risk_engine.shadow_mode`, la décision BLOCK du moteur est journalisée sans être appliquée. Sans moteur (`risk_engine.enabled: false`), le middleware de trust score applique lui-même le déclencheur (HTTP 403) : une blacklist JA3 configurée n'est jamais sans effet
-- Le WAF DEVRAIT détecter les changements de JA3 pour un même visiteur entre sessions (fingerprint swap = suspicieux)
+- Le WAF DOIT détecter les changements de JA3 pour un même visiteur (fingerprint swap = suspicieux) : contribution `tls` de `tls_fingerprint.swap_contribution` (défaut 50) au moteur de risque, raison `ja3_swap`, sans delta de trust score
+- **Différé** : gestion de la blacklist JA3 par l'API admin (`/waf/admin/ja3-blacklist`) ; elle est lue au démarrage dans `tls_fingerprint.ja3_blacklist`
 - La collecte JA3 DOIT être optionnelle et désactivable (mode Cloudflare sans Bot Management)
 
 ## FR-12 — Behavioral Sequence Analysis
 
-- Le WAF DOIT enregistrer les N dernières requêtes de chaque visiteur (path + timestamp) — configurable, défaut N=50
-- Le WAF DOIT calculer en continu un **Behavioral Anomaly Score** (0=humain, 100=bot) basé sur :
-  - **Uniformité temporelle** : écart-type des intervalles inter-requêtes < seuil → bot (humains ont des intervalles variables)
-  - **Répétition de paths** : même path > K fois consécutives → crawler
-  - **Vélocité de découverte** : > M paths uniques en < T secondes → crawler
-  - **Ordre alphabétique** : séquence de paths triés → crawler systématique
-  - **Absence de assets** : requêtes HTML sans requêtes CSS/JS/images associées → headless
-  - **Profondeur de navigation** : visite directe de pages profondes sans passer par l'accueil → scraper
-- Le Behavioral Anomaly Score DOIT influer sur le Trust Score global (anomaly > 70 → delta -20)
-- Le WAF DOIT détecter le pattern "crawl burst" : période de requêtes intenses suivie de silence
+- Le WAF DOIT enregistrer les N dernières requêtes de chaque visiteur (path + timestamp) — configurable, défaut N=50, au moins 5 (`behavioral.max_records`, refusé au démarrage en dessous : sous 5 pages aucun score n'est calculé)
+- Le WAF DOIT calculer un **Behavioral Anomaly Score** [0..100] (0 = humain, 100 = bot) sur les pages du visiteur (les assets, enregistrés, n'entrent que dans le signal d'absence d'assets) ; sous 5 pages, le score vaut 0. Signaux et contributions, sommées et bornées à 100 :
+  - **Uniformité temporelle** : coefficient de variation des intervalles entre pages < 0,1 (au moins 3 intervalles), ou pages simultanées → **30**
+  - **Répétition de paths** : même path plus de 10 fois consécutives → **25**
+  - **Vélocité de découverte** : au moins 20 paths uniques en moins de 5 s → **25**
+  - **Absence d'assets** : au moins 5 pages sans aucune requête d'asset → **20**
+  - **Ordre alphabétique** : au moins 5 paths uniques visités dans l'ordre lexicographique → **20**
+- Le score DOIT être publié comme contribution de la famille `behavioral` du moteur de risque (FR-33), calculé hors du chemin de requête (file bornée de 1 024 événements, événement abandonné et compté dans `waf_behavioral_events_dropped_total` quand elle est pleine) : la requête courante porte le score de l'analyse précédente. Il n'agit PAS sur le trust score, et reste sans effet sans moteur de risque
+- Le profil d'un visiteur est oublié après 30 min d'inactivité ; au plus `trust.max_visitors` profils sont tenus
+- Faux positifs connus, à calibrer en `shadow_mode` avant le mode de fusion `available` (FR-33) : l'absence d'assets se déclenche quand un CDN sert les assets depuis son cache, et l'uniformité temporelle sur tout polling d'API
 - **Différé** (non implémenté) : signaux « profondeur de navigation » et « crawl
-  burst » ; exposition du profil détaillé décrit par
+  burst » ; delta de trust score sur anomalie (> 70 → -20) ; classification
+  (`likely_bot`) ; exposition du profil détaillé décrit par
   `schemas/behavioral-profile.schema.json` (statut draft) — le détecteur ne
   publie aujourd'hui qu'un score, consommé par le moteur de risque
 
@@ -53,8 +55,16 @@ change: "FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de ch
     (suspect, plafond 35)
   - Une erreur ou un timeout de l'API vaut verdict « propre » : le WAF ne bloque
     jamais sur l'indisponibilité d'une source
-  - Cache des résultats avec TTL configurable (défaut 1h)
-  - Quota API respecté (max 1000 req/jour gratuit)
+  - Cache des résultats avec TTL configurable (défaut 1h). Un verdict « propre »
+    obtenu alors qu'une source était **indisponible** (erreur réseau, timeout,
+    statut ≠ 200, réponse illisible) n'est mis en cache qu'**une minute**, pour
+    que l'IP soit réévaluée : il était gardé `cache_ttl`, et un timeout ou un
+    quota épuisé blanchissait l'IP pendant une heure
+  - Quota API respecté (max 1000 req/jour gratuit) : un `429` de l'API
+    **suspend** les appels jusqu'à son `Retry-After` (défaut 1 h, plafonné à
+    24 h) ; pendant la suspension, seules les plages locales sont évaluées, sans
+    requête réseau. Un flood distribué épuisait le quota, et chaque nouvelle IP
+    continuait d'interroger l'API pour recevoir un `429`
 - Le WAF DOIT maintenir une liste auto-mise-à-jour des **Tor exit nodes** (depuis https://check.torproject.org/torbulkexitlist)
   - IP Tor détectée → Trust Score delta -25
 - Le WAF DOIT supporter une base de données **ASN** pour détecter les ranges datacenter/VPN/hosting
@@ -78,7 +88,8 @@ change: "FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de ch
 - La difficulté DOIT être calculée par une fonction de l'indicateur d'attaque global :
   - **Niveau Normal** (trafic < 110% baseline) : difficulté = `challenge.pow_difficulty` (valeur config)
   - **Niveau Élevé** (trafic 110-200% baseline) : difficulté += 4 bits
-  - **Niveau Critique** (trafic > 200% baseline) : difficulté += 8 bits (max configurable, défaut 24)
+  - **Niveau Critique** (trafic > 200% baseline) : difficulté += 8 bits, dans la limite de `adaptive.max_difficulty`
+- Le plafond `adaptive.max_difficulty` vaut **20** par défaut et NE DOIT PAS dépasser **24** (borne de `challenge.pow_difficulty`). Une PoW de `n` bits coûte en moyenne `2ⁿ` hachages SHA-256, sur le thread du navigateur : à 24 bits (16 + 8 sous pression critique, l'ancien défaut), ≈ 6,5 s sur un poste récent (2,6 M hash/s) et 35 à 55 s sur un téléphone moyen, au-delà du `challenge.token_ttl` de 30 s. Les visiteurs mobiles bouclaient sur `token_expired` précisément sous attaque. À 20 bits, ≈ 0,4 s sur poste et 2 à 4 s sur mobile. L'ancienne borne (32 bits, ≈ 30 min sur poste) rendait le challenge insoluble
 - La difficulté DOIT revenir progressivement au niveau normal après la fin de l'attaque (décroissance exponentielle sur 5 min). La décroissance DOIT tenir dans le câblage réel, où la pression (FR-08) est publiée à chaque requête : cette publication faisait repartir l'horloge de décroissance sans rien décroître, et la difficulté restait au maximum tant que le trafic continuait
 - La **baseline** de l'AII DOIT suivre le **temps écoulé**, pas le nombre de challenges servis : moyenne du débit par seconde, cumulée pendant la première heure puis exponentielle de constante de temps 1 h, les secondes sans requête comptant pour 0. Mise à jour à chaque calcul de difficulté (α = 0,05), elle rejoignait un flood de 500 req/s en une dizaine de secondes et annulait la difficulté ajoutée pendant l'attaque même. Tant qu'elle résume moins de 10 s, l'AII n'ajoute aucun bit (le plancher de pression s'applique)
 - La difficulté courante DOIT être exposée dans les métriques Prometheus (`waf_challenge_pow_difficulty`)
@@ -154,8 +165,11 @@ change: "FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de ch
   - `log` : poser la raison journalisée (`value`)
 - Le chargement DOIT échouer (fail-fast) sur un champ, un opérateur ou une
   action non supportés, sur une règle sans action, sur un `add_header` sans
-  nom d'en-tête valide, et sur toute clé YAML
-  inconnue : une règle partiellement comprise ne DOIT jamais être chargée
+  nom d'en-tête valide, sur une règle sans `name` ou sans condition, sur une
+  condition `header` ou `query_param` sans `name`, et sur toute clé YAML
+  inconnue : une règle partiellement comprise ne DOIT jamais être chargée. Une
+  règle sans condition ne matchait jamais, en silence ; une condition `header`
+  sans nom lisait l'en-tête vide (`rule.schema.json` les exigeait déjà)
 - **Différé** (spécifié, non implémenté — `rules-engine.feature`, scénarios
   `@deferred`) : groupes OR/NOT ; conditions `in_asn`, `ja3_hash`,
   `behavioral_score`, `hour_of_day` ; actions `challenge`, `rate_limit`,
@@ -179,17 +193,37 @@ change: "FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de ch
 
 ## FR-18 — Analyse d'Intégrité des Requêtes
 
-- Le WAF DOIT normaliser les paths HTTP et détecter les tentatives d'obfuscation :
-  - Path traversal : `../`, `%2e%2e`, `%2f`, double-encoding
-  - Null bytes : `%00` dans le path ou query string
-  - Excessive longueur : path > 2048 chars ou query string > 4096 chars
-- Le WAF DOIT détecter les patterns d'injection dans les query parameters :
-  - SQL keywords patterns (SELECT, UNION, DROP, etc.) dans les params
-  - Script injection patterns (`<script>`, `javascript:`, `onerror=`)
-  - Note : ces détections contribuent au score (delta -30) mais ne bloquent pas directement (laisser l'app décider)
-- Le WAF DOIT valider le header `Content-Type` sur les requêtes POST/PUT/PATCH :
-  - Mismatch entre Content-Type déclaré et body réel → log event
-- Le WAF DOIT limiter la taille du body des requêtes (configurable, défaut 10 MB)
+> Réaligné sur le code (2026-10-02) : la version précédente annonçait des refus
+> `400`/`414`, un delta de trust score -30, une normalisation du chemin et un
+> contrôle du `Content-Type` qui n'existent pas.
+
+- Le WAF DOIT détecter, sur le chemin et la query string bruts puis sur chacune
+  de leurs formes décodées (jusqu'à 3 décodages URL, double-encodage compris) :
+  - Path traversal (`../`, `..\`, `%2e%2e`…) → contribution `integrity` **60**,
+    raison `path_traversal`
+  - Null byte (`%00`) → contribution **60**, raison `null_byte`
+  - Patterns d'injection SQL (`union select`, quote suivie de `--`, `or 1=1`…)
+    ou de script (`<script`, `javascript:`, `onerror=`) → contribution **40**,
+    raison `injection_pattern`. Les sous-chaînes isolées (`--`, `select `, `/*`)
+    ne sont PAS retenues (faux positifs sur des URL légitimes)
+  - Longueur excessive : chemin > `integrity.max_path_length` (2048) ou query
+    > `integrity.max_query_length` (4096) → contribution **25**, raison
+    `excessive_length`
+  - Les contributions se cumulent, bornées à 100 ; la première raison est
+    journalisée si aucune autre n'est déjà posée
+- Ces détections NE bloquent PAS : elles publient la famille `integrity` du
+  moteur de risque (FR-33), qui décide. Sans moteur de risque, elles sont sans
+  effet. Aucun delta de trust score n'est appliqué
+- Le WAF DOIT limiter la taille du body (`integrity.max_body_bytes`, défaut 10 MB) :
+  un `Content-Length` supérieur reçoit `413` (`BLOCK`, `body_too_large`) sans
+  ouvrir de connexion upstream ; un body sans `Content-Length` est borné en
+  lecture à la même taille
+- Un asset statique (FR-24) n'est pas analysé : l'intégrité est une décision
+  heuristique
+- **Différé** (`request-integrity.feature`, scénarios `@deferred`) : refus
+  `400` d'un traversal ou d'un null byte, `414` d'un chemin trop long,
+  normalisation des chemins (`//`), contrôle du `Content-Type` déclaré contre
+  le body
 
 ## FR-19 — Protection de l'Origine
 
@@ -211,6 +245,10 @@ change: "FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de ch
 - Le WAF DOIT supporter un mode **cluster** activable via config (`cluster.enabled: true`)
 - En mode cluster, les événements suivants DOIVENT être partagés en temps réel via Redis Pub/Sub :
   - Nouvelles entrées blacklist (propagation < 1 s entre nœuds)
+  - Retraits d'entrées blacklist par l'API admin (`blacklist_remove`) : seuls
+    les ajouts étaient propagés, et une IP débloquée sur un nœud restait bloquée
+    sur les autres. Un nœud n'applique un retrait qu'à une entrée de son API
+    admin ; une entrée de sa configuration (`blacklist`) reste en place
   - Ouverture de circuit-breaker pour une IP (tous les nœuds bloquent immédiatement)
   - Score de confiance d'un visiteur identifié comme très dangereux (score < 5)
 - Les événements transitent par un seul canal Redis Pub/Sub (`cluster.channel`,
@@ -228,9 +266,15 @@ change: "FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de ch
   (`0.0.0.0/0` compris), un score ou un circuit
   - `cluster.enabled` exige donc `challenge.secret_key` (≥ 32 caractères),
     identique sur tous les nœuds — ce que les `ip_hash` propagés exigeaient déjà
-  - Limite assumée : la signature ne protège pas du rejeu d'un message valide
-    capturé sur le canal ; l'accès à Redis reste à restreindre (réseau privé,
-    mot de passe, TLS, ACL)
+  - Chaque événement porte son instant d'émission (`ts`, signé avec lui). Un
+    nœud DOIT ignorer — et compter dans `waf_cluster_rejected_events_total` —
+    un événement sans `ts`, ou dont le `ts` s'écarte de plus de **2 minutes** de
+    son horloge : un message valide capturé sur le canal se rejouait
+    indéfiniment (un `blacklist_add` réimposait une entrée retirée). Les nœuds
+    DOIVENT donc avoir des horloges synchronisées (NTP). Pendant une mise à jour
+    progressive, les événements des nœuds antérieurs (sans `ts`) sont ignorés
+  - Limite assumée : un rejeu reste possible dans la fenêtre de 2 minutes ;
+    l'accès à Redis reste à restreindre (réseau privé, mot de passe, TLS, ACL)
 - **Différé** : publication du niveau de pression global (`degraded_mode`,
   réservé par le schéma, aucun émetteur)
 - La propagation DOIT suivre un modèle **eventual consistency** (pas de transaction distribuée)

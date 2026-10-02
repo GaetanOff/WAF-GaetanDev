@@ -2,14 +2,23 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/GaetanDev/WAF/schemas/cluster-event.schema.json",
   "title": "ClusterEvent",
-  "description": "Événement de synchronisation inter-nœuds publié sur le canal Redis Pub/Sub cluster.channel (FR-20, défaut \"waf:events\"). Sur le canal, le message vaut \"<signature>.<événement JSON>\" : HMAC-SHA256 base64url du JSON sous une clé dérivée de challenge.secret_key ; un message non signé ou mal signé est ignoré. Cohérence éventuelle : un nœud qui rejoint ne reçoit que les événements postérieurs.",
+  "description": "Événement de synchronisation inter-nœuds publié sur le canal Redis Pub/Sub cluster.channel (FR-20, défaut \"waf:events\"). Sur le canal, le message vaut \"<signature>.<événement JSON>\" : HMAC-SHA256 base64url du JSON sous une clé dérivée de challenge.secret_key ; un message non signé ou mal signé, ou dont ts s'écarte de plus de 2 minutes de l'horloge du récepteur, est ignoré. Cohérence éventuelle : un nœud qui rejoint ne reçoit que les événements postérieurs.",
   "type": "object",
   "additionalProperties": false,
-  "required": ["type"],
+  "required": [
+    "type",
+    "ts"
+  ],
   "properties": {
     "type": {
       "type": "string",
-      "enum": ["blacklist_add", "score_critical", "circuit_open", "degraded_mode"],
+      "enum": [
+        "blacklist_add",
+        "blacklist_remove",
+        "score_critical",
+        "circuit_open",
+        "degraded_mode"
+      ],
       "description": "Nature de l'événement. degraded_mode est réservé : aucun nœud ne le publie aujourd'hui."
     },
     "node": {
@@ -17,9 +26,14 @@
       "pattern": "^[0-9a-f]{16}$",
       "description": "Identifiant aléatoire du nœud émetteur, tiré au démarrage. Un nœud ignore les événements qui portent le sien (écho Pub/Sub)."
     },
+    "ts": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Instant d'émission, signé avec l'événement. Le récepteur ignore un événement à plus de 2 minutes de son horloge (rejeu d'un message capturé)."
+    },
     "value": {
       "type": "string",
-      "description": "IP ou CIDR ajouté à la blacklist (blacklist_add)"
+      "description": "IP ou CIDR ajouté à la blacklist (blacklist_add) ou retiré (blacklist_remove)"
     },
     "ip_hash": {
       "type": "string",
@@ -44,16 +58,60 @@
   },
   "allOf": [
     {
-      "if": { "properties": { "type": { "const": "blacklist_add" } } },
-      "then": { "required": ["value"] }
+      "if": {
+        "properties": {
+          "type": {
+            "const": "blacklist_add"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "value"
+        ]
+      }
     },
     {
-      "if": { "properties": { "type": { "const": "score_critical" } } },
-      "then": { "required": ["ip_hash"] }
+      "if": {
+        "properties": {
+          "type": {
+            "const": "blacklist_remove"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "value"
+        ]
+      }
     },
     {
-      "if": { "properties": { "type": { "const": "circuit_open" } } },
-      "then": { "required": ["ip_hash"] }
+      "if": {
+        "properties": {
+          "type": {
+            "const": "score_critical"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "ip_hash"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "type": {
+            "const": "circuit_open"
+          }
+        }
+      },
+      "then": {
+        "required": [
+          "ip_hash"
+        ]
+      }
     }
   ]
 }

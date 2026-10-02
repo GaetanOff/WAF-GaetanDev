@@ -11,12 +11,14 @@ import (
 	"strings"
 	"time"
 
+	"github.com/gaetandev/waf/internal/config"
 	"github.com/gaetandev/waf/internal/ipkey"
 	"github.com/gaetandev/waf/internal/jsonstrict"
 	"github.com/gaetandev/waf/internal/middleware/recovery"
 	"github.com/gaetandev/waf/internal/signing"
 	"github.com/gaetandev/waf/internal/storage"
 	"github.com/gaetandev/waf/internal/trust"
+	"gopkg.in/yaml.v3"
 )
 
 // maxRequestBodyBytes borne le corps des requêtes admin (IPEntry,
@@ -189,7 +191,9 @@ func (s *Server) auth(next http.Handler) http.Handler {
 		// offrait 2⁶⁴ essais sans jamais atteindre le seuil.
 		ip := ipkey.Subject(clientIP(r))
 		if s.brute != nil && s.brute.Limited(ip) {
-			w.Header().Set("Retry-After", "300")
+			// Secondes restantes du verrouillage : 300 était annoncé quel que
+			// soit self_protection.admin_lockout.
+			w.Header().Set("Retry-After", strconv.Itoa(s.brute.RetryAfter(ip)))
 			writeJSON(w, http.StatusTooManyRequests, errorResponse{Error: "locked", Message: "Too many failed attempts"})
 			return
 		}
@@ -261,7 +265,27 @@ func (s *Server) stats(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) getConfig(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.state.Config())
+	document, err := configDocument(s.state.Config())
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, errorResponse{Error: "config_encoding_failed", Message: "Configuration could not be encoded"})
+		return
+	}
+	writeJSON(w, http.StatusOK, document)
+}
+
+// configDocument rend la configuration sous les clés de config.schema.json,
+// celles des balises YAML. Encodée telle quelle en JSON, faute de balises
+// json, elle sortait en PascalCase (« Token »), hors du contrat.
+func configDocument(cfg config.Config) (map[string]any, error) {
+	encoded, err := yaml.Marshal(cfg)
+	if err != nil {
+		return nil, err
+	}
+	var document map[string]any
+	if err := yaml.Unmarshal(encoded, &document); err != nil {
+		return nil, err
+	}
+	return document, nil
 }
 
 // patchConfig applique à chaud un sous-ensemble de la configuration.
@@ -334,6 +358,9 @@ func (s *Server) deleteBlacklist(w http.ResponseWriter, r *http.Request) {
 	if err != nil {
 		writeSyncFailure(w, err)
 		return
+	}
+	if normalized, err := normalizeIPRule(target); err == nil && s.onBlacklistRemove != nil {
+		s.onBlacklistRemove(normalized)
 	}
 	s.record("remove_blacklist", target, "removed")
 	w.WriteHeader(http.StatusNoContent)

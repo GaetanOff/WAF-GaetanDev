@@ -109,6 +109,17 @@ Feature: Alerting & Webhooks
     Then le WAF envoie seulement 1 alerte par alerting.cooldown (défaut: 5m) et par trigger + domaine
     And les transitions under_attack_start / under_attack_end ne sont jamais retenues par le cooldown
 
+  Scenario: Déduplication — la rotation du Host ne contourne pas le cooldown
+    Given server.strict_host = false et domains[] ne déclare que "example.com"
+    When 100 requêtes bloquées arrivent dans le cooldown, chacune avec un Host aléatoire
+    Then une seule alerte "block" est envoyée (domaine de déduplication "_undeclared")
+
+  Scenario: Discord — un chemin très long est tronqué
+    Given un webhook Discord est configuré
+    When une requête bloquée porte un chemin de 5 000 caractères
+    Then la valeur du champ "Chemin" de l'embed fait au plus 1024 caractères et finit par "…"
+    And l'embed est accepté par Discord
+
   @deferred
   Scenario: Alerte de retour à la normale
     Given une alerte "upstream_down" a été envoyée pour upstream-A

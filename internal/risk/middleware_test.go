@@ -201,3 +201,54 @@ func setHighRiskHeaders(request *http.Request) {
 	request.Header.Set("X-WAF-Risk-Rate", "100")
 	request.Header.Set("X-WAF-Risk-Geo", "100")
 }
+
+// FR-24 : un asset statique n'est pas évalué par le score du moteur, mais un
+// déclencheur déterministe le bloque (hors shadow).
+func TestMiddlewareAppliesOnlyDeterministicTriggersToAssets(t *testing.T) {
+	middleware, _, store := newTestRiskMiddleware(t)
+	defer store.Close()
+	asset := func() *http.Request {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test/app.js", nil)
+		request.RemoteAddr = "1.2.3.4:1234"
+		request.Header.Set(headerAction, "PASS")
+		request.Header.Set(headerReason, "static_asset")
+		return request
+	}
+
+	request := asset()
+	setHighRiskHeaders(request)
+	response := httptest.NewRecorder()
+	middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get(headerRiskScore) != "" {
+			t.Fatal("an asset must not be scored by the risk engine")
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("high-risk asset: status = %d, want 204", response.Code)
+	}
+
+	request = asset()
+	request.Header.Set(headerDeterministicTrigger, string(TriggerThreatIntelCritical))
+	response = httptest.NewRecorder()
+	middleware.Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {
+		t.Fatal("a deterministic trigger must not reach the upstream")
+	})).ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("asset with a deterministic trigger: status = %d, want 403", response.Code)
+	}
+	if got := response.Header().Get(headerReason); got != "risk_deterministic_threat_intel_critical" {
+		t.Fatalf("X-WAF-Reason = %q, want risk_deterministic_threat_intel_critical", got)
+	}
+
+	middleware.shadow = true
+	request = asset()
+	request.Header.Set(headerDeterministicTrigger, string(TriggerThreatIntelCritical))
+	response = httptest.NewRecorder()
+	middleware.Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(response, request)
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("shadow mode: status = %d, want 204 (decision observed only)", response.Code)
+	}
+}

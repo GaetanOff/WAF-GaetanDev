@@ -21,7 +21,8 @@ func NewMiddleware(rules *RuleSet, scores *trust.ScoreManager) Middleware {
 
 func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get(wafheader.Action) == wafheader.ActionPass {
+		// Les règles custom s'appliquent aux assets statiques (FR-24).
+		if wafheader.IsFullPass(r.Header) {
 			next.ServeHTTP(w, r)
 			return
 		}

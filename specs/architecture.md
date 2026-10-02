@@ -1,8 +1,8 @@
 ---
 status: approved
-version: 1.4.7
-last-reviewed: 2026-09-30
-change: "routes() est dans cmd/waf/routes.go, les composants construits dans cmd/waf/app.go (le document situait routes() dans main.go). Précédent (1.4.6) — Séquence du challenge : la durée est mesurée par le serveur depuis l'émission du token. Précédent (1.4.5) — Phase 23 : séquence du challenge et structure du cookie réalignées sur le code (pas d'attente minimale côté client, elapsed_ms borné par min_elapsed_ms = 0 et max_elapsed_ms = 60 s par défaut, token à usage unique, fp_hash SHA-256 complet). Précédent (1.4.4) — Phase 21 : [6] staticassets n'exempte plus du rate limit (FR-24). Précédent (1.4.3) — Phase 19 : slowloris, strict_host et selfprotect descendent sous metrics et logger (refus comptés et journalisés) ; le middleware de trust score applique les déclencheurs déterministes sans moteur de risque. Précédent (1.4.2) — Phase 18 : architecture-advanced.md et architecture-ops.md dépréciés, ce document est la seule architecture de référence ; paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
+version: 1.5.0
+last-reviewed: 2026-10-02
+change: "Pipeline : [6] staticassets ne lève plus que le challenge proactif et les décisions heuristiques ; [11a] trust.HoneypotGuard (ban honeypot) ; ADR-019/020 acceptées, ADR-022 listée ; 48 paquets ; table des deltas de score réalignée (pas de +1/requête). Précédent (1.4.7) — routes() est dans cmd/waf/routes.go, les composants construits dans cmd/waf/app.go (le document situait routes() dans main.go). Précédent (1.4.6) — Séquence du challenge : la durée est mesurée par le serveur depuis l'émission du token. Précédent (1.4.5) — Phase 23 : séquence du challenge et structure du cookie réalignées sur le code (pas d'attente minimale côté client, elapsed_ms borné par min_elapsed_ms = 0 et max_elapsed_ms = 60 s par défaut, token à usage unique, fp_hash SHA-256 complet). Précédent (1.4.4) — Phase 21 : [6] staticassets n'exempte plus du rate limit (FR-24). Précédent (1.4.3) — Phase 19 : slowloris, strict_host et selfprotect descendent sous metrics et logger (refus comptés et journalisés) ; le middleware de trust score applique les déclencheurs déterministes sans moteur de risque. Précédent (1.4.2) — Phase 18 : architecture-advanced.md et architecture-ops.md dépréciés, ce document est la seule architecture de référence ; paquet transverse hostname — une seule normalisation d'hôte pour le routage, la surcharge de challenge, les tokens et cookies de challenge et le token d'origine. Précédent (1.4.0) — Phase 17 : cloudflare.Middleware passe dans l'enveloppe, entre maintenance et slowloris — toute étape qui compte par IP (slowloris, selfprotect) voit l'IP du visiteur et non celle du point de présence Cloudflare"
 ---
 
 # Architecture — WAF Anti-DDoS / Anti-Bot
@@ -219,8 +219,11 @@ REQUÊTE ENTRANTE
       │
 [6] staticassets                          si static_assets.enabled
       │ Bypass des assets statiques : pose X-WAF-Action=PASS, raison
-      │ static_asset (FR-24). La blacklist reste appliquée en [11], le
-      │ rate limit aussi (il compte les PASS de raison static_asset).
+      │ static_asset (FR-24). Ce PASS n'est pas celui de la whitelist IP
+      │ (wafheader.IsFullPass) : il ne lève que le challenge proactif et
+      │ les décisions heuristiques. Blacklist [11], ban honeypot [11a],
+      │ anti-DDoS [12], challenge sous attaque [13], rate limit [14] et
+      │ déclencheurs déterministes [16]/[17] s'appliquent aux assets.
       ▼
 [7] (vacant : selfprotect est descendu en [10c])
       ▼
@@ -256,6 +259,11 @@ REQUÊTE ENTRANTE
       │ challenge proactif [13] et des heuristiques « client non
       │ navigateur » de [15], PAS un bypass (un UA se forge).
       ▼
+[11a] trust.HoneypotGuard                 toujours
+      │ 403 BLOCK honeypot_ban pour un visiteur qui a déclenché un
+      │ honeypot depuis moins de trust.score_ttl (FR-07), assets et
+      │ /waf/verify compris, avant tout challenge, shadow compris.
+      ▼
 [12] antiddos.Handler                     toujours
       │ Pression globale ou par domaine, circuit breaker,
       │ mode « sous attaque » → X-WAF-Under-Attack-Enforce (FR-08/FR-39).
@@ -287,7 +295,10 @@ REQUÊTE ENTRANTE
       │ rules         si rules.enabled      Moteur de règles YAML (FR-17)
       │
       │ Chacun publie sa contribution dans un X-WAF-Risk-<famille>
-      │ consommé en [17]. geo et tlsfp peuvent bloquer directement.
+      │ consommé en [17]. geo et rules peuvent bloquer directement ;
+      │ tlsfp et threatintel publient un déclencheur déterministe
+      │ (X-WAF-Deterministic-Trigger) appliqué en [17]. integrity
+      │ n'analyse pas les assets statiques ; les autres, oui.
       ▼
 [17] Décision
       │ si risk_engine.enabled → risk.Handler
@@ -407,14 +418,13 @@ BLOCKED      0-10     403 Forbidden
 | Événement | Delta |
 |-----------|-------|
 | Challenge JS réussi | +25 |
-| Navigation normale (req légitime) | +1 (max +10/heure) |
-| Requête à un honeypot | -50 |
+| Requête à un honeypot | → 0, ban pendant `trust.score_ttl` (`honeypot_until`) |
 | Challenge JS échoué | -20 |
 | Rate limit atteint | -10 |
 | User-agent headless browser | -30 |
 | User-agent suspect (curl, python-requests sans whitelist) | -15 |
 | Header manquant (Accept-Language) | -5 |
-| Proof-of-work trop rapide (< 100 ms) | -20 |
+| Challenge trop rapide (`challenge_too_fast`, seulement si `min_elapsed_ms` > 0) | -20 |
 
 ## Data Model
 
@@ -477,7 +487,7 @@ waf/
 │       ├── app.go               # Construction des composants (app.build) et serveurs
 │       ├── routes.go            # Composition de la chaîne (routes())
 │       └── main_test.go         # Tests e2e sur routes()
-├── internal/                    # 43 paquets — cf. C4 Level 3
+├── internal/                    # 48 paquets — cf. C4 Level 3
 ├── web/
 │   ├── challenge.html           # Template HTML/CSS/JS du challenge PoW
 │   └── embed.go                 # go:embed : la page est dans le binaire (G7)
@@ -488,7 +498,7 @@ waf/
 │   ├── schemas/                 # JSON Schema, dont config.schema.json
 │   ├── features/                # Specs de comportement Gherkin
 │   ├── decisions/               # ADR
-│   ├── requirements*.md         # FR-01..FR-39, NFR
+│   ├── requirements*.md         # FR-01..FR-40, NFR
 │   ├── architecture.md          # Ce document — seule architecture de référence
 │   │                            # (architecture-advanced/-ops.md : dépréciés)
 │   ├── plan.md, tasks.md        # Découpage en tranches et tâches
@@ -528,6 +538,7 @@ waf/
 - [ADR-016](decisions/ADR-016-adaptive-global-pressure.md) — Pression globale adaptative au lieu du 503 global
 - [ADR-017](decisions/ADR-017-per-domain-tls.md) — Terminaison TLS par domaine (sélection par SNI)
 - [ADR-018](decisions/ADR-018-under-attack-mode.md) — Mode « sous attaque » : challenge forcé piloté par la pression
-- [ADR-019](decisions/ADR-019-infrastructure-header-trust.md) — Frontière de confiance des en-têtes d'infrastructure (`CF-*`, `ja3_header`) **(`proposed`)**
-- [ADR-020](decisions/ADR-020-host-header-routing-trust.md) — Confiance accordée à l'en-tête `Host` pour le routage et la politique par domaine **(`proposed`)**
+- [ADR-019](decisions/ADR-019-infrastructure-header-trust.md) — Frontière de confiance des en-têtes d'infrastructure (`CF-*`, `ja3_header`) — acceptée (option B)
+- [ADR-020](decisions/ADR-020-host-header-routing-trust.md) — Confiance accordée à l'en-tête `Host` pour le routage et la politique par domaine — acceptée (1C + 2A)
 - [ADR-021](decisions/ADR-021-redis-store-degraded-mode.md) — Sémantique du backend Redis : écriture traversante et mode dégradé
+- [ADR-022](decisions/ADR-022-remove-inert-domain-overrides.md) — Retrait des surcharges par domaine inertes

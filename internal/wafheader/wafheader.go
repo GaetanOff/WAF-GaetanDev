@@ -61,10 +61,31 @@ const (
 )
 
 // ReasonStaticAsset est la raison du PASS posé par le bypass d'assets (FR-24).
-// Ce PASS lève le challenge et le trust score, pas le rate limit : le rate
-// limit et l'analyse comportementale le distinguent du PASS de la whitelist IP
-// par cette raison, sans dépendre du package qui la pose.
+// Ce PASS ne lève que le challenge proactif et les décisions heuristiques
+// (trust score, anti-bot, intégrité, score du moteur de risque) : les
+// contrôles déterministes, l'anti-DDoS et le rate limit le distinguent du PASS
+// de la whitelist IP par cette raison, sans dépendre du package qui la pose.
 const ReasonStaticAsset = "static_asset"
+
+// IsPass : la requête est marquée PASS, par la whitelist IP ou par le bypass
+// d'assets. Seuls les middlewares heuristiques l'honorent tel quel.
+func IsPass(header http.Header) bool {
+	return header.Get(Action) == ActionPass
+}
+
+// IsAssetPass : PASS posé par le bypass d'assets statiques (FR-24).
+func IsAssetPass(header http.Header) bool {
+	return IsPass(header) && header.Get(Reason) == ReasonStaticAsset
+}
+
+// IsFullPass : PASS de la whitelist IP (FR-04), seul à lever toute la chaîne.
+// Le PASS d'un asset n'en est pas un : honoré par les contrôles déterministes
+// et l'anti-DDoS, il laissait « GET /x.js?r=<aléa> » échapper au géo-blocage,
+// aux règles, à la threat intel, au comptage de pression et au challenge sous
+// attaque.
+func IsFullPass(header http.Header) bool {
+	return IsPass(header) && header.Get(Reason) != ReasonStaticAsset
+}
 
 // Valeurs de X-WAF-Action.
 const (

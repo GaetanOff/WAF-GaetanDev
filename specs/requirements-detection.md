@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 1.6.2
-last-reviewed: 2026-10-01
+version: 1.9.2
+last-reviewed: 2026-10-02
 reviewed-by: GaetanDev
-extends: requirements-advanced.md (v2.1.0), requirements-ops.md
-change: "FR-38 : shadow_mode et profile lus au démarrage ; commutation à chaud (PATCH, SIGHUP) différée. Précédent (1.6.1) — FR-36 : un crawler unverified (file de vérification saturée) perd l'exemption de challenge proactif de whitelist_user_agents, comme un crawler spoofed. Précédent (1.6.0) — FR-39 : plafond THROTTLE des requêtes non-navigateur sans clearance sous attaque câblé (raison rate_limit_under_attack) ; option under_attack.challenge_non_browser. Précédent (1.5.0) — FR-36/FR-39 : l'exemption whitelist_user_agents consulte la vérification reverse-DNS — sous attaque, seul un crawler vérifié passe sans challenge ; Slurp et Baiduspider vérifiables. Précédent (1.4.1) — FR-38 : défaut de `shadow_mode` corrigé dans l'exemple de configuration (true, comme le code et config.schema.json). Précédent (1.4.0) — FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
+extends: requirements-advanced.md (v2.10.3), requirements-ops.md (v3.16.1)
+change: "NFR-17 : RiskAssessment complète en mode debug par l'API admin différée. Précédent (1.9.1) — Contrat de configuration : crédits human_credit validés dans [-100..0]. Précédent (1.9.0) — FR-38 : waf_challenge_pass_after_flag_total compte les visiteurs flaggés CHALLENGE qui réussissent (token marqué) ; décroissance des poids par visiteur différée, FeedbackManager retiré. FR-35 : le blocage seul d'un UA d'automatisation déclaré (anti-bot) est l'exception documentée. FR-36 : chaque crawler vérifiable figure dans whitelist_user_agents par défaut (Applebot). Précédent (1.8.0) — FR-33 : mode de fusion risk_engine.fusion — diluted (défaut, historique) ou available (opt-in : normalisation sur les familles portant une évidence, réputation neutre au score initial) ; tiers, poids et seuils absents prennent la valeur du profil (profile strict/lenient était inerte). Précédent (1.7.0) — FR-39 : une requête d'asset statique est comptée dans la pression et, sans clearance, challengée sous attaque (le bypass d'assets la dispensait du mode). Précédent (1.6.2) — FR-38 : shadow_mode et profile lus au démarrage ; commutation à chaud (PATCH, SIGHUP) différée. Précédent (1.6.1) — FR-36 : un crawler unverified (file de vérification saturée) perd l'exemption de challenge proactif de whitelist_user_agents, comme un crawler spoofed. Précédent (1.6.0) — FR-39 : plafond THROTTLE des requêtes non-navigateur sans clearance sous attaque câblé (raison rate_limit_under_attack) ; option under_attack.challenge_non_browser. Précédent (1.5.0) — FR-36/FR-39 : l'exemption whitelist_user_agents consulte la vérification reverse-DNS — sous attaque, seul un crawler vérifié passe sans challenge ; Slurp et Baiduspider vérifiables. Précédent (1.4.1) — FR-38 : défaut de `shadow_mode` corrigé dans l'exemple de configuration (true, comme le code et config.schema.json). Précédent (1.4.0) — FR-34 : la décision THROTTLE réduit réellement le débit de recharge du visiteur (×0,5, 1 min, 429 neutre `rate_limit_risk_throttle`) ; elle n'était qu'un en-tête lu par personne. Précédent (1.3.1) — FR-35 : sans moteur de risque, le middleware de trust score applique les déclencheurs déterministes des détecteurs (threat_intel_critical, ja3_blacklist). Précédent (1.3.0) — Ajout FR-39 — mode « sous attaque » (challenge forcé piloté par la pression, per-domaine), voir ADR-018 — implémenté Slice 12.1"
 ---
 
 # Requirements Detection — Moteur de Risque & Décision (v4)
@@ -99,6 +99,29 @@ explicites (issus de la revue de spec) :
   - `geo` (FR-16 : pays à risque)
 - Chaque famille DOIT produire une **contribution normalisée** `[0..100]` et un
   **poids** configurable. Le Risk Score est la combinaison pondérée bornée à 100.
+- Deux modes de fusion (`risk_engine.fusion`) :
+  - `diluted` (**défaut**, comportement historique) : la somme pondérée est
+    divisée par la somme des poids de **toutes** les familles configurées, avec
+    ou sans signal. Un score élevé exige donc que presque toutes les familles
+    s'allument : sept familles à 100 donnent 86 (`TARPIT`), un scanner réaliste
+    (réputation 60, intégrité 100, rate 80) 32 (`OBSERVE`), et un `BLOCK`
+    heuristique est inatteignable avec les paliers par défaut. Dans ce mode,
+    seuls les déclencheurs déterministes (FR-35) bloquent en pratique ; la
+    contribution `reputation` vaut `100 - trust_score`
+  - `available` (opt-in) : la somme pondérée est divisée par la somme des poids
+    des seules familles qui **portent une évidence** (contribution non nulle,
+    crédit humain compris). La contribution `reputation` y est **neutre au
+    score initial** : `(initial_score - trust_score) × 100 / initial_score`,
+    bornée à `[0..100]` — un nouveau visiteur (50) n'apporte aucune évidence, un
+    visiteur à 0 en apporte 100. Sans cette neutralité, tout nouveau visiteur
+    (contribution 50) serait classé `THROTTLE`
+  - Le mode `available` rend les heuristiques comportementales effectives :
+    « assets absents » se déclenche dès qu'un CDN met les assets en cache, et
+    « intervalles réguliers » touche tout polling d'API. Il DOIT être activé
+    après une calibration en `shadow_mode` (NFR-15), jamais directement
+  - La confiance est la même dans les deux modes : somme des poids des familles
+    disposant d'un signal (la réputation en dispose toujours) rapportée à la
+    somme de tous les poids
 - Le moteur DOIT calculer un **niveau de confiance** `confidence [0..1]` reflétant
   la **quantité et la qualité** des signaux disponibles (peu de signaux → faible
   confiance). Une décision dure (BLOCK) NE DOIT PAS être prise à faible confiance.
@@ -107,6 +130,21 @@ explicites (issus de la revue de spec) :
   (famille, signal, valeur, poids, contribution).
 - Les poids et seuils DOIVENT être configurables et **profilables** (`balanced`,
   `strict`, `lenient`) sans recompilation.
+  - `tiers`, `weights`, `block_min_confidence`, `min_corroborating_families` et
+    `family_corroboration_threshold` prennent la valeur du **profil** quand ils
+    sont absents (ou à 0) ; une valeur explicite surcharge le profil, poids par
+    poids pour `weights`. Les défauts de configuration pré-remplissaient ces clés
+    avec les valeurs `balanced`, qui écrasaient le profil : `profile: strict` ou
+    `lenient` était sans effet
+  - Valeurs des profils :
+
+    | Clé | lenient | balanced | strict |
+    |---|---|---|---|
+    | `tiers` (observe/throttle/challenge/tarpit/block) | 35/55/75/88/96 | 25/45/65/80/90 | 15/35/55/72/85 |
+    | `block_min_confidence` | 0,75 | 0,6 | 0,5 |
+    | `min_corroborating_families` | 2 | 2 | 2 |
+    | `family_corroboration_threshold` | 60 | 50 | 45 |
+    | `weights` reputation/behavioral/tls/fingerprint/integrity/rate/geo/human_credit | 0,6/0,7/0,5/0,7/0,9/0,3/0,2/3,0 | 1,0/1,0/0,8/1,0/1,2/0,6/0,5/1,0 | 1,8/1,5/1,2/1,5/1,6/1,0/0,8/0,5 |
 - La fusion DOIT être **déterministe** : mêmes signaux → même décision (testable).
 
 ## FR-34 — Échelle de Mitigation Graduée (réversible)
@@ -143,6 +181,11 @@ explicites (issus de la revue de spec) :
   (`corroborating_families ≥ 2`).
 - Un **signal isolé** (une seule famille) NE DOIT JAMAIS produire un BLOCK :
   au pire `CHALLENGE`.
+- Exception de l'anti-bot (FR-07) : un User-Agent qui **se déclare** outil
+  d'automatisation (`selenium`, `puppeteer`) est bloqué seul (403
+  `automation_user_agent`) hors mode shadow. Aucun navigateur humain n'envoie
+  ces jetons : c'est une déclaration explicite, non une heuristique ; en shadow,
+  le blocage est seulement observé (FR-07)
 - Les **signaux déterministes** suivants SONT exemptés de l'exigence de
   corroboration et PEUVENT bloquer seuls (vérité non-ambiguë) :
   - IP/CIDR en **blacklist explicite** (FR-04)
@@ -170,7 +213,11 @@ explicites (issus de la revue de spec) :
   bénéficier, ni un crawler `unverified` (file de vérification saturée) — sinon
   saturer la file suffisait à rendre l'exemption inconditionnelle. Sous attaque (FR-39), seul un crawler `verified` en bénéficie ; un
   User-Agent whitelisté non vérifiable (facebookexternalhit, LinkedInBot,
-  Twitterbot…) ou encore `pending` reçoit le challenge. Le User-Agent se forge :
+  Twitterbot…) ou encore `pending` reçoit le challenge.
+- Chaque crawler de `risk_engine.verified_bots.crawlers` DOIT figurer dans les
+  `whitelist_user_agents` par défaut : l'exemption ne vaut que pour un
+  User-Agent whitelisté, et Applebot, vérifiable mais absent de la liste, était
+  challengé sous attaque même vérifié. Le User-Agent se forge :
   l'exemption inconditionnelle laissait tout client passer le mode sous attaque
   sans PoW en se déclarant Slurp ou Twitterbot.
 - Un crawler **vérifié** DOIT être placé en `ALLOW` et NE DOIT JAMAIS être bloqué
@@ -221,10 +268,18 @@ explicites (issus de la revue de spec) :
 - Toute nouvelle règle, tout nouveau seuil DOIT pouvoir être déployé en **mode
   shadow** (log-only) : la décision est **calculée et journalisée** mais **non
   appliquée**, afin de mesurer l'impact FP avant activation.
-- Le WAF DOIT implémenter une **boucle de feedback FP** : lorsqu'un visiteur
-  flaggé (CHALLENGE) **réussit** le challenge, le poids des familles ayant
-  contribué à tort DOIT décroître pour ce visiteur (apprentissage local borné),
-  et un compteur de "faux positif probable" DOIT être incrémenté.
+- Lorsqu'un visiteur **flaggé** — page de challenge servie sur une décision
+  `CHALLENGE` du moteur de risque ou du trust score — **réussit** le challenge,
+  le compteur de « faux positif probable » `waf_challenge_pass_after_flag_total`
+  DOIT être incrémenté. Le token de la page porte ce marquage (signé) ; la
+  réponse de `/waf/verify` le reflète par `X-WAF-Challenge-Pass-After-Flag:
+  true`. Un challenge proactif ou forcé sous attaque n'est pas un flag. Le
+  compteur, déclaré, n'était jamais incrémenté
+- **Différé** : décroissance, pour ce visiteur, du poids des familles ayant
+  contribué à tort (apprentissage local borné). Le `FeedbackManager` qui la
+  préfigurait n'était instancié nulle part (et sa table par visiteur n'était
+  pas bornée) ; il est retiré. Le crédit de preuve humaine (FR-37) assure
+  aujourd'hui la récupération du visiteur.
 - Le WAF DOIT toujours offrir un **chemin de récupération** : pour toute décision
   fondée sur des signaux non-déterministes, un `CHALLENGE` DOIT précéder tout
   `BLOCK` (l'humain a toujours une chance de prouver son humanité).
@@ -265,6 +320,10 @@ explicites (issus de la revue de spec) :
   (voir FR-36).
 - Une requête **avec** clearance DOIT passer **sans friction ajoutée** par le mode
   sous attaque (récupération : un seul PoW résolu débloque le visiteur ensuite).
+- Une requête d'**asset statique** (FR-24) n'est pas une clearance : elle est
+  comptée dans la pression du scope et, sans clearance, forcée au challenge
+  comme une page. Le bypass d'assets la dispensait du mode sous attaque, et
+  `GET /x.js?r=<aléa>` le contournait entièrement.
 - Le mode sous attaque NE DOIT PAS, à lui seul, produire un `503`, `403` ou blocage
   dur (conforme ADR-016) : la seule action qu'il **force** est une mitigation
   **réversible** (`CHALLENGE`).
@@ -311,12 +370,15 @@ explicites (issus de la revue de spec) :
 
 Le moteur DOIT être piloté par un bloc `risk_engine` dans la configuration YAML.
 `config.schema.json` DOIT être étendu (slice 6.2) avec ce contrat. Les valeurs
-ci-dessous sont les **défauts** du profil `balanced` :
+ci-dessous sont les **défauts** du profil `balanced` ; `tiers`, `weights`,
+`block_min_confidence`, `min_corroborating_families` et
+`family_corroboration_threshold` absents prennent la valeur du profil (FR-33) :
 
 ```yaml
 risk_engine:
   enabled: true
   profile: "balanced"            # lenient | balanced | strict
+  fusion: "diluted"              # diluted | available (opt-in après calibration en shadow, FR-33)
   shadow_mode: true              # défaut : calcule et journalise sans appliquer (FR-38) ; false après calibration
   block_min_confidence: 0.6      # pas de BLOCK sous ce niveau de confiance
   min_corroborating_families: 2  # familles requises pour un BLOCK heuristique
@@ -352,7 +414,8 @@ risk_engine:
 Les profils `lenient` / `strict` DOIVENT ajuster `tiers`, `block_min_confidence`
 et `weights` (strict = seuils plus bas, lenient = plus hauts). La configuration
 DOIT être validée au démarrage (bornes croissantes, poids ≥ 0, confiance dans
-[0..1]) avec des messages d'erreur explicites.
+[0..1], crédits `human_credit.challenge_passed` et `stable_fingerprint` dans
+[-100..0]) avec des messages d'erreur explicites.
 
 Le mode sous attaque (FR-39) est piloté par un sous-bloc `antiddos.under_attack`
 (défauts ci-dessous) :
@@ -399,8 +462,10 @@ critical`), `cooldown` durée valide > 0, `max_tracked_domains` ≥ 1.
   tier décidé.
 - La `RiskAssessment` DOIT être incluse (forme condensée) dans l'événement de
   sécurité loggé (FR-09) via les champs `reason` et un `score_delta` explicite.
-- En mode debug, l'API admin DOIT pouvoir retourner la `RiskAssessment` complète
-  d'une requête échantillonnée (sans exposer de PII au-delà de l'`ip_hash`).
+- **Différé** : en mode debug, retour par l'API admin de la `RiskAssessment`
+  complète d'une requête échantillonnée (sans exposer de PII au-delà de
+  l'`ip_hash`). Aucun endpoint ne l'expose ; seule la forme condensée est
+  journalisée.
 
 ---
 

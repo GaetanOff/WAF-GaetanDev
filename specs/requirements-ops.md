@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 3.14.2
-last-reviewed: 2026-10-01
-extends: requirements-advanced.md (v2.0.0)
-change: "FR-23 : plancher de 4096 octets de max_header_bytes explicite (schéma et texte) ; NFR-16 : tampon de journal fixe de 8 192 lignes, compteur waf_log_events_dropped_total. Précédent (3.14.1) — FR-27 : champs d'audit réalignés sur audit-entry.schema.json (timestamp, action, target, result) ; endpoint, method, request_body, response_status et client_ip différés. Précédent (3.14.0) — FR-32 : réaligné sur le contrat implémenté — maintenance.enabled / error_pages lus au démarrage, 503 + Retry-After: 300 pour tout le trafic sauf /waf/health et /waf/metrics, pages brandées générées ; page auto sur pool DOWN, templates et pages par code, bascule PATCH, Retry-After configurable et exemption des assets différés. Précédent (3.13.3) — FR-31 : le listener HTTP-01 ne redirige vers HTTPS qu'un Host de acme.domains (301), 400 sinon — fin de l'open-redirect de la redirection par défaut d'autocert. Précédent (3.13.2) — FR-30 : le verrouillage anti-brute-force de l'API admin compte une IPv6 par son préfixe /64 ; GET /waf/admin/config masque aussi metrics.auth_token. Précédent (3.13.1) — FR-24 : seules les méthodes GET et HEAD sont éligibles au bypass des assets statiques (POST /x.css traverse le pipeline complet). Précédent (3.13.0) — FR-30 : /waf/metrics protégé par un token Bearer opt-in (metrics.auth_token, WAF_METRICS_AUTH_TOKEN) — 401 sans. Précédent (3.12.1) — FR-23 / NFR-11 : réalignés sur le code — header_timeout ferme la connexion sans réponse (pas de 408), slow POST borné par server.read_timeout, borne par IP sur les requêtes en cours (429 too_many_connections_per_ip) ; 408, body_min_rate, RST, exemption whitelist et métriques dédiées différés. Précédent (3.12.0) — FR-27/FR-28 : réalignés sur le code — audit.max_entries 1 000 par défaut ; anonymisation gdpr.anonymize_ip (défaut true) limitée aux journaux ; conservation = trust.score_ttl (visiteurs), 24 h (events), audit.max_entries ; rétentions configurables et rapport privacy différés. Précédent (3.11.0) — FR-21/FR-22 : réalignés sur le contrat implémenté (config.schema.json) — X-Frame-Options DENY par défaut, Permissions-Policy opt-in, HSTS quel que soit le transport ; réglages par domaine, X-XSS-Protection, X-WAF-Protected et sanitize_errors différés. Précédent (3.10.5) — FR-25 : la sonde de santé ne suit pas les redirections (3xx = succès) et applique upstream.tls_verify. Précédent (3.10.4) — FR-28 : ip_hash = HMAC-SHA256 à clé (dérivée de challenge.secret_key) au lieu d'un SHA-256 sans clé renversable sur IPv4. Précédent (3.10.3) — FR-28 : l'effacement supprime aussi buckets de rate limit, mesure THROTTLE, profil comportemental et dernier JA3. Précédent (3.10.2) — FR-23 : taille des en-têtes bornée (server.max_header_bytes, 64 Kio par défaut). Précédent (3.10.1) — FR-25 : l'annulation d'une requête par le client ne retire plus le membre du pool. Précédent (3.10.0) — FR-30 : détection de rejeu des tokens de challenge (`token_already_used`) implémentée. Précédent (3.9.5) — FR-40 : la redirection HTTPS accepte l'apex d'un domaine wildcard. Précédent (3.9.4) — FR-40 : deux serveurs démarrés sur la même adresse d'écoute sont refusés à la validation. Précédent (3.9.3) — FR-32 : la page brandée qui remplace un corps d'erreur retire les en-têtes décrivant le corps d'origine (`Content-Encoding`, `Content-Range`, `ETag`, `Last-Modified`). Précédent (3.9.2) — FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
+version: 3.16.1
+last-reviewed: 2026-10-02
+extends: requirements-advanced.md (v2.10.3)
+change: "FR-25 : upstream-pool.schema.json v2.1.0 réellement aligné sur config.schema.json. FR-29 : alerting.webhooks[].type validé (generic par défaut, slack, discord). Précédent (3.16.0) — FR-40 : un certificat renouvelé sur disque est rechargé sans redémarrage (examen chaque minute ; paire invalide ignorée, certificat en service conservé) ; waf_tls_cert_expiry_seconds suit le rechargement ; SIGHUP différé. Précédent (3.15.2) — FR-29 : déduplication par (trigger, domaine déclaré) — un Host non déclaré compte sous _undeclared ; champs Slack et Discord tronqués aux limites des plateformes. Précédent (3.15.1) — FR-25 : seul un échec de connexion retire un membre du pool en cours de requête ; un délai de réponse ou une coupure en cours de réponse laisse le jugement aux sondes, et la remise en service compte healthy_threshold succès depuis le retrait. Précédent (3.15.0) — FR-24 : le bypass des assets ne dispense plus que du challenge proactif et des décisions heuristiques — blacklist, géo, règles, threat intel, JA3, ban honeypot, comptage de pression, circuit-breaker et challenge sous attaque (FR-39) s'appliquent aux assets. Précédent (3.14.2) — FR-23 : plancher de 4096 octets de max_header_bytes explicite (schéma et texte) ; NFR-16 : tampon de journal fixe de 8 192 lignes, compteur waf_log_events_dropped_total. Précédent (3.14.1) — FR-27 : champs d'audit réalignés sur audit-entry.schema.json (timestamp, action, target, result) ; endpoint, method, request_body, response_status et client_ip différés. Précédent (3.14.0) — FR-32 : réaligné sur le contrat implémenté — maintenance.enabled / error_pages lus au démarrage, 503 + Retry-After: 300 pour tout le trafic sauf /waf/health et /waf/metrics, pages brandées générées ; page auto sur pool DOWN, templates et pages par code, bascule PATCH, Retry-After configurable et exemption des assets différés. Précédent (3.13.3) — FR-31 : le listener HTTP-01 ne redirige vers HTTPS qu'un Host de acme.domains (301), 400 sinon — fin de l'open-redirect de la redirection par défaut d'autocert. Précédent (3.13.2) — FR-30 : le verrouillage anti-brute-force de l'API admin compte une IPv6 par son préfixe /64 ; GET /waf/admin/config masque aussi metrics.auth_token. Précédent (3.13.1) — FR-24 : seules les méthodes GET et HEAD sont éligibles au bypass des assets statiques (POST /x.css traverse le pipeline complet). Précédent (3.13.0) — FR-30 : /waf/metrics protégé par un token Bearer opt-in (metrics.auth_token, WAF_METRICS_AUTH_TOKEN) — 401 sans. Précédent (3.12.1) — FR-23 / NFR-11 : réalignés sur le code — header_timeout ferme la connexion sans réponse (pas de 408), slow POST borné par server.read_timeout, borne par IP sur les requêtes en cours (429 too_many_connections_per_ip) ; 408, body_min_rate, RST, exemption whitelist et métriques dédiées différés. Précédent (3.12.0) — FR-27/FR-28 : réalignés sur le code — audit.max_entries 1 000 par défaut ; anonymisation gdpr.anonymize_ip (défaut true) limitée aux journaux ; conservation = trust.score_ttl (visiteurs), 24 h (events), audit.max_entries ; rétentions configurables et rapport privacy différés. Précédent (3.11.0) — FR-21/FR-22 : réalignés sur le contrat implémenté (config.schema.json) — X-Frame-Options DENY par défaut, Permissions-Policy opt-in, HSTS quel que soit le transport ; réglages par domaine, X-XSS-Protection, X-WAF-Protected et sanitize_errors différés. Précédent (3.10.5) — FR-25 : la sonde de santé ne suit pas les redirections (3xx = succès) et applique upstream.tls_verify. Précédent (3.10.4) — FR-28 : ip_hash = HMAC-SHA256 à clé (dérivée de challenge.secret_key) au lieu d'un SHA-256 sans clé renversable sur IPv4. Précédent (3.10.3) — FR-28 : l'effacement supprime aussi buckets de rate limit, mesure THROTTLE, profil comportemental et dernier JA3. Précédent (3.10.2) — FR-23 : taille des en-têtes bornée (server.max_header_bytes, 64 Kio par défaut). Précédent (3.10.1) — FR-25 : l'annulation d'une requête par le client ne retire plus le membre du pool. Précédent (3.10.0) — FR-30 : détection de rejeu des tokens de challenge (`token_already_used`) implémentée. Précédent (3.9.5) — FR-40 : la redirection HTTPS accepte l'apex d'un domaine wildcard. Précédent (3.9.4) — FR-40 : deux serveurs démarrés sur la même adresse d'écoute sont refusés à la validation. Précédent (3.9.3) — FR-32 : la page brandée qui remplace un corps d'erreur retire les en-têtes décrivant le corps d'origine (`Content-Encoding`, `Content-Range`, `ETag`, `Last-Modified`). Précédent (3.9.2) — FR-27 : un échec d'écriture du fichier d'audit est journalisé. Précédent (3.9.1) — Terminaison TLS par domaine renumérotée FR-40 (FR-33 est le moteur de risque de requirements-detection.md). Précédent (3.9.0) — FR-24 : bypass par préfixe de répertoire et par chemin exact (`path_prefixes`, `exact_paths`) et métrique `waf_asset_requests_total{domain}` implémentés. Précédent (3.8.3) — FR-25 : adresses du pool validées au démarrage (URL absolue). Précédent (3.8.2) — FR-30 : corps JSON client borné avant décodage (16 Kio /waf/verify, 64 Kio API admin). Précédent (3.8.1) — FR-31 : contrat réel du bloc `acme` (pas de `server.tls.acme`), exclusif de `server.tls` ; jauge d'expiration ACME différée. Précédent (3.8.0) — FR-30 : /waf/verify, API admin et /waf/metrics réalignés sur le contrat implémenté (verify_max_per_minute, admin_max_failures/admin_lockout) ; rejeu, max_pending_nonces, amplification, blacklists automatiques et metrics.auth_token différés. Précédent (3.7.0) — FR-24 : le bypass des assets statiques n'exempte plus du rate limit (aligné sur static-assets-bypass.feature). Précédent (3.6.0) — FR-26 : avertissement au démarrage pour tout domains[].upstream rendu inerte par le pool. Précédent (3.5.1) — FR-32 : un 4xx n'est brandé que si son corps est en texte brut (ou sans type) — une erreur JSON d'API reste intacte même pour une navigation. Précédent (3.5.0) — FR-25/FR-26 : réalignés sur le pool implémenté (upstream-pool.schema.json v2.0.0, seuils healthy/unhealthy_threshold), retry et observabilité des upstreams différés ; FR-29 : triggers émis et `id`. FR-30 : ADR-019 accepté (option B) — tout `CF-*` d'une connexion non prouvée Cloudflare est supprimé à l'entrée ; ADR-020 accepté (1C + 2A) — `server.strict_host` (opt-in) refuse un `Host` non déclaré"
 ---
 
 # Requirements Ops — WAF Anti-DDoS / Anti-Bot (v3)
@@ -104,7 +104,9 @@ change: "FR-23 : plancher de 4096 octets de max_header_bytes explicite (schéma 
 
 ## FR-24 — Bypass des Assets Statiques
 
-- Le WAF DOIT bypasser le challenge, le trust score et les détecteurs de signal pour les **assets statiques connus** :
+- Le WAF DOIT dispenser les **assets statiques connus** du challenge proactif et
+  des décisions **heuristiques** (trust score, anti-bot, intégrité, score du
+  moteur de risque) :
   - Par extension : `.css`, `.js`, `.map`, `.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.ico`, `.woff`, `.woff2`, `.ttf`, `.eot`
   - Par path prefix configurable (`static_assets.path_prefixes`, défaut : `/static/`, `/assets/`, `/public/`, `/dist/`) — préfixe de répertoire, commençant et finissant par `/`, `/` seul refusé
   - Par path exact configurable (`static_assets.exact_paths`, défaut : `/favicon.ico`, `/robots.txt`, `/sitemap.xml`)
@@ -112,10 +114,28 @@ change: "FR-23 : plancher de 4096 octets de max_header_bytes explicite (schéma 
 - Le WAF DOIT tout de même vérifier la whitelist/blacklist pour les assets (les IPs blacklistées ne peuvent pas accéder aux assets)
 - Seules les méthodes `GET` et `HEAD` sont éligibles au bypass : un `POST`, `PUT`,
   `PATCH` ou `DELETE` vers un chemin d'asset (`POST /login.css`,
-  `PUT /static/shell.php`) traverse le pipeline complet. Motif : le PASS
-  court-circuite intégrité, règles, géo, threat intel, anti-bot et anti-DDoS ;
-  sans borne de méthode, toute écriture vers une URL finissant par `.css`
-  échappait à ces contrôles
+  `PUT /static/shell.php`) traverse le pipeline complet. Motif : sans borne de
+  méthode, toute écriture vers une URL finissant par `.css` échappait aux
+  contrôles heuristiques
+- Le bypass NE DOIT PAS exempter des contrôles **déterministes** ni de la
+  défense volumétrique. Une requête d'asset reste soumise à :
+  - la blacklist (FR-04), le géo-blocage (FR-16), les règles custom (FR-12), la
+    threat intel (FR-13) et la blacklist JA3 (FR-11) — un déclencheur
+    déterministe bloque l'asset comme toute autre requête, moteur de risque
+    actif ou non, et le ban honeypot (FR-07) aussi
+  - l'anti-DDoS (FR-08) : la requête est comptée dans la pression (globale et
+    par domaine, FR-39) et le circuit-breaker de l'IP s'applique
+  - le mode « sous attaque » (FR-39) : sans clearance, l'asset est challengé
+    comme une page. Un navigateur qui a franchi le challenge renvoie son cookie
+    sur chaque asset du domaine ; la page de challenge est autonome (script et
+    style inline) et ne charge aucun asset
+  - Motif : le PASS court-circuitait toute la chaîne. Passer de `GET /` à
+    `GET /x.js?r=<aléa>` (ou `GET /index.php/x.js?id=…`) suffisait pour qu'un
+    flood L7 distribué comme celui du 2026-06-19 échappe au challenge sous
+    attaque, au comptage de pression et au circuit-breaker, et qu'un pays bloqué
+    atteigne l'origine. La justification historique (« la page de challenge
+    charge ses propres assets ») ne tient plus depuis la page autonome à nonce
+    CSP (FR-06)
 - Le bypass NE DOIT PAS exempter du **rate limit** : les requêtes d'assets sont
   comptées dans les buckets de l'IP et reçoivent `429` au-delà (le PASS porte
   la raison `static_asset`, que le rate limit distingue du PASS de la whitelist IP)
@@ -123,7 +143,7 @@ change: "FR-23 : plancher de 4096 octets de max_header_bytes explicite (schéma 
     (`/x.css`) inondait l'origine sans limite. La contradiction avec
     `static-assets-bypass.feature` (« Bypass n'inclut pas le rate limit ») est
     tranchée en faveur du scénario (sécurité > perf)
-- Le WAF NE DOIT PAS servir de page de challenge pour une requête d'asset statique
+- Hors mode sous attaque, le WAF NE DOIT PAS servir de page de challenge pour une requête d'asset statique
 - Le WAF DOIT compter les requêtes d'assets dans les métriques (`waf_asset_requests_total{domain}`, label `domain` borné comme celui de `waf_requests_total`)
 - La liste des extensions d'assets DOIT être configurable et extensible
 - En cas de doute (path ambigu), le WAF DOIT traiter comme non-asset (sécurité > perf)
@@ -131,7 +151,7 @@ change: "FR-23 : plancher de 4096 octets de max_header_bytes explicite (schéma 
 ## FR-25 — Upstream Health Checks & Failover
 
 - Contrat de configuration : bloc `upstream_pool` (`schemas/upstream-pool.schema.json`
-  v2.0.0, identique à `config.schema.json`)
+  v2.1.0, mêmes contraintes que `config.schema.json`, descriptions en plus)
 - Le WAF DOIT effectuer des **health checks actifs** sur chaque upstream configuré :
   - Méthode : HTTP GET sur `health_check.path` (défaut: `/healthz`) ; 2xx ou 3xx = succès.
     Une redirection n'est PAS suivie : le 3xx de la sonde est lui-même le succès
@@ -146,9 +166,17 @@ change: "FR-23 : plancher de 4096 octets de max_header_bytes explicite (schéma 
 - Chaque `upstream_pool.upstreams[].address` DOIT être une URL absolue (schéma
   et hôte), comme `upstream.address` : une adresse invalide est refusée au
   démarrage, et non découverte par les sondes
-- Une erreur de proxy sur une requête DOIT retirer le membre du service
-  immédiatement (le client reçoit `502`) ; les sondes le remettent en service.
-  Le départ du client (requête annulée, `context.Canceled`) n'est PAS une erreur
+- Un **échec de connexion** au membre pendant le proxying d'une requête
+  (connexion refusée, hôte injoignable, délai de connexion dépassé) DOIT le
+  retirer du service immédiatement (le client reçoit `502`) ; les sondes le
+  remettent en service après `healthy_threshold` succès consécutifs **comptés
+  depuis ce retrait**. Une erreur survenue **après** la connexion (délai de
+  réponse `upstream.timeout` dépassé, connexion coupée en cours de réponse) NE
+  DOIT PAS retirer le membre : le client reçoit `502`, et les sondes actives
+  (`unhealthy_threshold`) jugent de sa santé. Une seule requête lente (30 s)
+  retirait le membre, et un pool d'un membre répondait `502 no healthy
+  upstream` à tous les visiteurs jusqu'aux sondes suivantes
+- Le départ du client (requête annulée, `context.Canceled`) n'est PAS une erreur
   de l'upstream et NE DOIT PAS retirer le membre : une seule annulation mettait
   un pool d'un membre hors service pour tous les visiteurs
 - Quand un upstream est retiré du service :
@@ -240,6 +268,19 @@ change: "FR-23 : plancher de 4096 octets de max_header_bytes explicite (schéma 
   | `under_attack_start` / `under_attack_end` | Entrée / sortie du mode sous attaque (FR-39), hors cooldown |
 - Chaque alerte porte un `id` UUID v4 unique, qui permet au destinataire de
   dédoublonner une alerte relivrée par le retry
+- **Déduplication** : une alerte au plus par couple (trigger, domaine) et par
+  `alerting.cooldown` (défaut 5 min), transitions du mode sous attaque exceptées.
+  Le domaine de déduplication est borné aux entrées de `domains[]`, comme le
+  label `domain` des métriques (FR-09) : un `Host` non déclaré compte sous
+  `_undeclared`. Indexé par le `Host` fourni par le client, le cooldown se
+  contournait en faisant tourner le `Host` (sans `server.strict_host`) : une
+  alerte par `Host` inventé. Le champ `domain` de l'alerte reste l'hôte reçu
+- Les champs des messages Slack et Discord DOIVENT être tronqués aux limites de
+  ces plateformes (Discord : titre 256, description 4096, nom de champ 256,
+  valeur de champ 1024 caractères ; Slack : valeur de champ 1024), avec une
+  ellipse `…`. Un chemin de plus de 1024 caractères rendait l'embed Discord
+  invalide (`400`) : l'alerte était perdue, et le cooldown faisait taire les
+  suivantes
 - **Triggers différés** — spécifiés, sans émetteur à ce jour : `ddos_detected`,
   `upstream_down`, `upstream_recovered`, `score_flood`, `challenge_flood`,
   `rule_triggered`, `tls_cert_expiring`. Ils rejoindront l'enum du schéma avec
@@ -248,6 +289,9 @@ change: "FR-23 : plancher de 4096 octets de max_header_bytes explicite (schéma 
   - Slack (format Slack Incoming Webhook)
   - Discord (format Discord Webhook)
   - Generic HTTP (JSON libre, configurable)
+  - `alerting.webhooks[].type` vaut `generic` (défaut, clé absente), `slack` ou
+    `discord` ; toute autre valeur DOIT être refusée au démarrage — elle était
+    acceptée et envoyée au format générique
 - Le WAF DOIT exposer les métriques d'alertes, comptées par livraison (une alerte × un sink) :
   - `waf_alerts_sent_total{trigger}` : livraisons acceptées par le sink (réponse 2xx)
   - `waf_alerts_failed_total{trigger}` : livraisons abandonnées (tentatives épuisées)
@@ -489,7 +533,19 @@ change: "FR-23 : plancher de 4096 octets de max_header_bytes explicite (schéma 
 - `server.listen` (redirection) et `server.tls.listen` DOIVENT être des adresses distinctes quand `redirect_http` est actif : la configuration DOIT être refusée à la validation, et non au bind du second serveur (`address already in use`). Plus généralement, deux serveurs démarrés (public, redirection, challenge ACME, API admin) NE DOIVENT PAS partager une adresse ; ":443" et "0.0.0.0:443" désignent la même. La surcharge `-listen` est revalidée
 - Le handler de redirection DOIT valider le `Host` entrant contre la liste des domaines configurés (exact ou wildcard) avant de rediriger, selon les règles du routage (un wildcard `*.example.com` couvre aussi l'apex `example.com`) ; un `Host` non reconnu DOIT recevoir `400 Bad Request` (protection contre l'open-redirect par injection de header `Host`)
 - Le WAF DOIT exposer `waf_tls_cert_expiry_seconds{domain}` pour chaque certificat chargé (réutilise FR-31)
-- Le WAF DEVRAIT recharger les certificats sans redémarrage (`SIGHUP`) — **optionnel**, hors première tranche
+- Le WAF DOIT prendre en compte un certificat **renouvelé sur disque** sans redémarrage :
+  - les fichiers de chaque paire (`server.tls` et `domains[].tls`) sont réexaminés
+    toutes les **minutes** (date de modification, liens symboliques suivis — le
+    `live/` de certbot pointe vers `archive/`) ; une paire modifiée est rechargée,
+    validée comme au démarrage, puis servie aux handshakes suivants
+  - une paire invalide au rechargement (écriture en cours, clé non concordante,
+    fichier absent) est **ignorée** : le certificat en service est conservé,
+    l'échec journalisé (`warn`) et la paire retentée au tour suivant — jamais de
+    handshake refusé à cause d'un renouvellement
+  - `waf_tls_cert_expiry_seconds{domain}` suit le certificat rechargé : figée au
+    démarrage, la jauge annonçait l'expiration d'un certificat déjà remplacé
+  - Un renouvellement certbot exigeait un redémarrage du WAF. **Différé** :
+    rechargement sur `SIGHUP` (le processus ne capte que `SIGINT` et `SIGTERM`)
 - Le renouvellement des certificats statiques est géré **hors WAF** (outillage amont) ; ACME (FR-31) reste un mécanisme complémentaire et n'est pas activé simultanément sur le même listener dans la première version
 
 ---

@@ -155,3 +155,21 @@ func TestSyncerRoutesPropagatedBlacklistThroughTheApplier(t *testing.T) {
 		t.Fatal("entry written behind the applier's back, want the applier as sole writer")
 	}
 }
+
+// FR-20 : un retrait de blacklist propagé est appliqué par le retireur
+// branché ; sans lui (pas d'API admin), l'événement est ignoré.
+func TestSyncerAppliesBlacklistRemoval(t *testing.T) {
+	syncer := NewSyncer(NewLocalBus(), nil, nil)
+	event := Event{Type: EventBlacklistRemove, Node: "ffffffffffffffff", Value: "5.5.5.5"}
+	if syncer.Apply(event) {
+		t.Fatal("a removal without remover must be ignored")
+	}
+	var removed []string
+	syncer.WithBlacklistRemover(func(value string) error {
+		removed = append(removed, value)
+		return nil
+	})
+	if !syncer.Apply(event) || len(removed) != 1 || removed[0] != "5.5.5.5" {
+		t.Fatalf("removed = %v, want [5.5.5.5]", removed)
+	}
+}

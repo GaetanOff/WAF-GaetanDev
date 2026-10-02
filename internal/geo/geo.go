@@ -45,7 +45,8 @@ func NewRules(cfg config.Geo) Rules {
 
 func (r Rules) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		if !r.enabled || req.Header.Get(headerAction) == wafheader.ActionPass {
+		// Le géo-blocage s'applique aux assets statiques (FR-24).
+		if !r.enabled || wafheader.IsFullPass(req.Header) {
 			next.ServeHTTP(w, req)
 			return
 		}

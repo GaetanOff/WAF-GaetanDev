@@ -51,10 +51,13 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 
 		ip := cloudflare.RealIP(r)
 		var visitorScore int
-		if decision.Block {
+		switch {
+		case decision.Reason == ReasonHoneypot:
+			visitorScore = m.scores.BanHoneypot(ip, r.Host).Score
+		case decision.Block:
 			visitor := m.scores.Set(ip, r.Host, 0)
 			visitorScore = visitor.Score
-		} else {
+		default:
 			visitor := m.scores.Apply(ip, r.Host, decision.Delta)
 			visitorScore = visitor.Score
 		}

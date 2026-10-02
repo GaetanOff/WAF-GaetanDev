@@ -1,9 +1,9 @@
 ---
 status: implemented
-version: 2.7.1
-last-reviewed: 2026-10-01
+version: 2.8.6
+last-reviewed: 2026-10-02
 reviewed-by: GaetanDev
-change: "FR-10 : GET /waf/health de l'API admin répond degraded quand Redis sert l'état local ; le health public reste ok. Précédent (2.7.0) — NFR-04 : un panic d'un handler public ou admin est récupéré par le WAF — journal error avec request_id, compteur waf_panics_total, 500 si aucun en-tête n'est parti. Précédent (2.6.9) — FR-02 : l'anti-brute-force de l'API admin (FR-30) suit l'identité client (IPv6 par /64). Précédent (2.6.8) — FR-04 : une IPv4 mappée en IPv6 (::ffff:a.b.c.d) est évaluée comme l'IPv4 par la whitelist et la blacklist, adresse cliente comme entrée de liste. Précédent (2.6.7) — FR-01 : les en-têtes X-WAF-* d'une réponse de l'upstream sont supprimés — ils se lisaient comme une décision du WAF (violation FR-08, action et raison FR-09). Précédent (2.6.6) — FR-06 : la page de challenge porte une Content-Security-Policy stricte à nonce. Précédent (2.6.5) — FR-09 : événements de log abandonnés exposés (waf_log_events_dropped_total). Précédent (2.6.4) — FR-06 : la durée du challenge est mesurée par le serveur depuis l'émission signée du token ; elapsed_ms du client devient indicatif. Précédent (2.6.3) — NFR-03 : server.admin_listen vaut 127.0.0.1:9090 par défaut (boucle locale) au lieu de toutes les interfaces. Précédent (2.6.2) — NFR-03 : clé AbuseIPDB (WAF_ABUSEIPDB_KEY) et URL de webhook (WAF_ALERTING_WEBHOOKS_<i>_URL) configurables par l'environnement. Précédent (2.6.1) — FR-05 : les écritures de l'état d'un visiteur sont atomiques (compare-and-set Redis) — une pénalité concurrente n'est plus écrasée. Précédent (2.6.0) — FR-02 : identité client des contrôles par IP — une IPv6 compte par son /64 (rate limit, score, breaker, slowloris, auto-protection, ip_hash). Précédent (2.5.1) — FR-06 : token de challenge et cookie de clearance signés avec des clés dérivées distinctes — le token, remis à tout visiteur, se validait comme cookie et franchissait le challenge sans PoW. Précédent (2.5.0) — FR-01 : seuls X-WAF-Score et X-WAF-Origin-Token sont transmis à l'upstream, les autres X-WAF-* restent internes. Précédent (2.4.2) — FR-03 : les limites par domaine et par route sont différées, conformément à ADR-022 (la surcharge inerte a été retirée) ; FR-03 les exigeait encore. Précédent (2.4.1) — NFR-05 : arrêt parallèle de tous les serveurs, chacun avec le délai de grâce entier, y compris sur échec d'un listener. Précédent (2.4.0) — FR-09 : les refus slowloris, flood de /waf/verify et strict_host sont journalisés et comptés. FR-07 : un User-Agent de `whitelist_user_agents` n'est plus pénalisé par les heuristiques « client non navigateur » (en-têtes manquants, UA d'outil) — Googlebot était bloqué en huit requêtes. Précédent (2.3.2) — FR-09 : le label `domain` des métriques est borné aux hôtes de `domains[]`, tout autre hôte est compté sous `_undeclared`. Précédent (2.3.1) — FR-08 : seul un refus du rate limit du WAF (`X-WAF-Action: RATE_LIMIT`) est une violation de circuit-breaker, jamais un 429 de l'upstream. Précédent (2.3.0) — FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
+change: "FR-09 : noms des métriques réalignés sur ceux exposés (waf_requests_total, waf_blocked_total, waf_challenged_total, waf_request_duration_seconds). Précédent (2.8.5) — NFR-02 : périmètre du hot-reload précisé (PATCH rate_limit/trust/challenge, listes, certificats) ; rechargement complet et SIGHUP différés. Précédent (2.8.4) — FR-06 : avec les défauts, token_ttl (30 s) borne la durée du challenge avant max_elapsed_ms (60 s) — challenge_timeout n'est atteint que si max_elapsed_ms < token_ttl. Précédent (2.8.3) — FR-08 : le « challenge plus fréquent » sous pression est le mode sous attaque (FR-39) ; sous trigger_pressure, seule la contribution rate du moteur agit. Précédent (2.8.2) — FR-01 : le préfixe /waf/ est réservé — un chemin inconnu ou un endpoint désactivé sous /waf/ reçoit 404 du WAF, jamais transmis à l'upstream (/waf/stats et /waf/admin/* l'étaient). Précédent (2.8.1) — FR-01 : X-Forwarded-For vaut l'IP réelle du client (et non celle du PoP Cloudflare) ; X-Forwarded-Proto le schéma vu par le client (CF-Visitor derrière Cloudflare). Précédent (2.8.0) — FR-07 : le honeypot bannit le visiteur pour trust.score_ttl (honeypot_until, 403 BLOCK honeypot_ban, avant le challenge), moteur de risque actif ou non, shadow et assets compris ; /admin.php retiré des honeypot_paths par défaut ; shadow_mode sans effet sur l'anti-bot sans moteur de risque. FR-05 : « navigation normale (+1/req) », jamais implémenté, retiré. Précédent (2.7.1) — FR-10 : GET /waf/health de l'API admin répond degraded quand Redis sert l'état local ; le health public reste ok. Précédent (2.7.0) — NFR-04 : un panic d'un handler public ou admin est récupéré par le WAF — journal error avec request_id, compteur waf_panics_total, 500 si aucun en-tête n'est parti. Précédent (2.6.9) — FR-02 : l'anti-brute-force de l'API admin (FR-30) suit l'identité client (IPv6 par /64). Précédent (2.6.8) — FR-04 : une IPv4 mappée en IPv6 (::ffff:a.b.c.d) est évaluée comme l'IPv4 par la whitelist et la blacklist, adresse cliente comme entrée de liste. Précédent (2.6.7) — FR-01 : les en-têtes X-WAF-* d'une réponse de l'upstream sont supprimés — ils se lisaient comme une décision du WAF (violation FR-08, action et raison FR-09). Précédent (2.6.6) — FR-06 : la page de challenge porte une Content-Security-Policy stricte à nonce. Précédent (2.6.5) — FR-09 : événements de log abandonnés exposés (waf_log_events_dropped_total). Précédent (2.6.4) — FR-06 : la durée du challenge est mesurée par le serveur depuis l'émission signée du token ; elapsed_ms du client devient indicatif. Précédent (2.6.3) — NFR-03 : server.admin_listen vaut 127.0.0.1:9090 par défaut (boucle locale) au lieu de toutes les interfaces. Précédent (2.6.2) — NFR-03 : clé AbuseIPDB (WAF_ABUSEIPDB_KEY) et URL de webhook (WAF_ALERTING_WEBHOOKS_<i>_URL) configurables par l'environnement. Précédent (2.6.1) — FR-05 : les écritures de l'état d'un visiteur sont atomiques (compare-and-set Redis) — une pénalité concurrente n'est plus écrasée. Précédent (2.6.0) — FR-02 : identité client des contrôles par IP — une IPv6 compte par son /64 (rate limit, score, breaker, slowloris, auto-protection, ip_hash). Précédent (2.5.1) — FR-06 : token de challenge et cookie de clearance signés avec des clés dérivées distinctes — le token, remis à tout visiteur, se validait comme cookie et franchissait le challenge sans PoW. Précédent (2.5.0) — FR-01 : seuls X-WAF-Score et X-WAF-Origin-Token sont transmis à l'upstream, les autres X-WAF-* restent internes. Précédent (2.4.2) — FR-03 : les limites par domaine et par route sont différées, conformément à ADR-022 (la surcharge inerte a été retirée) ; FR-03 les exigeait encore. Précédent (2.4.1) — NFR-05 : arrêt parallèle de tous les serveurs, chacun avec le délai de grâce entier, y compris sur échec d'un listener. Précédent (2.4.0) — FR-09 : les refus slowloris, flood de /waf/verify et strict_host sont journalisés et comptés. FR-07 : un User-Agent de `whitelist_user_agents` n'est plus pénalisé par les heuristiques « client non navigateur » (en-têtes manquants, UA d'outil) — Googlebot était bloqué en huit requêtes. Précédent (2.3.2) — FR-09 : le label `domain` des métriques est borné aux hôtes de `domains[]`, tout autre hôte est compté sous `_undeclared`. Précédent (2.3.1) — FR-08 : seul un refus du rate limit du WAF (`X-WAF-Action: RATE_LIMIT`) est une violation de circuit-breaker, jamais un 429 de l'upstream. Précédent (2.3.0) — FR-02 / FR-03 / FR-09 : les clés de configuration inertes deviennent des exigences précises — rafraîchissement des plages IP Cloudflare (source, validation, repli), fenêtres req/minute et req/heure du rate limiting, et contrat des deux formats de journalisation (`json` = contrat d'audit, `pretty` = rendu console de développement)"
 ---
 
 # Requirements — WAF Anti-DDoS / Anti-Bot
@@ -14,10 +14,29 @@ change: "FR-10 : GET /waf/health de l'API admin répond degraded quand Redis ser
 - Le WAF DOIT agir comme reverse proxy HTTP/1.1 et HTTP/2
 - Le WAF DOIT transmettre les requêtes légitimes vers l'upstream configuré
 - Le WAF DOIT préserver tous les headers originaux et ajouter `X-Forwarded-For`, `X-Real-IP`
+  - `X-Forwarded-For` et `X-Real-IP` DOIVENT valoir l'**IP réelle du client**
+    (FR-02 : `CF-Connecting-IP` derrière Cloudflare), une seule adresse : tout
+    `X-Forwarded-For` reçu est remplacé. `X-Forwarded-For` portait l'adresse du
+    point de présence Cloudflare (`RemoteAddr`), et une origine configurée en
+    `real_ip_header X-Forwarded-For` (README, `upstream.conf.example`)
+    attribuait tout le trafic à quelques IP de Cloudflare
+  - `X-Forwarded-Proto` DOIT valoir le schéma vu par le **client** : `https`
+    quand le WAF termine le TLS, et derrière Cloudflare celui de l'en-tête
+    `CF-Visitor` (`{"scheme":"https"}`), honoré seulement s'il vient d'une plage
+    Cloudflare (ADR-019) ; `http` sinon. Il valait `http` pour un client en
+    HTTPS derrière Cloudflare, et une origine qui redirige vers HTTPS bouclait
+  - `X-Forwarded-Host` vaut le `Host` reçu
 - Parmi les en-têtes internes `X-WAF-*`, seuls `X-WAF-Score` (score de confiance) et `X-WAF-Origin-Token` (FR-19) DOIVENT être transmis à l'upstream ; les en-têtes de coordination du pipeline (`X-WAF-Action`, `X-WAF-Reason`, `X-WAF-Risk-*`, `X-WAF-Global-Pressure`…) NE DOIVENT PAS l'être : aucun contrat ne les promet à l'application protégée, et ils exposaient la mécanique de décision du WAF
 - Réciproquement, le WAF DOIT supprimer tout en-tête `X-WAF-*` d'une **réponse** de l'upstream : le pipeline lit ces en-têtes sur la réponse comme la décision du WAF (violation de circuit-breaker FR-08, action et raison journalisées et comptées FR-09). Transmis, un `X-WAF-Action: RATE_LIMIT` de l'origine comptait comme une violation, et un `X-WAF-Reason` quelconque devenait une série du label `reason`
 - Le WAF DOIT supporter la configuration de plusieurs domaines avec upstreams distincts
 - Le WAF DOIT supporter les WebSockets (upgrade HTTP)
+- Le préfixe `/waf/` est **réservé** au WAF sur tous les domaines : aucune
+  requête sous `/waf/` NE DOIT être transmise à l'upstream. Un chemin sous
+  `/waf/` qui n'est pas un endpoint du WAF (`public.openapi.yaml`), ou un
+  endpoint dont la fonction est désactivée (`/waf/verify` quand aucun hôte ne
+  peut être challengé, `/waf/origin/verify` sans `origin_protection`), reçoit
+  `404` du WAF. `/waf/stats` et `/waf/admin/*`, servis par la seule API
+  d'administration, étaient transmis à l'origine depuis le listener public
 - Le WAF DOIT pouvoir conserver l'en-tête `Host` entrant vers l'upstream (`upstream.preserve_host`) au lieu de le réécrire vers l'hôte de l'upstream — requis quand l'upstream route par `server_name` (ex: nginx/OpenResty en aval). Défaut : réécriture vers l'hôte upstream (comportement historique)
 
 ### FR-02 — Extraction IP Cloudflare
@@ -67,7 +86,11 @@ change: "FR-10 : GET /waf/health de l'API admin répond degraded quand Redis ser
 ### FR-05 — Score de confiance visiteur
 - Le WAF DOIT maintenir un score de confiance [0..100] par visiteur (clé: hash IP)
 - Score initial : 50 pour les nouveaux visiteurs
-- Augmentations : challenge JS réussi (+25), navigation normale (+1/req)
+- Augmentations : challenge JS réussi (+25)
+  - **Retiré** : « navigation normale (+1/req) », jamais implémenté. Il ferait
+    croître la confiance avec le volume (un bot gagne +50 en 50 requêtes) et
+    coûterait une écriture du store à chaque requête ; la confiance d'un humain
+    vient du challenge réussi et des crédits de preuve humaine (FR-37)
 - Diminutions : challenge JS échoué (-20), rate limit atteint (-10), user-agent suspect (-15), pattern bot (-30)
 - La pénalité « rate limit atteint » DOIT être appliquée **au plus une fois par fenêtre de pénalité** (10 s) : les sous-requêtes refusées d'un même chargement de page (CSS, JS, images, appels API) comptent pour UNE pénalité, pas une par 429 — sinon un seul clic suffit à faire passer un humain de 50 à BLOCKED
 - La pénalité « rate limit atteint » NE DOIT PAS s'appliquer à un 429 imputable au seul resserrement de pression globale (`rate_limit_pressure`, cf. FR-08) : la requête aurait été admise au débit nominal, le visiteur n'a rien fait d'anormal
@@ -83,7 +106,7 @@ change: "FR-10 : GET /waf/health de l'API admin répond degraded quand Redis ser
   - Un token unique signé (nonce + timestamp + IP hash) généré côté serveur
   - Un calcul proof-of-work (trouver N tel que SHA-256(nonce + N) commence par K zéros)
   - Un fingerprinting navigateur (user-agent, timezone, screen, langue, plugins, canvas hash, WebGL hash)
-  - Un timer de durée : un plafond (`max_elapsed_ms`, défaut 60 s) au-delà duquel le challenge est considéré abandonné. La durée comparée au plancher et au plafond DOIT être **mesurée par le serveur**, de l'émission du token (horodatage signé à la milliseconde) à la soumission : l'`elapsed_ms` envoyé par le client, qu'il choisit librement, rendait le plancher décoratif. Il reste requis dans la soumission (contrat), à titre indicatif. Le plancher (`min_elapsed_ms`) est **désactivé par défaut** (0) car une PoW se résout en quelques dizaines de ms sur un client rapide et un plancher positif rejetait ces résolutions légitimes (`challenge_too_fast`). La résistance anti-bot repose sur la PoW + le fingerprint + le cookie, pas sur le chrono ; un opérateur peut réactiver un plancher (`min_elapsed_ms > 0`)
+  - Un timer de durée : un plafond (`max_elapsed_ms`, défaut 60 s) au-delà duquel le challenge est considéré abandonné. La durée comparée au plancher et au plafond DOIT être **mesurée par le serveur**, de l'émission du token (horodatage signé à la milliseconde) à la soumission : l'`elapsed_ms` envoyé par le client, qu'il choisit librement, rendait le plancher décoratif. Il reste requis dans la soumission (contrat), à titre indicatif. Le plancher (`min_elapsed_ms`) est **désactivé par défaut** (0) car une PoW se résout en quelques dizaines de ms sur un client rapide et un plancher positif rejetait ces résolutions légitimes (`challenge_too_fast`). La résistance anti-bot repose sur la PoW + le fingerprint + le cookie, pas sur le chrono ; un opérateur peut réactiver un plancher (`min_elapsed_ms > 0`). Le token expire après `challenge.token_ttl` (30 s) : avec les défauts, il expire avant le plafond de 60 s, et une soumission tardive reçoit `token_expired` ; `challenge_timeout` n'est atteint qu'avec un `max_elapsed_ms` inférieur au `token_ttl`
 - Le WAF DOIT valider la soumission du challenge via POST `/waf/verify`
 - Le WAF DOIT émettre un cookie de session signé HMAC-SHA256 après validation
 - Le token de challenge et le cookie de clearance DOIVENT être signés avec des **clés distinctes**, dérivées de `challenge.secret_key` par usage (HMAC-SHA256 du secret et d'une étiquette d'usage). Le token est remis à tout visiteur dans la page : signé avec la même clé et au même format que le cookie, il se validait comme clearance et, posé dans `waf_session`, franchissait le challenge sans PoW, mode « sous attaque » (FR-39) compris. Un token présenté comme cookie DOIT être refusé (le visiteur reçoit le challenge)
@@ -110,10 +133,27 @@ change: "FR-10 : GET /waf/health de l'API admin répond degraded quand Redis ser
 - Le WAF DOIT analyser les headers HTTP pour détecter les bots (User-Agent vide, bot connus, headless browsers)
 - Le WAF DOIT détecter les patterns de navigation anormaux (intervalle entre requêtes, ordre des ressources)
 - Le WAF DOIT détecter les requêtes vers des URLs honeypot configurables
+  - Une requête vers un honeypot DOIT recevoir HTTP 403 (`action=HONEYPOT`), et
+    le visiteur DOIT rester **banni** (HTTP 403, `action=BLOCK`,
+    `reason=honeypot_ban`, déclencheur déterministe `honeypot`) sur toutes ses
+    requêtes suivantes, `/waf/verify` compris, pendant
+    `trust.score_ttl`, assets statiques compris (FR-24), moteur de risque actif
+    ou non, mode shadow compris. Le ban est un signal déterministe (FR-35) porté
+    par l'état du visiteur (`honeypot_until`, `visitor.schema.json`) : le score
+    remis à 0 ne bloquait que via le middleware de trust score, qui n'est pas
+    monté quand le moteur de risque est actif — le ban ne durait qu'une requête.
+    Seule la requête piège est journalisée `HONEYPOT` (et alertée, FR-29) : les
+    requêtes bannies qui suivent sont des `BLOCK`, sans nouvelle alerte honeypot.
+    Le ban est vérifié juste après la blacklist, avant le challenge : un
+    visiteur banni ne reçoit pas de page de challenge
+  - Par défaut, `honeypot_paths` ne contient que des chemins qu'aucune
+    application ne sert à ses utilisateurs (`/.env`, `/wp-config.php`,
+    `/.git/config`, `/phpinfo.php`) : `/admin.php`, page d'administration
+    légitime de nombreuses applications PHP, en a été retiré
 - Le WAF DOIT appliquer des règles basées sur la présence/absence de certains headers (Accept, Accept-Language, Accept-Encoding)
 - Le WAF DOIT scorer négativement les user-agents de headless browsers (Headless Chrome, PhantomJS, Puppeteer-known signatures)
 - Un User-Agent de `whitelist_user_agents` NE DOIT PAS être pénalisé par les heuristiques qui établissent seulement que le client n'est pas un navigateur (en-têtes `Accept-Language`/`Accept-Encoding` absents, UA d'outil) : un crawler légitime n'envoie pas ces en-têtes, et la pénalité répétée le bloquait avant la vérification reverse-DNS (`risk_engine.verified_bots`). Honeypot, UA d'automation et navigateurs headless RESTENT évalués
-- En mode calibration (`risk_engine.shadow_mode`), le WAF DOIT **observer** les blocages heuristiques de l'anti-bot (UA suspect, headers manquants…) sans les appliquer, afin de ne pas casser le trafic API/serveur légitime non-navigateur le temps de l'observation. Le honeypot, signal **déterministe** sans faux positif, RESTE bloquant même en shadow
+- En mode calibration (`risk_engine.shadow_mode`, moteur de risque actif), le WAF DOIT **observer** les blocages heuristiques de l'anti-bot (UA suspect, headers manquants…) sans les appliquer, afin de ne pas casser le trafic API/serveur légitime non-navigateur le temps de l'observation. Le honeypot, signal **déterministe** sans faux positif, RESTE bloquant même en shadow. Sans moteur de risque (`risk_engine.enabled: false`), `shadow_mode` est sans effet : l'anti-bot applique ses blocages (le défaut `shadow_mode: true` désactivait sinon tout blocage heuristique de l'anti-bot dans ce mode)
 
 ### FR-08 — Anti-DDoS
 - Le WAF DOIT détecter une augmentation anormale du taux de requêtes par IP et par domaine
@@ -123,6 +163,7 @@ change: "FR-10 : GET /waf/health de l'API admin répond degraded quand Redis ser
 - Le WAF DOIT calculer un niveau de pression global explicite : `normal`, `elevated`, `high`, `critical`
 - Le WAF NE DOIT PAS retourner HTTP 503, HTTP 403 ou ouvrir un blocage complet uniquement parce que le seuil global de trafic est dépassé
 - Le WAF DOIT utiliser la pression globale comme signal adaptatif pour renforcer les mitigations réversibles : contribution `rate`/`global_pressure`, challenge plus fréquent des visiteurs inconnus, difficulté PoW accrue, rate limit plus strict pour visiteurs inconnus ou suspects
+  - Le « challenge plus fréquent » est le mode sous attaque (FR-39) : dès `antiddos.under_attack.trigger_pressure` (défaut `high`), toute requête sans clearance est challengée. Sous ce seuil, la pression n'agit sur le challenge qu'à travers la contribution `rate` du moteur de risque ; aucune autre règle ne challenge davantage
 - Le resserrement du rate limit sous pression DOIT réduire uniquement le **débit de refill** (rate × facteur de pression) et conserver la **capacité de burst nominale** : un chargement de page unique (rafale de 25-50 sous-requêtes) DOIT passer même sous pression critique — c'est le débit soutenu qui distingue un bot, pas le burst initial
 - Un 429 imputable au seul resserrement de pression (la requête aurait été admise au débit de refill nominal) DOIT être identifié `reason=rate_limit_pressure` et DOIT rester **neutre** : ni violation de circuit-breaker, ni pénalité de score de confiance (FR-05) — sans quoi le WAF ouvre le circuit et bloque des humains à cause des 429 qu'il a lui-même provoqués (boucle de rétroaction auto-infligée)
 - Un 429 correspondant à un dépassement du débit nominal (`reason=rate_limit_exceeded`) DOIT continuer à compter comme violation de circuit-breaker et à pénaliser le score, y compris sous pression
@@ -143,7 +184,7 @@ change: "FR-10 : GET /waf/health de l'API admin répond degraded quand Redis ser
   - Le choix du format NE DOIT PAS changer le niveau, la destination, ni le caractère asynchrone de l'écriture
 - L'écriture des logs NE DOIT PAS bloquer le traitement des requêtes : elle est asynchrone (tampon + écriture en arrière-plan). Si la sortie ralentit (rotation, disque, pipe non lu) et que le tampon est plein, les lignes sont abandonnées plutôt que de bloquer le chemin de requête (voir NFR-16) ; leur nombre DOIT être exposé par le compteur Prometheus `waf_log_events_dropped_total` (compté mais jamais publié jusque-là : des événements se perdaient sous flood sans trace)
 - Le WAF DOIT exposer les métriques Prometheus sur `/waf/metrics`
-- Les métriques DOIVENT inclure : req_total, req_blocked_total, req_challenged_total, req_latency_histogram
+- Les métriques DOIVENT inclure : `waf_requests_total{action,domain}`, `waf_blocked_total{domain,reason}`, `waf_challenged_total{domain,reason}` et l'histogramme de latence `waf_request_duration_seconds{action}` (les noms `req_total`, `req_blocked_total`, `req_challenged_total` et `req_latency_histogram` de la v1 n'ont jamais été ceux exposés)
 - Le label `domain` des métriques DOIT avoir une cardinalité bornée par la configuration : un hôte déclaré dans `domains[]` (casse ignorée, port retiré) porte son propre label, un hôte couvert par un wildcard porte le wildcard (`*.example.com`), tout autre hôte est compté sous `_undeclared`. Le `Host` est fourni par le client : en faire un label, c'est laisser un attaquant créer une série Prometheus par requête (mémoire non bornée)
 
 ### FR-10 — API Admin
@@ -165,7 +206,10 @@ change: "FR-10 : GET /waf/health de l'API admin répond degraded quand Redis ser
 
 ### NFR-02 — Fiabilité
 - Le WAF DOIT continuer à fonctionner en mode dégradé si l'upstream est indisponible (retourner 502 sans crash)
-- Le WAF DOIT gérer le hot-reload de configuration sans interruption de trafic
+- Le WAF DOIT gérer le hot-reload de configuration sans interruption de trafic, dans le périmètre suivant :
+  - `PATCH /waf/admin/config` applique à chaud `rate_limit`, `trust` (seuils) et `challenge` (`enabled`, `pow_difficulty`) ; les listes whitelist/blacklist se modifient par l'API admin (FR-04, FR-10) ; un certificat renouvelé sur disque est rechargé (FR-40)
+  - Tout autre réglage, dont `rules.file`, `risk_engine` (FR-38) et `domains[]`, est lu au démarrage : le changer demande un redémarrage
+  - **Différé** : rechargement complet du fichier de configuration, sur `SIGHUP` ou à chaud (le processus ne capte que `SIGINT` et `SIGTERM`), et rechargement des règles custom
 - Goroutine leak : zéro fuite sur les goroutines de proxy
 
 ### NFR-03 — Sécurité

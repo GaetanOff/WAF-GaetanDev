@@ -190,6 +190,7 @@ type Trust struct {
 type RiskEngine struct {
 	Enabled                      bool               `yaml:"enabled"`
 	Profile                      string             `yaml:"profile"`
+	Fusion                       string             `yaml:"fusion"`
 	ShadowMode                   bool               `yaml:"shadow_mode"`
 	BlockMinConfidence           float64            `yaml:"block_min_confidence"`
 	MinCorroboratingFamilies     int                `yaml:"min_corroborating_families"`
@@ -493,6 +494,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg.applyEnvOverrides()
+	cfg.RiskEngine = cfg.RiskEngine.Resolved()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -574,27 +576,13 @@ func Default() Config {
 			// sans les appliquer, le temps de la calibration (NFR-15 : >= 24 h de
 			// shadow avant enforcement). Passer à false après observation des
 			// métriques de faux positifs.
-			ShadowMode:               true,
-			BlockMinConfidence:       0.6,
-			MinCorroboratingFamilies: 2,
-			Tiers: RiskTiers{
-				Observe:   25,
-				Throttle:  45,
-				Challenge: 65,
-				Tarpit:    80,
-				Block:     90,
-			},
-			Weights: map[string]float64{
-				"reputation":   1.0,
-				"behavioral":   1.0,
-				"tls":          0.8,
-				"fingerprint":  1.0,
-				"integrity":    1.2,
-				"rate":         0.6,
-				"geo":          0.5,
-				"human_credit": 1.0,
-			},
-			FamilyCorroborationThreshold: 50,
+			ShadowMode: true,
+			// Fusion historique : la normalisation sur les familles portant une
+			// évidence (available) rend les heuristiques effectives, à activer
+			// après calibration en shadow (FR-33).
+			Fusion: FusionDiluted,
+			// Paliers, poids et seuils absents : ceux du profil (Resolved). Les
+			// pré-remplir ici avec les valeurs balanced écrasait le profil.
 			HumanCredit: HumanCredit{
 				ChallengePassed:   -40,
 				StableFingerprint: -15,
@@ -626,8 +614,11 @@ func Default() Config {
 			},
 		},
 		Adaptive: Adaptive{
-			Enabled:       true,
-			MaxDifficulty: 24,
+			Enabled: true,
+			// 2^n hachages en moyenne, sur le thread du navigateur : à 24 bits
+			// (16 + 8 sous pression critique), un mobile dépassait le token_ttl
+			// de 30 s et bouclait sur token_expired (FR-14).
+			MaxDifficulty: 20,
 			DecayTau:      "5m",
 		},
 		Geo: Geo{
@@ -732,17 +723,21 @@ func Default() Config {
 			"facebookexternalhit",
 			"LinkedInBot",
 			"Twitterbot",
+			// Vérifiable par reverse-DNS (verified_bots.crawlers) : absent
+			// d'ici, il était challengé sous attaque même vérifié (FR-36).
+			"Applebot",
 		},
 		// Aucun chemin qu'un site légitime sert à ses propres utilisateurs :
 		// /wp-admin et /wp-login.php en étaient, et bannissaient (score 0, 403)
 		// l'administrateur de tout site WordPress protégé avec les défauts.
 		// /wp-config.php, jamais servi par WordPress, reste un piège sûr.
+		// /admin.php, page d'administration de nombreuses applications PHP,
+		// en a été retiré pour la même raison.
 		HoneypotPaths: []string{
 			"/.env",
 			"/wp-config.php",
 			"/.git/config",
 			"/phpinfo.php",
-			"/admin.php",
 		},
 		Logging: Logging{
 			Level:  "info",
@@ -840,8 +835,10 @@ func (c *Config) Validate() error {
 			fields = append(fields, "integrity.max_query_length must be >= 1")
 		}
 	}
-	if c.Behavioral.Enabled && c.Behavioral.MaxRecords < 1 {
-		fields = append(fields, "behavioral.max_records must be >= 1")
+	// Sous minBehavioralRecords pages, aucun score n'est calculé (FR-12) :
+	// 1 à 4 étaient acceptés et rendaient l'analyse inerte.
+	if c.Behavioral.Enabled && c.Behavioral.MaxRecords < minBehavioralRecords {
+		fields = append(fields, fmt.Sprintf("behavioral.max_records must be >= %d", minBehavioralRecords))
 	}
 	if c.ThreatIntel.Enabled {
 		validateDuration(&fields, "threat_intel.cache_ttl", c.ThreatIntel.CacheTTL)
@@ -851,7 +848,7 @@ func (c *Config) Validate() error {
 	}
 	if c.Adaptive.Enabled {
 		validateDuration(&fields, "adaptive.decay_tau", c.Adaptive.DecayTau)
-		validateRange(&fields, "adaptive.max_difficulty", c.Adaptive.MaxDifficulty, 8, 32)
+		validateRange(&fields, "adaptive.max_difficulty", c.Adaptive.MaxDifficulty, 8, maxPowDifficulty)
 		if c.Adaptive.MaxDifficulty < c.Challenge.PowDifficulty {
 			fields = append(fields, "adaptive.max_difficulty must be >= challenge.pow_difficulty")
 		}
@@ -887,6 +884,10 @@ func (c *Config) Validate() error {
 			fields = append(fields, "alerting.webhooks must not be empty when enabled")
 		}
 		for i, webhook := range c.Alerting.Webhooks {
+			// Un type inconnu était accepté puis envoyé au format générique.
+			if webhook.Type != "" {
+				validateEnum(&fields, fmt.Sprintf("alerting.webhooks[%d].type", i), webhook.Type, "generic", "slack", "discord")
+			}
 			name := fmt.Sprintf("alerting.webhooks[%d].url", i)
 			if strings.TrimSpace(webhook.URL) == "" {
 				fields = append(fields, fmt.Sprintf("%s is required; set %s", name, fmt.Sprintf(envWebhookURLFormat, i)))
@@ -936,7 +937,7 @@ func (c *Config) Validate() error {
 	if c.challengeReachable() && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")
 	}
-	validateRange(&fields, "challenge.pow_difficulty", c.Challenge.PowDifficulty, 8, 24)
+	validateRange(&fields, "challenge.pow_difficulty", c.Challenge.PowDifficulty, 8, maxPowDifficulty)
 	if c.Challenge.MinElapsedMS < 0 {
 		fields = append(fields, "challenge.min_elapsed_ms must be >= 0")
 	}
@@ -1173,6 +1174,8 @@ func validateUnderAttack(fields *[]string, cfg UnderAttack) {
 
 func validateRiskEngine(fields *[]string, cfg RiskEngine) {
 	validateEnum(fields, "risk_engine.profile", cfg.Profile, "lenient", "balanced", "strict")
+	validateEnum(fields, "risk_engine.fusion", cfg.Fusion, FusionDiluted, FusionAvailable)
+	cfg = cfg.Resolved()
 	validateFloatRange(fields, "risk_engine.block_min_confidence", cfg.BlockMinConfidence, 0, 1)
 	if cfg.MinCorroboratingFamilies < 1 {
 		*fields = append(*fields, "risk_engine.min_corroborating_families must be >= 1")
@@ -1189,6 +1192,9 @@ func validateRiskEngine(fields *[]string, cfg RiskEngine) {
 		*fields = append(*fields, "risk_engine.tiers must be strictly increasing")
 	}
 	validateRange(fields, "risk_engine.family_corroboration_threshold", cfg.FamilyCorroborationThreshold, 0, 100)
+	// Crédits de preuve humaine (FR-37) : des contributions négatives.
+	validateRange(fields, "risk_engine.human_credit.challenge_passed", cfg.HumanCredit.ChallengePassed, -100, 0)
+	validateRange(fields, "risk_engine.human_credit.stable_fingerprint", cfg.HumanCredit.StableFingerprint, -100, 0)
 	allowedWeights := map[string]bool{
 		"reputation":   true,
 		"behavioral":   true,
@@ -1271,6 +1277,14 @@ func validateDuration(fields *[]string, name, value string) {
 		*fields = append(*fields, name+" must be a valid Go duration")
 	}
 }
+
+// minBehavioralRecords est le nombre de pages sous lequel l'analyse
+// comportementale ne calcule aucun score (internal/behavioral).
+const minBehavioralRecords = 5
+
+// maxPowDifficulty borne la difficulté du PoW, statique comme adaptative : à
+// 2^24 hachages, un mobile met déjà plusieurs dizaines de secondes (FR-14).
+const maxPowDifficulty = 24
 
 func validateRange(fields *[]string, name string, value, min, max int) {
 	if value < min || value > max {

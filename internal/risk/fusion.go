@@ -2,65 +2,57 @@ package risk
 
 import "github.com/gaetandev/waf/internal/config"
 
+// FusionMode est le mode de fusion (risk_engine.fusion, FR-33).
+type FusionMode string
+
+const (
+	// FusionDiluted divise la somme pondérée par la somme de tous les poids
+	// configurés : un BLOCK heuristique y est inatteignable par défaut.
+	FusionDiluted FusionMode = config.FusionDiluted
+	// FusionAvailable la divise par la somme des poids des seules familles
+	// portant une évidence, avec une réputation neutre au score initial.
+	FusionAvailable FusionMode = config.FusionAvailable
+)
+
 type FusionConfig struct {
 	Profile                      Profile
+	Mode                         FusionMode
 	Weights                      map[SignalFamily]float64
 	FamilyCorroborationThreshold int
+	// InitialTrustScore est le score de confiance d'un nouveau visiteur
+	// (trust.initial_score) : la réputation y est neutre en mode available.
+	InitialTrustScore int
 }
 
+// DefaultFusionConfig rend la fusion du profil, sans surcharge.
 func DefaultFusionConfig(profile Profile) FusionConfig {
-	cfg := FusionConfig{
-		Profile: profile,
-		Weights: map[SignalFamily]float64{
-			FamilyReputation:  1.0,
-			FamilyBehavioral:  1.0,
-			FamilyTLS:         0.8,
-			FamilyFingerprint: 1.0,
-			FamilyIntegrity:   1.2,
-			FamilyRate:        0.6,
-			FamilyGeo:         0.5,
-			FamilyHumanCredit: 1.0,
-		},
-		FamilyCorroborationThreshold: 50,
-	}
-
-	switch profile {
-	case ProfileLenient:
-		cfg.Weights[FamilyReputation] = 0.6
-		cfg.Weights[FamilyBehavioral] = 0.7
-		cfg.Weights[FamilyTLS] = 0.5
-		cfg.Weights[FamilyFingerprint] = 0.7
-		cfg.Weights[FamilyIntegrity] = 0.9
-		cfg.Weights[FamilyRate] = 0.3
-		cfg.Weights[FamilyGeo] = 0.2
-		cfg.Weights[FamilyHumanCredit] = 3.0
-		cfg.FamilyCorroborationThreshold = 60
-	case ProfileStrict:
-		cfg.Weights[FamilyReputation] = 1.8
-		cfg.Weights[FamilyBehavioral] = 1.5
-		cfg.Weights[FamilyTLS] = 1.2
-		cfg.Weights[FamilyFingerprint] = 1.5
-		cfg.Weights[FamilyIntegrity] = 1.6
-		cfg.Weights[FamilyRate] = 1.0
-		cfg.Weights[FamilyGeo] = 0.8
-		cfg.Weights[FamilyHumanCredit] = 0.5
-		cfg.FamilyCorroborationThreshold = 45
-	default:
-		cfg.Profile = ProfileBalanced
-	}
-
-	return cfg
+	return FusionConfigFromConfig(config.RiskEngine{Profile: string(profile)})
 }
 
+// FusionConfigFromConfig rend la fusion configurée : poids et seuil absents
+// prennent la valeur du profil (config.RiskEngine.Resolved).
 func FusionConfigFromConfig(cfg config.RiskEngine) FusionConfig {
-	fusion := DefaultFusionConfig(Profile(cfg.Profile))
-	if cfg.FamilyCorroborationThreshold != 0 {
-		fusion.FamilyCorroborationThreshold = cfg.FamilyCorroborationThreshold
+	resolved := cfg.Resolved()
+	weights := make(map[SignalFamily]float64, len(resolved.Weights))
+	for family, weight := range resolved.Weights {
+		weights[SignalFamily(family)] = weight
 	}
-	for family, weight := range cfg.Weights {
-		fusion.Weights[SignalFamily(family)] = weight
+	return FusionConfig{
+		Profile:                      knownProfile(resolved.Profile),
+		Mode:                         FusionMode(resolved.Fusion),
+		Weights:                      weights,
+		FamilyCorroborationThreshold: resolved.FamilyCorroborationThreshold,
 	}
-	return fusion
+}
+
+// knownProfile ramène un profil inconnu à balanced, dont il reçoit les valeurs.
+func knownProfile(profile string) Profile {
+	switch Profile(profile) {
+	case ProfileLenient, ProfileStrict:
+		return Profile(profile)
+	default:
+		return ProfileBalanced
+	}
 }
 
 func Fuse(contributions []Contribution, cfg FusionConfig) RiskAssessment {
@@ -76,6 +68,7 @@ func Fuse(contributions []Contribution, cfg FusionConfig) RiskAssessment {
 
 	weightedRisk := 0.0
 	availableWeight := 0.0
+	evidenceWeight := 0.0
 	factors := make([]Contribution, 0, len(contributions))
 	for _, contribution := range contributions {
 		weight := weights[contribution.Family]
@@ -89,14 +82,42 @@ func Fuse(contributions []Contribution, cfg FusionConfig) RiskAssessment {
 			if normalized.Signal != "" || normalized.Value != nil || normalized.Contribution != 0 {
 				availableWeight += weight
 			}
+			if normalized.Contribution != 0 {
+				evidenceWeight += weight
+			}
 		}
 		factors = append(factors, normalized)
 	}
 
-	score := round(weightedRisk / totalWeight)
+	score := scoreFor(weightedRisk, totalWeight, evidenceWeight, cfg.Mode)
 	assessment := NewAssessment(score, availableWeight/totalWeight, DecisionAllow, factors)
 	assessment.Profile = cfg.Profile
 	return assessment
+}
+
+// scoreFor normalise la somme pondérée selon le mode (FR-33). En mode
+// available, une famille sans évidence (contribution nulle) ne dilue pas
+// celles qui en portent ; sans aucune évidence, le score est nul.
+func scoreFor(weightedRisk, totalWeight, evidenceWeight float64, mode FusionMode) int {
+	if mode != FusionAvailable {
+		return round(weightedRisk / totalWeight)
+	}
+	if evidenceWeight == 0 {
+		return 0
+	}
+	return round(weightedRisk / evidenceWeight)
+}
+
+// reputationContribution traduit le trust score en contribution de la famille
+// reputation. En mode diluted, 100 - score (historique). En mode available,
+// l'écart sous le score initial : un nouveau visiteur n'apporte aucune
+// évidence, un visiteur à 0 en apporte 100 — sinon tout nouveau visiteur
+// (contribution 50) serait classé THROTTLE.
+func reputationContribution(trustScore int, cfg FusionConfig) int {
+	if cfg.Mode != FusionAvailable || cfg.InitialTrustScore <= 0 {
+		return 100 - trustScore
+	}
+	return clamp((cfg.InitialTrustScore-trustScore)*100/cfg.InitialTrustScore, 0, 100)
 }
 
 func totalConfiguredWeight(weights map[SignalFamily]float64) float64 {

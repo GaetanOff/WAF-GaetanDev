@@ -1,7 +1,7 @@
 ---
 status: implemented
 version: 1.0.0
-last-reviewed: 2026-10-01
+last-reviewed: 2026-10-02
 ---
 
 # Validation Report — WAF Anti-DDoS / Anti-Bot
@@ -294,7 +294,15 @@ last-reviewed: 2026-10-01
 | 2026-09-24 | Hôte des tokens | `TestClearanceCookieHoldsAcrossHostSpellings`, `TestInjectedTokenVerifiesForTheNormalizedDomain` | pass | En échec sur l'ancien code pour `Example.TEST` et `example.test:443` |
 | 2026-09-24 | `ttlcache` sous contention | Benchmark `Get` parallèle (non versionné), 1/4/8/16 cœurs | mesure | 37 / 91 / 85 / 108 ns/op : ~10 M lectures/s par cache, sharding non justifié |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `Example.com:8080` compté sous `domain="example.com"` ; `attack-1.test`, `attack-2.test` sous `_undeclared` ; `GET /waf/admin/config` masque les secrets |
-
+| 2026-10-02 | Sprint 28 (audit 13) | `go test ./...` | pass | 998 tests et sous-tests, 50 paquets |
+| 2026-10-02 | Sprint 28 (audit 13) | `make spec-lint typecheck conformance behavior security` | pass | spectral 0 erreur, couverture 85,5 %, govulncheck v1.8.0 : 0 vulnérabilité atteignable |
+| 2026-10-02 | Sprint 28 (audit 13) | `golangci-lint` v2.14.0 `run ./...` | pass | 0 issue |
+| 2026-10-02 | Bypass d'assets (FR-24) | `TestAppGeoBlocksStaticAssets`, `TestAppChallengesAssetFloodUnderAttack` | pass | échouaient avant correction (204 au lieu de 403 / challenge) |
+| 2026-10-02 | Ban honeypot (FR-07) | `TestAppHoneypotBanOutlivesTheTrapRequest`, `TestHoneypotGuardBansForScoreTTL` | pass | moteur actif, shadow compris ; échouait avant correction |
+| 2026-10-02 | Fusion et profils (FR-33) | `TestFusionModes`, `TestProfileAppliesWithoutExplicitOverrides`, `TestLoadResolvesRiskProfile` | pass | valeurs des scénarios de risk-scoring-engine.feature |
+| 2026-10-02 | X-Forwarded-* (FR-01) | `TestAppForwardsClientIPAndScheme` | pass | IP réelle, schéma CF-Visitor, CF-Visitor forgé ignoré |
+| 2026-10-02 | Pool, threat intel, TLS, cluster, alerting | `TestPoolKeepsMemberHealthyOnResponseTimeout`, `TestMonitorCountsSuccessesSinceEjection`, `TestCheckerCachesUnavailableVerdictBriefly`, `TestHTTPSourcePausesOnQuotaExhaustion`, `TestReloadServesRenewedCertificateAndKeepsItOnInvalidPair`, `TestOpenRejectsStaleOrUndatedEvents`, `TestBlacklistRemovalIsPropagatedAndSparesConfiguredEntries`, `TestCooldownBoundsTheDomainToDeclaredHosts` | pass | |
+| 2026-10-02 | Contrats (admin, public, schémas) | `TestAdminConfigUsesTheSchemaKeys`, `TestReservedWAFPrefixNeverReachesTheUpstream`, `TestUpstreamPoolSchemaMatchesTheConfigBlock`, `TestVerifyMarksPassesAfterAFlag` | pass | |
 | 2026-10-01 | Sprint 27 (audit 12) | `go test ./...` | pass | 957 tests et sous-tests |
 | 2026-10-01 | Sprint 27 (audit 12) | `make spec-lint typecheck conformance behavior security` | pass | spectral 6.16.3 0 erreur ; couverture 82,8 % (gate 80 %) ; 0 vulnérabilité atteignable |
 | 2026-10-01 | Sprint 27 (audit 12) | `golangci-lint` v2.14.0 `run ./...` | pass | 0 issue |

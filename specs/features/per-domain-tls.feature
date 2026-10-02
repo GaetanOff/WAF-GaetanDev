@@ -5,8 +5,9 @@ Feature: Terminaison TLS par domaine (sélection par SNI)
 
   # Spec : requirements-ops.md FR-40 ; décision : ADR-017 ; schéma : config.schema.json
   # Statut : implemented — internal/tlsmgr (T11.1, validé le 2026-06-10 par
-  # go test et un handshake réel openssl s_client). Le rechargement à chaud
-  # des certificats (SIGHUP) reste différé (FR-31) et n'est pas un scénario ici.
+  # go test et un handshake réel openssl s_client). Le rechargement sur SIGHUP
+  # reste différé ; un certificat renouvelé sur disque est rechargé sans
+  # redémarrage (scénarios « Renouvellement »).
 
   Background:
     Given le WAF est configuré avec server.tls.enabled = true
@@ -123,3 +124,16 @@ Feature: Terminaison TLS par domaine (sélection par SNI)
     When GET /waf/metrics
     Then la métrique waf_tls_cert_expiry_seconds{domain="alpha.example.com"} est présente
     And la métrique waf_tls_cert_expiry_seconds{domain="beta.example.com"} est présente
+
+  Scenario: Renouvellement — le certificat renouvelé est servi sans redémarrage
+    Given le WAF sert le certificat de "alpha.example.com" expirant le 2026-12-01
+    When certbot remplace la paire sur disque par un certificat expirant le 2027-03-01
+    Then dans la minute, un handshake SNI "alpha.example.com" présente le nouveau certificat
+    And waf_tls_cert_expiry_seconds{domain="alpha.example.com"} suit la nouvelle expiration
+
+  Scenario: Renouvellement invalide — le certificat en service est conservé
+    Given le WAF sert un certificat valide pour "alpha.example.com"
+    When la paire sur disque est remplacée par une clé qui ne correspond pas au certificat
+    Then les handshakes continuent de présenter le certificat en service
+    And un avertissement est journalisé
+    And la paire est retentée au tour suivant

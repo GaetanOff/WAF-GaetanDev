@@ -12,7 +12,8 @@ Reverse proxy de protection écrit en Go, conçu pour s'intercaler entre
                               ├─ score de confiance par visiteur [0..100]
                               ├─ challenge JavaScript (PoW + fingerprint, sans CAPTCHA)
                               ├─ anti-bot (headless, headers, honeypot)
-                              ├─ anti-DDoS (circuit breaker + mode dégradé global)
+                              ├─ anti-DDoS (circuit breaker, pression adaptative, mode « sous attaque »)
+                              ├─ moteur de risque multi-signaux (shadow par défaut)
                               ├─ logs structurés (log/slog) + métriques Prometheus
                               └─ API d'administration REST (port séparé)
 ```
@@ -45,10 +46,11 @@ Reverse proxy de protection écrit en Go, conçu pour s'intercaler entre
 | Whitelist / Blacklist | IP exactes, CIDR, regex user-agent — whitelist prioritaire |
 | Rate limiting | Token bucket par IP, `429 + Retry-After`, pénalité de score |
 | Score de confiance | États TRUSTED / MONITORED / CHALLENGED / BLOCKED, TTL, clamp [0..100] |
-| Challenge JS | Proof-of-Work SHA-256 (SubtleCrypto) + fingerprint navigateur + contrainte de timing — **aucun CAPTCHA** |
+| Challenge JS | Proof-of-Work SHA-256 + fingerprint navigateur, durée mesurée par le serveur — **aucun CAPTCHA** |
 | Cookie de session | HMAC-SHA256, lié à l'IP + domaine + empreinte, TTL |
-| Anti-bot | Détection headless (SwiftShader, llvmpipe), user-agents suspects, chemins honeypot |
-| Anti-DDoS | Circuit breaker par IP + mode dégradé global (`503`) au-delà d'un seuil de trafic |
+| Anti-bot | Détection headless (SwiftShader, llvmpipe), user-agents suspects, chemins honeypot (ban pendant `trust.score_ttl`) |
+| Anti-DDoS | Circuit breaker par IP, pression globale et par domaine ; au-delà de `trigger_pressure`, mode « sous attaque » : challenge forcé de toute requête sans clearance, assets compris. Jamais de `503` global |
+| Moteur de risque | Fusion de signaux (réputation, intégrité, comportement, TLS, géo…), décision graduée ALLOW → BLOCK, corroboration, mode shadow par défaut |
 | Observabilité | Logs JSON corrélés (`request_id`), métriques Prometheus (`/waf/metrics`) |
 | Admin | API REST Bearer sur un port séparé (CRUD whitelist/blacklist, visiteurs, stats, events) |
 
@@ -110,6 +112,9 @@ variables d'environnement et surchargent le fichier :
 | `WAF_ADMIN_TOKEN` | Jeton Bearer de l'API d'administration (≥ 32 caractères) |
 | `WAF_METRICS_AUTH_TOKEN` | Jeton Bearer exigé par `/waf/metrics` (≥ 32 caractères, opt-in, recommandé : l'endpoint répond sur tous les domaines publics) |
 | `WAF_REDIS_PASSWORD` | Mot de passe Redis (si backend `redis`) |
+| `WAF_ORIGIN_SECRET` | Secret HMAC de la protection d'origine (≥ 16 caractères, si `origin_protection.enabled`) |
+| `WAF_ABUSEIPDB_KEY` | Clé API AbuseIPDB (si `threat_intel.abuseipdb.enabled`) |
+| `WAF_ALERTING_WEBHOOKS_<i>_URL` | URL du webhook d'alerte `i` (index à partir de 0) : elle porte son jeton |
 
 ### Réglages clés
 
@@ -126,13 +131,25 @@ trust:
   block_threshold: 10             # en dessous → 403
 
 challenge:
-  pow_difficulty: 16              # ~500 ms sur CPU standard
-  min_elapsed_ms: 500             # trop rapide = bot
-  max_elapsed_ms: 10000
+  pow_difficulty: 16              # 2^16 hachages : quelques dizaines de ms
+  min_elapsed_ms: 0               # plancher désactivé (un client rapide bouclait)
+  max_elapsed_ms: 60000
 ```
 
-La configuration par domaine (`domains:`) permet de surcharger upstream,
-challenge, rate limit et seuils de confiance par hôte.
+La configuration par domaine (`domains:`) surcharge l'upstream, l'activation du
+challenge (`challenge_enabled`) et le certificat TLS (`tls`) par hôte. Les
+surcharges de rate limit et de seuils de confiance par domaine, acceptées mais
+jamais appliquées, ont été retirées et sont refusées au démarrage
+([ADR-022](specs/decisions/ADR-022-remove-inert-domain-overrides.md)).
+
+### Ligne de commande
+
+| Option | Défaut | Usage |
+|---|---|---|
+| `-config` | `configs/config.example.yaml` | Fichier de configuration YAML |
+| `-listen` | — | Surcharge `server.listen` (revalidée avec le reste de la configuration) |
+| `-healthcheck` | — | Sonde l'endpoint de santé et sort (0 si `200`) : `HEALTHCHECK` d'une image sans shell |
+| `-health-url` | `http://127.0.0.1:8080/waf/health` | URL sondée par `-healthcheck`. Le `HEALTHCHECK` du `Dockerfile` vise `:8080` : à surcharger (`-health-url`) si `server.listen` ou `-listen` change de port |
 
 ---
 
@@ -146,8 +163,9 @@ challenge, rate limit et seuils de confiance par hôte.
    les [plages d'IP Cloudflare](https://www.cloudflare.com/ips/) vers `:8080`.
    Le WAF rejette de toute façon (`400`) tout `CF-Connecting-IP` provenant
    d'une source hors plages Cloudflare lorsque `cloudflare.trusted: true`.
-4. **IP réelle** : le WAF lit `CF-Connecting-IP` et transmet `X-Forwarded-For`
-   et `X-Real-IP` à l'origine.
+4. **IP réelle** : le WAF lit `CF-Connecting-IP` et transmet l'IP réelle du
+   client dans `X-Forwarded-For` (une seule adresse) et `X-Real-IP`, et le
+   schéma vu par le client (`CF-Visitor`) dans `X-Forwarded-Proto`.
 5. **Admin** : gardez `admin_listen` sur une interface privée (jamais publiée).
 
 ---
@@ -170,8 +188,11 @@ est fourni dans
 
 ```bash
 curl -H "Authorization: Bearer $WAF_ADMIN_TOKEN" \
-     http://127.0.0.1:9090/waf/admin/stats
+     http://127.0.0.1:9090/waf/stats
 ```
+
+Le préfixe `/waf/` est réservé sur le port public : `/waf/stats` et
+`/waf/admin/*` n'y sont pas servis (`404`), seulement sur `admin_listen`.
 
 ---
 
@@ -200,24 +221,32 @@ Les comportements sont spécifiés en Gherkin dans
 ## Structure du projet
 
 ```
-cmd/waf/             point d'entrée + câblage du pipeline
+cmd/waf/             point d'entrée, racine de composition (app.go) et pipeline (routes.go)
 internal/
-  config/            chargement + validation YAML
-  proxy/             reverse proxy multi-domaine
+  config/            chargement, valeurs par défaut, profils du moteur de risque, validation YAML
+  proxy/             reverse proxy multi-domaine, pool d'upstreams, strict_host
+  upstream/          pool, stratégies de load balancing, sondes de santé
   middleware/
-    cloudflare/      extraction IP réelle
-    access/          whitelist / blacklist
-    ratelimit/       token bucket
-    antibot/         détection bots
-    antiddos/        circuit breaker + mode dégradé
+    ingress/         suppression des X-WAF-* fournis par le client
+    cloudflare/      extraction IP réelle, plages Cloudflare
+    access/          whitelist / blacklist / user-agents
+    ratelimit/       token bucket (seconde, minute, heure)
+    antibot/         détection bots, honeypot
+    antiddos/        circuit breaker, pression, mode « sous attaque »
     challenge/       challenge JS (PoW, cookie, fingerprint)
-  trust/             score de confiance
-  fingerprint/       scoring des signaux navigateur
-  signing/           HMAC-SHA256
-  storage/           interface Store + backend mémoire
-  logger/            logs structurés (log/slog, stdlib)
-  metrics/           métriques Prometheus
+    recovery/        récupération des panics
+  staticassets/      bypass des assets statiques
+  risk/              moteur de risque (fusion, décision, crédit humain, bots vérifiés)
+  integrity/ behavioral/ threatintel/ geo/ tlsfp/ rules/   détecteurs de signaux
+  adaptive/          difficulté PoW adaptative
+  deception/         tarpit
+  trust/             score de confiance, ban honeypot
+  storage/           interface Store, backends mémoire et Redis
+  cluster/           synchronisation multi-nœuds (Redis Pub/Sub signé)
+  tlsmgr/ acme/      TLS par domaine (SNI, rechargement) et Let's Encrypt
+  logger/ metrics/ alert/ audit/   journal, Prometheus, webhooks, audit admin
   admin/             API d'administration REST
+  …                  utilitaires (hostname, signing, ttlcache, wafheader…)
 web/challenge.html   page de challenge (branding "Protected by GaetanDev.fr"), embarquée dans le binaire (go:embed)
 configs/             configuration d'exemple
 deploy/              config + nginx pour docker-compose

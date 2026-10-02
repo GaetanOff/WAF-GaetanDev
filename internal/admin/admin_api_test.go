@@ -5,7 +5,10 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"testing"
+
+	"github.com/gaetandev/waf/internal/config"
 )
 
 // admin-api.feature — « Brute-force — IP verrouillée après trop d'échecs ».
@@ -109,5 +112,25 @@ func TestAdminPaginationCapsLimit(t *testing.T) {
 	items := make([]int, 1500)
 	if body := paged(items, request); len(body.Items) != 1000 || body.Total != 1500 {
 		t.Fatalf("limit=5000 → %d items total %d, want 1000 of 1500", len(body.Items), body.Total)
+	}
+}
+
+// Le Retry-After du verrouillage suit self_protection.admin_lockout : il
+// valait 300 quelle que soit la durée configurée.
+func TestAdminLockoutRetryAfterFollowsTheConfiguredLockout(t *testing.T) {
+	server := newTestServerWith(t, func(cfg *config.Config) { cfg.SelfProtection.AdminLockout = "90s" })
+	handler := server.Handler()
+	for range server.cfg.SelfProtection.AdminMaxFailures {
+		request := requestWithAuth(http.MethodGet, "/waf/stats", "")
+		request.Header.Set("Authorization", "Bearer wrong-token")
+		handler.ServeHTTP(httptest.NewRecorder(), request)
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestWithAuth(http.MethodGet, "/waf/stats", ""))
+
+	retryAfter, err := strconv.Atoi(response.Header().Get("Retry-After"))
+	if response.Code != http.StatusTooManyRequests || err != nil || retryAfter < 1 || retryAfter > 90 {
+		t.Fatalf("status = %d, Retry-After = %q; want 429 and 1..90 seconds", response.Code, response.Header().Get("Retry-After"))
 	}
 }

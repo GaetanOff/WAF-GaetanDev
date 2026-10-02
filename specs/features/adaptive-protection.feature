@@ -40,6 +40,18 @@ Feature: Protection Adaptative (PoW Difficulty)
     Then la difficulté est au moins 22 bits (16 + 6)
     # elevated : +4, high : +6, critical : +8 (FR-08 v2).
 
+  Scenario: Plafond par défaut — PoW résoluble sur mobile
+    Given adaptive.max_difficulty n'est pas configuré (défaut 20)
+    And la pression globale anti-DDoS passe à "critical"
+    When un nouveau visiteur est challengé
+    Then la difficulté du challenge est 20 bits (16 + 8, plafonnée au défaut)
+    # 2^24 hachages prenaient 35 à 55 s à un mobile, au-delà du token_ttl de 30 s.
+
+  Scenario: Plafond au-delà de 24 bits refusé
+    Given adaptive.max_difficulty = 28
+    When le WAF démarre
+    Then la configuration est rejetée : "adaptive.max_difficulty must be between 8 and 24"
+
   Scenario: Difficulté encodée dans le token anti-rétrogradation
     Given la difficulté courante est 22 bits, signée dans le token de challenge
     When un attaquant soumet un nonce calculé pour la difficulté de base (16 bits)

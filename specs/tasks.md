@@ -1,7 +1,7 @@
 ---
 status: implemented
-sprint: 27
-last-updated: 2026-10-01
+sprint: 28
+last-updated: 2026-10-02
 ---
 
 # Tasks — WAF Anti-DDoS / Anti-Bot
@@ -1255,3 +1255,45 @@ last-updated: 2026-10-01
 - [ ] 4.5 Slowloris : purge periodique au lieu du `delete` a la liberation : **non retenu** sans mesure
 - **Validation 2026-10-01** : `make spec-lint typecheck conformance behavior security` (spectral 6.16.3 0 erreur, vet/build, conformance, behavior `-race`, couverture 82,8 %, govulncheck 0 vulnerabilite atteignable), `golangci-lint` v2.14.0 (0 issue), `go test ./...` (957 tests et sous-tests).
 - **Statut** : implemente.
+
+## Sprint 28 - Remediation du treizieme audit du 2026-10-02 (Phase 28)
+
+> Treizieme audit du 2026-10-02 (critiques, hautes, optimisations, specs) :
+> chaque point a ete verifie contre le code (tests jetables de l'audit
+> reproduits par des tests de bout en bout) avant correction, sur la branche
+> `fix/audit-13-remediation`, a raison d'un commit par correction (spec d'abord).
+
+### T28.1 - Critiques
+- [x] 1.1 Bypass des assets = PASS global : `GET /x.js?r=<alea>`, `/index.php/x.js?id=1`, `/favicon.ico?cb=1` echappaient au geo-blocage, aux regles, a la threat intel, au JA3, au comptage de pression, au circuit-breaker et au challenge sous attaque. `wafheader.IsFullPass`/`IsAssetPass` : seuls le challenge proactif et les decisions heuristiques sont leves ; FR-24 3.15.0, FR-39 1.7.0
+- [x] 1.2 Fusion du risque diluee (somme de tous les poids : 7 familles a 100 = 86, BLOCK heuristique inatteignable) : **choix utilisateur** — mode opt-in `risk_engine.fusion: available` (normalisation sur les familles portant une evidence, reputation neutre au score initial), defaut `diluted` inchange ; FR-33 1.8.0
+- [x] 1.3 `risk_engine.profile` inerte (Default() pre-remplissait les valeurs balanced) : presets dans `config`, `RiskEngine.Resolved()` ne remplit que les cles absentes ; FR-33 1.8.0
+- [x] 1.4 Ban honeypot d'une seule requete avec le moteur de risque : `honeypot_until` dans l'etat visiteur, `trust.HoneypotGuard` apres la blacklist (403 `honeypot_ban`, assets, shadow et `/waf/verify` compris) ; FR-07 2.8.0. `DeltaNavigation` (+1/req, jamais implemente) retire de FR-05, `DeltaHoneypot` supprime
+- [x] 1.5 `antibot.New` recevait `shadow_mode` moteur desactive (defaut true : aucun blocage heuristique) ; `/admin.php` retire des `honeypot_paths` par defaut
+
+### T28.2 - Hautes
+- [x] 2.1 `X-Forwarded-For` = IP du PoP Cloudflare, `X-Forwarded-Proto: http` pour un client HTTPS : IP reelle seule et schema de `CF-Visitor` ; FR-01 2.8.1
+- [x] 2.2 PoW 24 bits sous pression critique (35-55 s sur mobile > token_ttl 30 s) : `adaptive.max_difficulty` 20 par defaut, borne a 24 (32 accepte) ; FR-14 2.9.0
+- [x] 2.3 Pool : toute erreur retirait le membre (une requete lente coupait un pool d'un membre). Seul un echec de connexion le retire ; remise en service comptee depuis le retrait ; FR-25 3.15.1
+- [x] 2.4 Threat intel : echec ou 429 mis en cache « propre » 1 h. Cache d'une minute pour un verdict sur source indisponible, suspension sur 429 jusqu'au `Retry-After` ; FR-13 2.9.1
+- [x] 2.5 Alerting : cooldown indexe par un Host client (`hostname.Declared`, `_undeclared`), champs Slack/Discord tronques (1024) ; FR-29 3.15.2
+- [x] 2.6 Certificats TLS charges une seule fois : reexamen chaque minute, paire invalide ignoree ; FR-40 3.16.0
+- [x] 2.7 Cluster : retraits de blacklist propages (`blacklist_remove`), evenements horodates et refuses a plus de 2 min (rejeu) ; persistance des listes `@deferred` ; FR-20 2.10.0
+- [x] 2.8 `/waf/*` non reserve sur le listener public (`/waf/stats`, `/waf/admin/*`, `/waf/verify` desactive proxifies) : 404 ; FR-01 2.8.2, `public.openapi.yaml` 1.7.0
+- [x] 2.9 FR-38 : `waf_challenge_pass_after_flag_total` jamais incremente — token marque par l'Enforcer, en-tete sur `/waf/verify` ; `FeedbackManager` mort (table non bornee) supprime, decroissance des poids differee ; Applebot ajoute aux `whitelist_user_agents` par defaut (FR-36) ; FR-35 (UA d'automatisation) et FR-08 (« challenge plus frequent » = mode sous attaque, ADR-016 amende) precises
+- [x] 2.10 Infirme ou par conception : `write_timeout`/`read_timeout` 30 s (documentes dans CONFIG.md), challenge proactif limite a `text/html` (FR-06), token d'origine valable 3 h (FR-19 : rotation horaire, tolerance 2 h)
+
+### T28.3 - Contrats et specs contre code
+- [x] 3.1 `GET /waf/admin/config` en PascalCase : rendu sous les cles du schema ; `Retry-After` du verrouillage = secondes restantes (300 fixe) ; `admin.openapi.yaml` 1.5.0. Redirection ACME documentee 301 (`public.openapi.yaml`)
+- [x] 3.2 Schemas : `upstream-pool.schema.json` 2.1.0 reellement identique au bloc de configuration (test), `challenge_enabled` sans faux defaut, `behavioral.max_records` >= 5, `human_credit` dans [-100..0], type de webhook et forme des regles (`name`, conditions, `name` des conditions header/query_param) valides au chargement
+- [x] 3.3 Features reecrites ou `@deferred` : request-integrity (FR-18), behavioral-analysis (FR-12), deception-layer, tls-fingerprinting (FR-11), js-challenge (`challenge_timeout`, cookie falsifie) ; NFR-02 (perimetre du hot-reload), NFR-17 (RiskAssessment debug) ; ADR-006/008/009/010 amendees
+- [x] 3.4 Docs : README (`/waf/stats`, pas de 503 global, overrides retirees, `min_elapsed_ms` 0, secrets, flags CLI, structure), CONFIG.md (pas de 414, `max_header_value_count`, hot-reload), architecture.md (pipeline, ADR-019/020 acceptees, 48 paquets), CLAUDE.md/AGENTS.md/installation.md (`templates/` absent, projet Go), noms des metriques FR-09, versions `extends`
+- [x] 3.5 Hygiene : `govulncheck` epingle (v1.8.0), `*_cov.out` ignores, test de bout en bout de `app.build()` + `routes()`
+
+### T28.4 - Differe ou non retenu
+- [ ] 4.1 Optimisations (visiteur charge une fois par requete, verrous globaux, page de challenge precalculee et compressee, metriques par requete, priorite d'eviction des visiteurs bloques) : **differe**, sans mesure de reference (G6 k6 toujours hors CI)
+- [ ] 4.2 Calibration de `fusion: available` en shadow avant activation en production (faux positifs connus : assets en cache CDN, polling d'API)
+- [ ] 4.3 Rechargement complet de la configuration (`SIGHUP`), API JA3, JA3 du ClientHello, decroissance des poids FR-38 : **differe**
+- [ ] 4.4 Penalite -15 par requete `curl/` hors moteur de risque (monitoring bloque en 3 requetes) : **non retenu**, conforme a FR-05 ; whitelister l'IP du monitoring
+- **Validation 2026-10-02** : `make spec-lint typecheck conformance behavior security` (spectral 6.16.3 0 erreur, vet/build, conformance, behavior `-race`, couverture 85,5 %, govulncheck v1.8.0 0 vulnerabilite atteignable), `golangci-lint` v2.14.0 (0 issue), `go test ./...` (998 tests et sous-tests).
+- **Statut** : implemente.
+

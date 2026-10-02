@@ -5,10 +5,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+	"unicode/utf8"
 )
 
 func TestNotifierDeliversToWebhook(t *testing.T) {
@@ -405,4 +407,42 @@ func TestCloseInterruptsRetryBackoff(t *testing.T) {
 	case <-time.After(2 * time.Second):
 		t.Fatal("Close blocked on the retry backoff")
 	}
+}
+
+// FR-29 : la rotation du Host ne contourne pas le cooldown ; un domaine
+// déclaré garde sa propre clé.
+func TestCooldownBoundsTheDomainToDeclaredHosts(t *testing.T) {
+	n := NewNotifier(nil, time.Minute, 0, nil, WithDomains([]string{"example.com"}))
+	defer n.Close()
+
+	if !n.allow(Alert{Trigger: "block", Domain: "random-1.test"}) {
+		t.Fatal("first undeclared alert must be allowed")
+	}
+	if n.allow(Alert{Trigger: "block", Domain: "random-2.test"}) {
+		t.Fatal("a rotated undeclared Host must share the cooldown")
+	}
+	if !n.allow(Alert{Trigger: "block", Domain: "Example.com:443"}) {
+		t.Fatal("a declared domain has its own cooldown")
+	}
+}
+
+// FR-29 : une valeur de champ Discord au-delà de 1024 caractères rendait
+// l'embed invalide.
+func TestDiscordEmbedTruncatesLongFields(t *testing.T) {
+	long := "/" + strings.Repeat("é", 5000)
+	embed := discordEmbedFor(Alert{Title: strings.Repeat("t", 300), Path: long, Domain: "example.com"})
+
+	if got := utf8.RuneCountInString(embed.Title); got != maxTitleRunes {
+		t.Fatalf("title runes = %d, want %d", got, maxTitleRunes)
+	}
+	for _, field := range embed.Fields {
+		if field.Name != "Chemin" {
+			continue
+		}
+		if got := utf8.RuneCountInString(field.Value); got != maxFieldValueRunes || !strings.HasSuffix(field.Value, "…") {
+			t.Fatalf("path field = %d runes, suffix %q; want %d runes ending with …", got, field.Value[len(field.Value)-3:], maxFieldValueRunes)
+		}
+		return
+	}
+	t.Fatal("embed has no Chemin field")
 }

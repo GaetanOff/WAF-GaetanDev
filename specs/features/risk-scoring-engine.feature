@@ -8,6 +8,52 @@ Feature: Moteur de Scoring de Risque & Décision graduée
     And le BLOCK heuristique exige au moins 2 familles de signaux corroborantes
     And un CHALLENGE précède toujours un BLOCK pour les signaux non déterministes
 
+  # --- Fusion et profils (FR-33) ---
+
+  Scenario: Fusion diluted (défaut) — un BLOCK heuristique est inatteignable
+    Given risk_engine.fusion = "diluted"
+    And un visiteur dont les sept familles de risque contribuent 100
+    When le moteur calcule le risk_score
+    Then le risk_score vaut 86 (somme pondérée ÷ somme de tous les poids, 7,1)
+    And la décision n'est PAS "BLOCK"
+
+  Scenario: Fusion available — un nouveau visiteur sans évidence est ALLOW
+    Given risk_engine.fusion = "available"
+    And un nouveau visiteur (trust_score 50 = score initial) sans autre signal
+    When le moteur calcule la décision
+    Then la contribution "reputation" vaut 0
+    And le risk_score vaut 0
+    And la décision est "ALLOW"
+
+  Scenario: Fusion available — un scanner corroboré est challengé
+    Given risk_engine.fusion = "available"
+    And un visiteur de trust_score 30, intégrité 100 et rate 80
+    When le moteur calcule la décision
+    Then la contribution "reputation" vaut 40
+    And le risk_score vaut 74 (208 ÷ 2,8)
+    And la décision est "CHALLENGE"
+
+  Scenario: Fusion available — un BLOCK heuristique corroboré est atteignable
+    Given risk_engine.fusion = "available"
+    And un visiteur de trust_score 0, behavioral 90, fingerprint 90, tls 80 et intégrité 100
+    When le moteur calcule la décision
+    Then le risk_score vaut 93
+    And la confiance vaut au moins 0,6
+    And la décision est "BLOCK" avec decision_basis = "heuristic"
+
+  Scenario: Le profil strict s'applique sans surcharge explicite
+    Given risk_engine.profile = "strict" sans tiers, weights ni seuils explicites
+    When le WAF démarre
+    Then les paliers valent 15/35/55/72/85
+    And block_min_confidence vaut 0,5
+    And le poids "reputation" vaut 1,8
+
+  Scenario: Une surcharge explicite prime sur le profil
+    Given risk_engine.profile = "strict" et tiers.block = 95
+    When le WAF démarre
+    Then le palier block vaut 95
+    And les autres paliers sont ceux du profil strict
+
   # --- Corroboration : cœur anti-faux-positif (FR-35) ---
 
   Scenario: Un signal heuristique isolé ne bloque jamais
@@ -158,6 +204,14 @@ Feature: Moteur de Scoring de Risque & Décision graduée
     Then la requête n'est PAS bloquée
     And la RiskAssessment est journalisée avec shadow_mode = true
 
+  Scenario: Un visiteur flaggé qui réussit le challenge est compté comme faux positif probable
+    Given le moteur de risque a classé le visiteur "CHALLENGE" et l'Enforcer a servi la page
+    When il réussit le challenge
+    Then la réponse de /waf/verify porte X-WAF-Challenge-Pass-After-Flag: true
+    And waf_challenge_pass_after_flag_total est incrémenté
+    And un challenge proactif (sans décision CHALLENGE) réussi ne l'incrémente pas
+
+  @deferred
   Scenario: La boucle de feedback fait décroître le poids d'un faux positif probable
     Given un visiteur flaggé "CHALLENGE" par la famille "behavioral"
     When il réussit le challenge

@@ -225,7 +225,7 @@ upstream:
 risk_engine:
   profile: "aggressive"
   block_min_confidence: 1.2
-  min_corroborating_families: 0
+  min_corroborating_families: -1
   tiers:
     observe: 25
     throttle: 45
@@ -753,5 +753,111 @@ metrics:
 	short.Metrics.AuthToken = "court"
 	if err := short.Validate(); err == nil || !strings.Contains(err.Error(), "metrics.auth_token") {
 		t.Fatalf("Validate() error = %v, want it to reject a short metrics.auth_token", err)
+	}
+}
+
+// FR-33 : le profil fournit les paliers, poids et seuils absents ; une valeur
+// explicite prime. Default() les pré-remplissait avec balanced, et le profil
+// était inerte.
+func TestLoadResolvesRiskProfile(t *testing.T) {
+	t.Setenv(envChallengeSecretKey, testSecret)
+	t.Setenv(envAdminToken, testSecret)
+	path := writeConfig(t, `
+version: "1.0"
+server:
+  listen: ":8080"
+upstream:
+  address: "http://example.test"
+risk_engine:
+  profile: "strict"
+  fusion: "available"
+  tiers:
+    block: 95
+  weights:
+    geo: 0
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	risk := cfg.RiskEngine
+	if risk.Tiers != (RiskTiers{Observe: 15, Throttle: 35, Challenge: 55, Tarpit: 72, Block: 95}) {
+		t.Fatalf("tiers = %+v, want strict with block 95", risk.Tiers)
+	}
+	if risk.BlockMinConfidence != 0.5 || risk.FamilyCorroborationThreshold != 45 || risk.MinCorroboratingFamilies != 2 {
+		t.Fatalf("thresholds = %v / %d / %d, want the strict profile", risk.BlockMinConfidence, risk.FamilyCorroborationThreshold, risk.MinCorroboratingFamilies)
+	}
+	if risk.Weights["reputation"] != 1.8 || risk.Weights["geo"] != 0 {
+		t.Fatalf("weights = %v, want strict reputation 1.8 and the explicit geo 0", risk.Weights)
+	}
+	if risk.Fusion != FusionAvailable {
+		t.Fatalf("fusion = %q, want available", risk.Fusion)
+	}
+}
+
+func TestValidateRejectsUnknownFusion(t *testing.T) {
+	cfg := Default()
+	cfg.Version = "1.0"
+	cfg.Server.Listen = ":8080"
+	cfg.Upstream.Address = "http://example.test"
+	cfg.Challenge.SecretKey = testSecret
+	cfg.Admin.Token = testSecret
+	cfg.RiskEngine.Fusion = "normalized"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "risk_engine.fusion") {
+		t.Fatalf("Validate() error = %v, want risk_engine.fusion", err)
+	}
+}
+
+// FR-14 : 2^n hachages en moyenne ; au-delà de 24 bits, la PoW est insoluble
+// dans le token_ttl sur un mobile. Le défaut est 20.
+func TestAdaptiveDifficultyCeiling(t *testing.T) {
+	if got := Default().Adaptive.MaxDifficulty; got != 20 {
+		t.Fatalf("default adaptive.max_difficulty = %d, want 20", got)
+	}
+	cfg := Default()
+	cfg.Version = "1.0"
+	cfg.Server.Listen = ":8080"
+	cfg.Upstream.Address = "http://example.test"
+	cfg.Challenge.SecretKey = testSecret
+	cfg.Admin.Token = testSecret
+	cfg.Adaptive.MaxDifficulty = 28
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "adaptive.max_difficulty must be between 8 and 24") {
+		t.Fatalf("Validate() error = %v, want the 24-bit bound", err)
+	}
+}
+
+// config.schema.json : bornes que la validation n'appliquait pas.
+func TestValidateEnforcesSchemaBounds(t *testing.T) {
+	base := func() Config {
+		cfg := Default()
+		cfg.Version = "1.0"
+		cfg.Server.Listen = ":8080"
+		cfg.Upstream.Address = "http://example.test"
+		cfg.Challenge.SecretKey = testSecret
+		cfg.Admin.Token = testSecret
+		return cfg
+	}
+	for want, mutate := range map[string]func(*Config){
+		"behavioral.max_records must be >= 5":                       func(c *Config) { c.Behavioral.MaxRecords = 4 },
+		"risk_engine.human_credit.challenge_passed must be between": func(c *Config) { c.RiskEngine.HumanCredit.ChallengePassed = 10 },
+		"risk_engine.human_credit.stable_fingerprint must be between": func(c *Config) {
+			c.RiskEngine.HumanCredit.StableFingerprint = -101
+		},
+		"alerting.webhooks[0].type must be one of": func(c *Config) {
+			c.Alerting.Enabled = true
+			c.Alerting.Webhooks = []AlertWebhook{{Type: "teams", URL: "https://hooks.example.test/x"}}
+		},
+	} {
+		cfg := base()
+		mutate(&cfg)
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Validate() error = %v, want %q", err, want)
+		}
+	}
+	cfg := base()
+	cfg.Alerting.Enabled = true
+	cfg.Alerting.Webhooks = []AlertWebhook{{URL: "https://hooks.example.test/x"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("a webhook without type (generic) must be accepted: %v", err)
 	}
 }

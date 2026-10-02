@@ -94,6 +94,19 @@ Les URLs honeypot DOIVENT être rotatives (basées sur un hash hebdomadaire) pou
 - Activation opt-in par domaine : `deception.enabled: true`
 - Les bots tarpités consomment de la bande passante upstream (le chunk fake est local, pas proxifié → pas de coût upstream)
 
+## Amendement — implémentation livrée (2026-10-02)
+
+Constat d'audit : seul le tarpit a été livré (FR-15).
+
+- `internal/deception/tarpit.go` : réponse ralentie aux requêtes classées
+  `TARPIT`, connexions simultanées bornées (`deception.tarpit_max_connections`,
+  défaut 500), `tarpit_chunks` morceaux (20) espacés de `tarpit_chunk_delay`
+  (1 s) ; au-delà de la borne, `429 tarpit_saturated`
+- Ni injection de liens honeypot dans le HTML, ni middleware de détection
+  dédié : les chemins pièges sont les `honeypot_paths` de l'anti-bot (FR-07),
+  qui bannissent le visiteur pour `trust.score_ttl`
+- `deception.enabled` est global, pas par domaine
+
 ## Spec References
 
 - [requirements-advanced.md](../requirements-advanced.md) FR-15

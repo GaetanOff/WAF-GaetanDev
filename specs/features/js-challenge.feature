@@ -228,17 +228,26 @@ Feature: Challenge JavaScript
     Then le WAF retourne HTTP 400
     And la réponse contient {"error": "invalid_submission"}
 
-  Scenario: Challenge trop lent (timeout côté client)
-    Given un visiteur soumet POST /waf/verify avec elapsed_ms = 65000
+  Scenario: Challenge trop lent — plafond max_elapsed_ms
+    Given challenge.max_elapsed_ms = 10000, inférieur à challenge.token_ttl
+    And un visiteur soumet POST /waf/verify 15 s après l'émission du token
     Then le WAF retourne HTTP 400
     And la réponse contient {"error": "challenge_timeout"}
+    # La durée est mesurée par le serveur, pas lue dans elapsed_ms.
+
+  Scenario: Challenge trop lent avec les défauts — le token expire d'abord
+    Given les défauts token_ttl = 30s et max_elapsed_ms = 60000
+    And un visiteur soumet POST /waf/verify 35 s après l'émission du token
+    Then le WAF retourne HTTP 400
+    And la réponse contient {"error": "token_expired"}
+    # Avec les défauts, challenge_timeout est inatteignable : token_ttl borne la durée.
 
   Scenario: Cookie falsifié (HMAC invalide)
     Given un visiteur envoie une requête avec un cookie waf_session forgé
     When le WAF tente de valider le cookie
     Then la validation HMAC échoue
-    And le WAF sert la page de challenge
-    And un événement de sécurité est journalisé avec reason="invalid_cookie_signature"
+    And le WAF sert la page de challenge, comme à un visiteur sans cookie
+    And l'événement de sécurité porte action="CHALLENGE" (aucune raison dédiée au cookie invalide)
 
   Scenario: Cookie expiré
     Given un visiteur avec un cookie waf_session émis il y a 25h (TTL = 24h)

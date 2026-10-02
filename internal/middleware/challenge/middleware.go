@@ -26,7 +26,6 @@ const (
 
 	headerAction    = wafheader.Action
 	headerReason    = wafheader.Reason
-	actionPass      = wafheader.ActionPass
 	actionChallenge = wafheader.ActionChallenge
 	actionBlock     = wafheader.ActionBlock
 	// reasonPrefix préfixe le code d'erreur d'une soumission rejetée dans la
@@ -196,8 +195,13 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// Monté en permanence (challenge.enabled est modifiable à chaud) :
 		// /waf/verify n'est servi que si un hôte au moins peut être challengé,
-		// comme lorsque le middleware n'était monté que dans ce cas.
-		if r.URL.Path == verifyPath && m.domains.anyEnabled() {
+		// et reçoit 404 sinon — il était alors transmis à l'upstream, alors
+		// que le préfixe /waf/ est réservé au WAF (FR-01).
+		if r.URL.Path == verifyPath {
+			if !m.domains.anyEnabled() {
+				http.NotFound(w, r)
+				return
+			}
 			m.verify(w, r)
 			return
 		}
@@ -208,7 +212,12 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.Header.Get(headerAction) == actionPass {
+		underAttack := r.Header.Get(wafheader.UnderAttackEnforce) == "true"
+		// Un asset statique (FR-24) n'est dispensé que du challenge proactif :
+		// sous attaque, sans clearance, il est challengé comme une page (FR-39).
+		// Dispensé sans condition, « GET /x.js?r=<aléa> » franchissait le mode
+		// sous attaque. Un navigateur renvoie son cookie sur chaque asset.
+		if wafheader.IsFullPass(r.Header) || (wafheader.IsAssetPass(r.Header) && !underAttack) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -217,7 +226,6 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		underAttack := r.Header.Get(wafheader.UnderAttackEnforce) == "true"
 		// whitelist_user_agents exempte du seul challenge proactif : un crawler
 		// n'exécute pas le JS. Une décision CHALLENGE du moteur de risque (faux
 		// crawler démasqué par reverse-DNS) reste appliquée par l'Enforcer.
@@ -237,7 +245,7 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		m.servePage(w, r)
+		m.servePage(w, r, false)
 	})
 }
 
@@ -265,7 +273,7 @@ func (m Middleware) Enforcer(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		m.servePage(w, r)
+		m.servePage(w, r, true)
 	})
 }
 
@@ -349,6 +357,11 @@ func (m Middleware) verify(w http.ResponseWriter, r *http.Request) {
 	if m.humanCredit != nil {
 		m.humanCredit(ip, host, fpHash)
 	}
+	if payload.Flagged {
+		// Visiteur classé CHALLENGE qui prouve son humanité : faux positif
+		// probable, compté par les métriques (FR-38).
+		w.Header().Set(wafheader.ChallengePassAfterFlag, "true")
+	}
 	redirectURL := sameOriginPath(payload.RedirectURL)
 	w.Header().Set("Content-Type", "application/json")
 	setNoStore(w)
@@ -370,10 +383,16 @@ func (m Middleware) clearance(r *http.Request) (*Payload, bool) {
 	return payload, true
 }
 
-func (m Middleware) servePage(w http.ResponseWriter, r *http.Request) {
+// servePage sert la page de challenge ; flagged marque une page servie sur une
+// décision CHALLENGE (Enforcer), dont la réussite est un faux positif probable.
+func (m Middleware) servePage(w http.ResponseWriter, r *http.Request, flagged bool) {
 	redirectURL := sameOriginPath(r.URL.RequestURI())
 	difficulty := m.currentDifficulty()
-	token, err := m.tokenIssuer.GenerateForRedirectWithDifficulty(cloudflare.RealIP(r), hostname.Normalize(r.Host), redirectURL, difficulty)
+	generate := m.tokenIssuer.GenerateForRedirectWithDifficulty
+	if flagged {
+		generate = m.tokenIssuer.GenerateFlagged
+	}
+	token, err := generate(cloudflare.RealIP(r), hostname.Normalize(r.Host), redirectURL, difficulty)
 	if err != nil {
 		http.Error(w, "challenge token error", http.StatusInternalServerError)
 		return

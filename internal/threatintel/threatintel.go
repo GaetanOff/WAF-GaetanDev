@@ -19,6 +19,10 @@ const (
 	// sources, dont l'API HTTP) ; lookupQueueSize borne celles en attente.
 	lookupWorkers   = 16
 	lookupQueueSize = 1024
+	// unavailableTTL est la durée de cache d'un verdict obtenu alors qu'une
+	// source était indisponible : gardé cache_ttl, un timeout ou un quota
+	// épuisé blanchissait l'IP pendant une heure (FR-13).
+	unavailableTTL = time.Minute
 )
 
 // Level classe la réputation d'une IP, du plus bénin au plus dangereux.
@@ -35,6 +39,9 @@ const (
 type Verdict struct {
 	Level  Level
 	Reason string
+	// Unavailable : la source n'a pas pu se prononcer (erreur, timeout,
+	// quota). Le verdict vaut « propre » sans être gardé cache_ttl.
+	Unavailable bool
 }
 
 // Source fournit un verdict pour une IP (feed local, API externe, ...).
@@ -100,7 +107,7 @@ func (c *Checker) Close() {
 
 func (c *Checker) worker() {
 	for job := range c.lookups {
-		c.cache.Set(job.ip, c.evaluate(job.parsed))
+		c.store(job.ip, c.evaluate(job.parsed))
 		c.mu.Lock()
 		delete(c.inflight, job.ip)
 		c.mu.Unlock()
@@ -151,18 +158,33 @@ func (c *Checker) resolveSync(ip string) Verdict {
 		return Verdict{Level: LevelClean}
 	}
 	verdict := c.evaluate(parsed)
-	c.cache.Set(ip, verdict)
+	c.store(ip, verdict)
 	return verdict
 }
 
+// store met le verdict en cache : cache_ttl, ou unavailableTTL si une source
+// était indisponible et qu'aucune autre n'a classé l'IP.
+func (c *Checker) store(ip string, verdict Verdict) {
+	if verdict.Unavailable {
+		c.cache.SetWithTTL(ip, verdict, min(unavailableTTL, c.ttl))
+		return
+	}
+	c.cache.Set(ip, verdict)
+}
+
 // evaluate interroge toutes les sources et retourne le verdict le plus sévère.
+// Un verdict propre est marqué Unavailable si une source n'a pas répondu.
 func (c *Checker) evaluate(ip net.IP) Verdict {
 	worst := Verdict{Level: LevelClean}
+	unavailable := false
 	for _, source := range c.sources {
-		if v := source.Lookup(ip); v.Level > worst.Level {
-			worst = v
+		v := source.Lookup(ip)
+		unavailable = unavailable || v.Unavailable
+		if v.Level > worst.Level {
+			worst = Verdict{Level: v.Level, Reason: v.Reason}
 		}
 	}
+	worst.Unavailable = unavailable && worst.Level == LevelClean
 	return worst
 }
 

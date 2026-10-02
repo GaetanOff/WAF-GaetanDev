@@ -337,7 +337,9 @@ func (a *app) buildProtection() error {
 	if a.rateLimiter, err = ratelimit.New(a.store, scoreManager, cfg); err != nil {
 		return err
 	}
-	a.antiBot = antibot.New(antibot.NewRules(cfg), scoreManager, cfg.RiskEngine.ShadowMode)
+	// shadow_mode est un réglage du moteur de risque : sans lui, le défaut
+	// (true) désactivait tout blocage heuristique de l'anti-bot (FR-07).
+	a.antiBot = antibot.New(antibot.NewRules(cfg), scoreManager, cfg.RiskEngine.Enabled && cfg.RiskEngine.ShadowMode)
 	if a.riskMiddleware, err = risk.NewMiddleware(a.store, scoreManager, cfg); err != nil {
 		return err
 	}
@@ -519,7 +521,7 @@ func (a *app) buildAlerting() error {
 	for _, wh := range cfg.Webhooks {
 		sinks = append(sinks, alert.Sink{Type: wh.Type, URL: wh.URL})
 	}
-	notifier := alert.NewNotifier(sinks, cooldown, cfg.MaxRetries, nil, alert.WithObserver(a.metrics))
+	notifier := alert.NewNotifier(sinks, cooldown, cfg.MaxRetries, nil, alert.WithObserver(a.metrics), alert.WithDomains(domainHosts(a.cfg.Domains)))
 	a.stop.add(notifier.Close)
 	a.metrics.WithAlertsPending(notifier.Pending)
 	a.securityLogger.Alerter = notifier
@@ -568,6 +570,8 @@ func (a *app) buildAdmin() error {
 	if a.syncer != nil {
 		adminServer.WithBlacklistObserver(a.syncer.PublishBlacklistAdd)
 		a.syncer.WithBlacklistApplier(adminServer.ApplyClusterBlacklist)
+		adminServer.WithBlacklistRemoveObserver(a.syncer.PublishBlacklistRemove)
+		a.syncer.WithBlacklistRemover(adminServer.ApplyClusterBlacklistRemove)
 	}
 	// PATCH /waf/admin/config (hot-reload) : la configuration validée est
 	// poussée aux composants qui la lisent par requête.
@@ -671,11 +675,26 @@ func (a *app) configureTLS(server *http.Server) (*acme.Manager, *tlsmgr.Manager,
 		tlsManager = manager
 		server.Addr = a.cfg.Server.TLS.Listen
 		server.TLSConfig = tlsManager.TLSConfig()
-		for domain, notAfter := range tlsManager.Expiries() {
-			a.metrics.SetTLSCertExpiry(domain, notAfter)
-		}
+		a.observeCertExpiries(tlsManager.Expiries())
+		// Un certificat renouvelé sur disque (certbot) est rechargé sans
+		// redémarrage (FR-40) ; une paire invalide garde celle en service.
+		watchCtx, watchCancel := context.WithCancel(context.Background())
+		a.stop.add(watchCancel)
+		tlsManager.Watch(watchCtx, tlsmgr.ReloadInterval, func(expiries map[string]time.Time) {
+			a.observeCertExpiries(expiries)
+			slog.Info("tls certificates reloaded")
+		}, func(err error) {
+			slog.Warn("tls certificate reload failed, keeping the certificate in service", "error", err)
+		})
 	}
 	return acmeManager, tlsManager, nil
+}
+
+// observeCertExpiries publie waf_tls_cert_expiry_seconds par domaine.
+func (a *app) observeCertExpiries(expiries map[string]time.Time) {
+	for domain, notAfter := range expiries {
+		a.metrics.SetTLSCertExpiry(domain, notAfter)
+	}
 }
 
 // newSideServer construit un serveur annexe (challenge ACME HTTP-01,

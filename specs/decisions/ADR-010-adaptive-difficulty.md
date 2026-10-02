@@ -98,6 +98,20 @@ Le message est injecté via le template Go (pas de changement JS côté client).
 - Config : `challenge.pow_max_difficulty`, `adaptive.decay_tau_seconds`
 - Métriques : `waf_challenge_pow_difficulty` (gauge), `waf_attack_intensity_indicator`
 
+## Amendement — implémentation livrée (2026-10-02)
+
+Constat d'audit : l'implémentation réelle (FR-14 v2.9.0) diffère des
+conséquences ci-dessus.
+
+- Un seul fichier, `internal/adaptive/adaptive.go` (`Controller`) ; la
+  difficulté est bien signée dans le token (`challenge/nonce.go`)
+- Config : `adaptive.enabled`, `adaptive.max_difficulty` (défaut 20, au plus
+  24 — à 24 bits un mobile dépassait le `token_ttl`) et `adaptive.decay_tau` ;
+  ni `challenge.pow_max_difficulty` ni `decay_tau_seconds`
+- La page de challenge n'affiche pas de message adaptatif (`{{.Message}}`
+  absent) ; métrique `waf_challenge_pow_difficulty` seule,
+  `waf_attack_intensity_indicator` différée
+
 ## Spec References
 
 - [requirements-advanced.md](../requirements-advanced.md) FR-14

@@ -74,12 +74,20 @@ func (h *HealthChecker) monitor(ctx context.Context, u *Upstream) {
 	ticker := time.NewTicker(h.interval)
 	defer ticker.Stop()
 	successes, failures := 0, 0
+	wasHealthy := u.Healthy()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-ticker.C:
-			if h.probe(ctx, u.Address) {
+			healthy := h.probe(ctx, u.Address)
+			// Retiré depuis la sonde précédente (échec de connexion du proxy) :
+			// la remise en service compte healthy_threshold succès depuis ce
+			// retrait, et non ceux d'avant, qui le rétablissaient aussitôt.
+			if wasHealthy && !u.Healthy() {
+				successes = 0
+			}
+			if healthy {
 				failures = 0
 				successes++
 				if successes >= h.healthyN {
@@ -92,6 +100,7 @@ func (h *HealthChecker) monitor(ctx context.Context, u *Upstream) {
 					u.SetHealthy(false)
 				}
 			}
+			wasHealthy = u.Healthy()
 		}
 	}
 }

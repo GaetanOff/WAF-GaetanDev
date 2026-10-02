@@ -6,6 +6,67 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — treizième audit du 2026-10-02 (phase 28)
+
+- Le bypass des assets statiques ne lève plus que le challenge proactif et les
+  décisions heuristiques : géo-blocage, règles, threat intel, blacklist JA3, ban
+  honeypot, comptage de pression, circuit-breaker et challenge sous attaque
+  s'appliquent aux assets. `GET /x.js?r=<aléa>` contournait toute la défense
+  contre un flood L7 distribué (FR-24, FR-39).
+- Le honeypot bannit le visiteur pendant `trust.score_ttl` (`403
+  honeypot_ban`, avant le challenge), moteur de risque actif ou non, shadow
+  compris : le ban ne durait qu'une requête avec le moteur (FR-07).
+  `/admin.php` quitte les `honeypot_paths` par défaut.
+- Sans moteur de risque, `shadow_mode` ne désactive plus les blocages de
+  l'anti-bot.
+- `X-Forwarded-For` porte l'IP réelle du client (et non celle du PoP
+  Cloudflare), `X-Forwarded-Proto` le schéma vu par le client (FR-01).
+- Le préfixe `/waf/` est réservé : `/waf/stats`, `/waf/admin/*` et les
+  endpoints désactivés répondent `404` au lieu d'être proxifiés (FR-01).
+- Cluster : les retraits de blacklist sont propagés, les événements sont
+  horodatés et refusés à plus de 2 minutes (rejeu). **Mise à jour** : horloges
+  NTP requises ; en déploiement progressif, les événements des anciens nœuds
+  sont ignorés (FR-20).
+- Alerting : la rotation du `Host` ne contourne plus le cooldown, les champs
+  Slack et Discord sont tronqués (FR-29).
+
+### Added — treizième audit du 2026-10-02
+
+- `risk_engine.fusion: available` (opt-in) : normalisation du risk score sur
+  les familles portant une évidence, réputation neutre au score initial ; à
+  activer après calibration en shadow (FR-33).
+- Rechargement sans redémarrage d'un certificat TLS renouvelé sur disque
+  (FR-40).
+- `waf_challenge_pass_after_flag_total` est réellement compté
+  (`X-WAF-Challenge-Pass-After-Flag` sur `/waf/verify`, FR-38).
+- Applebot dans les `whitelist_user_agents` par défaut (FR-36).
+
+### Changed — treizième audit du 2026-10-02
+
+- `risk_engine.profile` s'applique : paliers, poids et seuils absents prennent
+  la valeur du profil (ils étaient pré-remplis avec `balanced`). **Mise à
+  jour** : une configuration qui les fixe tous neutralise encore le profil.
+- `adaptive.max_difficulty` : 20 par défaut, 24 au plus (auparavant 24 et 32). **Mise à
+  jour** : une valeur > 24 est refusée au démarrage.
+- Pool : seul un échec de connexion retire un membre ; la remise en service
+  compte `healthy_threshold` succès depuis le retrait (FR-25).
+- Threat intel : un verdict obtenu sur source indisponible n'est gardé qu'une
+  minute ; un `429` suspend les appels jusqu'au `Retry-After` (FR-13).
+- `GET /waf/admin/config` sous les clés snake_case du schéma ; `Retry-After`
+  réel sur le verrouillage admin et le flood de `/waf/verify`.
+- Validation : `behavioral.max_records` ≥ 5, crédits `human_credit` dans
+  [-100..0], type de webhook, forme des règles custom.
+- Specs réalignées sur le code : FR-05 (+1/req retiré), FR-08, FR-09, FR-11,
+  FR-12, FR-18, FR-35, NFR-02, NFR-17, features integrity, behavioral,
+  deception, TLS, challenge ; ADR-006/008/009/010/016 amendés ;
+  `upstream-pool.schema.json` 2.1.0 ; README, CONFIG.md, architecture.md.
+- `govulncheck` épinglé (v1.8.0).
+
+### Removed — treizième audit du 2026-10-02
+
+- `risk.FeedbackManager`, jamais instancié (décroissance des poids FR-38
+  différée) ; constantes `DeltaNavigation` et `DeltaHoneypot`.
+
 ### Security — douzième audit du 2026-10-01 (phase 27)
 
 - Le bypass des assets statiques ne vaut plus que pour `GET` et `HEAD` :

@@ -190,3 +190,35 @@ func TestMonitorStopsWithContext(t *testing.T) {
 		t.Fatalf("probes kept running after cancel: %d -> %d", settled, got)
 	}
 }
+
+// FR-25 : un membre retiré par le proxy (échec de connexion) n'est remis en
+// service qu'après healthy_threshold succès comptés depuis le retrait ; ceux
+// d'avant le rétablissaient dès la sonde suivante.
+func TestMonitorCountsSuccessesSinceEjection(t *testing.T) {
+	var probes atomic.Int64
+	origin := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		probes.Add(1)
+		w.WriteHeader(http.StatusOK)
+	}))
+	t.Cleanup(origin.Close)
+	checker, member := newTestChecker(t, origin.URL, 3, 3)
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	checker.Start(ctx)
+
+	deadline := time.Now().Add(testWaitDeadline)
+	for probes.Load() < 5 {
+		if time.Now().After(deadline) {
+			t.Fatal("probes did not run")
+		}
+		time.Sleep(testProbeInterval)
+	}
+	before := probes.Load()
+	member.SetHealthy(false)
+	waitHealthy(t, member, true)
+
+	// La sonde en cours au moment du retrait compte pour un succès.
+	if after := probes.Load() - before; after < 2 {
+		t.Fatalf("readmitted after %d probe(s) since the ejection, want at least healthy_threshold - 1 = 2", after)
+	}
+}

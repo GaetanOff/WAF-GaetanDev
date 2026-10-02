@@ -62,6 +62,8 @@ func (a *app) routes() http.Handler {
 	proxyHandler = a.rateLimiter.Handler(proxyHandler)
 	proxyHandler = a.challengeMiddleware.Handler(proxyHandler)
 	proxyHandler = a.antiDDoS.Handler(proxyHandler)
+	// Ban honeypot (FR-07) : juste après la blacklist, avant le challenge.
+	proxyHandler = a.scoreManager.HoneypotGuard(proxyHandler)
 	proxyHandler = access.Middleware(a.accessRules, proxyHandler)
 	// Auto-protection (FR-30) : limite le flood de POST /waf/verify par IP.
 	if cfg.SelfProtection.Enabled {
@@ -79,11 +81,17 @@ func (a *app) routes() http.Handler {
 	proxyHandler = a.securityLogger.Middleware(a.scoreManager, proxyHandler)
 	proxyHandler = a.metrics.Middleware(a.scoreManager, proxyHandler)
 	// Bypass des assets statiques (FR-24) : le plus en amont du pipeline pour
-	// marquer PASS avant challenge/trust/détecteurs (la blacklist reste appliquée).
+	// marquer PASS static_asset avant le challenge et les décisions
+	// heuristiques ; les contrôles déterministes et l'anti-DDoS l'ignorent.
 	if cfg.StaticAssets.Enabled {
 		proxyHandler = staticassets.New(cfg.StaticAssets).WithCounter(a.metrics.IncAssetRequest).Handler(proxyHandler)
 	}
 	mux.Handle("/", proxyHandler)
+	// Préfixe /waf/ réservé (FR-01) : /waf/verify traverse la chaîne de
+	// protection, qui le sert ; tout autre chemin sous /waf/ sans endpoint
+	// enregistré reçoit 404. /waf/stats et /waf/admin/*, servis par la seule
+	// API d'administration, étaient transmis à l'origine.
+	mux.Handle("/waf/", reservedPrefix(proxyHandler))
 	var handler http.Handler = mux
 	// Extraction de l'IP réelle (FR-02) : en amont de tout ce qui compte par IP.
 	// Montée plus bas (autour du seul pipeline de proxy), elle laissait slowloris,
@@ -144,6 +152,21 @@ func envelopeGuard(cfg config.Config) func(http.Handler) http.Handler {
 		return next
 	}
 }
+
+// reservedPrefix ne laisse passer sous /waf/ que /waf/verify, servi par le
+// middleware de challenge de la chaîne.
+func reservedPrefix(pipeline http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != challengeVerifyPath {
+			http.NotFound(w, r)
+			return
+		}
+		pipeline.ServeHTTP(w, r)
+	})
+}
+
+// challengeVerifyPath est le point de soumission du challenge (FR-06).
+const challengeVerifyPath = "/waf/verify"
 
 // allowGet restreint un endpoint du WAF à GET (et HEAD) : enregistrés sans
 // méthode, /waf/health, /waf/metrics et /waf/origin/verify répondaient 200 à

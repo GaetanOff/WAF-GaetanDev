@@ -8,6 +8,9 @@ CONFORMANCE_TESTS := Schema|Contract|OpenAPI|Conformance
 LOAD_SCRIPT := tests/load/basic.js
 # Version exacte : `@6` exécutait la dernière 6.x publiée, non relue.
 SPECTRAL := @stoplight/spectral-cli@6.16.3
+# Version exacte : `@latest` exécutait la dernière version publiée, non relue,
+# et rendait G5 non reproductible d'un jour à l'autre.
+GOVULNCHECK := golang.org/x/vuln/cmd/govulncheck@v1.8.0
 # Couverture minimale des tests (requirements.md, qualité : > 80 %).
 COVERAGE_MIN := 80
 COVERAGE_PROFILE := coverage.out
@@ -63,7 +66,7 @@ coverage-check:
 # local plus ancien et GOTOOLCHAIN=auto, l'outil était compilé en 1.26 et
 # refusait d'analyser ce module (go 1.27). La toolchain du module est imposée.
 security:
-	GOTOOLCHAIN=$$(go env GOVERSION) go run golang.org/x/vuln/cmd/govulncheck@latest ./...
+	GOTOOLCHAIN=$$(go env GOVERSION) go run $(GOVULNCHECK) ./...
 
 # G6 — charge contre un WAF lancé localement (WAF_URL, défaut http://127.0.0.1:8080).
 perf:

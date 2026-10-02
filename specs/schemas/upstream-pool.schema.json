@@ -2,8 +2,8 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/GaetanDev/WAF/schemas/upstream-pool.schema.json",
   "title": "UpstreamPool",
-  "description": "Bloc de configuration upstream_pool : pool d'upstreams avec health checks actifs et load balancing (FR-25, FR-26). Identique à config.schema.json#/properties/upstream_pool, qui fait foi.",
-  "$comment": "Version 2.0.0 (2026-09-24) — réaligné sur la configuration réellement chargée (audit du 2026-09-24, point 2.3). La v1 nommait les seuils success_threshold / failure_threshold et décrivait des clés sans implémentation. Différés, sans implémentation : retry sur un autre membre (retry.enabled, max_retries, idempotent_methods) ; stratégie random ; health_check.enabled, method, expected_status, expected_body ; upstreams[].max_conns, tls_verify, timeout, label ; page 503 quand tous les membres sont hors service (aujourd'hui 502 « no healthy upstream ») ; GET /waf/admin/upstreams.",
+  "description": "Bloc de configuration upstream_pool : pool d'upstreams avec health checks actifs et load balancing (FR-25, FR-26). Mêmes contraintes que config.schema.json#/properties/upstream_pool, qui fait foi ; seules les descriptions s'y ajoutent (test de conformance).",
+  "$comment": "Version 2.1.0 (2026-10-02) — réellement identique à config.schema.json, descriptions mises à part : la v2.0.0 s'en disait identique mais exigeait au moins un membre (minItems), posait des définitions et des défauts absents du bloc de configuration. Différés, sans implémentation : retry sur un autre membre (retry.enabled, max_retries, idempotent_methods) ; stratégie random ; health_check.enabled, method, expected_status, expected_body ; upstreams[].max_conns, tls_verify, timeout, label ; page 503 quand tous les membres sont hors service (aujourd'hui 502 « no healthy upstream ») ; GET /waf/admin/upstreams.",
   "type": "object",
   "additionalProperties": false,
   "properties": {
@@ -14,61 +14,73 @@
     },
     "strategy": {
       "type": "string",
-      "enum": ["round_robin", "least_conn", "ip_hash", "weighted"],
+      "enum": [
+        "round_robin",
+        "least_conn",
+        "ip_hash",
+        "weighted"
+      ],
       "default": "round_robin",
       "description": "round_robin : tour à tour. least_conn : moins de requêtes en cours. ip_hash : affinité par IP réelle. weighted : tirage selon weight."
     },
     "upstreams": {
       "type": "array",
-      "minItems": 1,
-      "description": "Membres du pool ; obligatoire et non vide quand enabled.",
-      "items": { "$ref": "#/definitions/UpstreamEntry" }
-    },
-    "health_check": { "$ref": "#/definitions/HealthCheck" }
-  },
-  "definitions": {
-    "UpstreamEntry": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["address"],
-      "properties": {
-        "address": {
-          "type": "string",
-          "description": "URL de l'upstream (schéma + hôte + port)",
-          "example": "http://10.0.0.1:80"
-        },
-        "weight": {
-          "type": "integer",
-          "minimum": 0,
-          "default": 1,
-          "description": "Poids relatif, utilisé par strategy: weighted uniquement ; 0 ou absent vaut 1."
-        },
-        "backup": {
-          "type": "boolean",
-          "default": false,
-          "description": "Membre de secours : servi seulement quand aucun membre principal n'est sain."
+      "description": "Membres du pool ; au moins un quand enabled (refusé au démarrage sinon).",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "address"
+        ],
+        "properties": {
+          "address": {
+            "type": "string",
+            "description": "URL absolue de l'upstream (schéma + hôte + port), validée au démarrage"
+          },
+          "weight": {
+            "type": "integer",
+            "minimum": 0,
+            "default": 1,
+            "description": "Poids relatif, utilisé par strategy: weighted uniquement ; 0 ou absent vaut 1."
+          },
+          "backup": {
+            "type": "boolean",
+            "default": false,
+            "description": "Membre de secours : servi seulement quand aucun membre principal n'est sain."
+          }
         }
       }
     },
-    "HealthCheck": {
+    "health_check": {
       "type": "object",
       "additionalProperties": false,
-      "description": "Sonde active : GET <address><path> ; un statut 2xx ou 3xx est un succès.",
+      "description": "Sonde active : GET <address><path> ; un statut 2xx ou 3xx est un succès, sans suivre de redirection.",
       "properties": {
-        "path": { "type": "string", "default": "/healthz" },
-        "interval": { "type": "string", "default": "10s", "description": "Durée Go entre deux sondes" },
-        "timeout": { "type": "string", "default": "2s", "description": "Durée Go maximale d'une sonde" },
+        "path": {
+          "type": "string",
+          "default": "/healthz"
+        },
+        "interval": {
+          "type": "string",
+          "default": "10s",
+          "description": "Durée Go entre deux sondes"
+        },
+        "timeout": {
+          "type": "string",
+          "default": "2s",
+          "description": "Durée Go maximale d'une sonde"
+        },
         "healthy_threshold": {
           "type": "integer",
           "minimum": 1,
           "default": 2,
-          "description": "Sondes réussies consécutives pour remettre un membre en service"
+          "description": "Sondes réussies consécutives pour remettre un membre en service, comptées depuis son retrait"
         },
         "unhealthy_threshold": {
           "type": "integer",
           "minimum": 1,
           "default": 3,
-          "description": "Sondes échouées consécutives pour retirer un membre du service. Une erreur de proxy sur une requête le retire aussitôt, sans attendre ce seuil."
+          "description": "Sondes échouées consécutives pour retirer un membre du service. Un échec de connexion pendant une requête le retire aussitôt ; un délai de réponse dépassé non (FR-25)."
         }
       }
     }

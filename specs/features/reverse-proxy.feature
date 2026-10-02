@@ -15,6 +15,31 @@ Feature: Reverse Proxy (FR-01)
     And l'upstream reçoit "X-Forwarded-For" et "X-Real-IP" égal à "198.51.100.10"
     And la réponse de l'upstream est renvoyée au visiteur telle quelle
 
+  Scenario: Derrière Cloudflare — IP réelle et schéma du client transmis
+    Given cloudflare.trusted = true
+    And une requête arrive du point de présence "173.245.48.1" avec CF-Connecting-IP "198.51.100.10"
+    And elle porte CF-Visitor '{"scheme":"https"}' et X-Forwarded-For "203.0.113.66"
+    When le WAF transmet la requête
+    Then l'upstream reçoit "X-Forwarded-For" égal à "198.51.100.10"
+    And l'upstream reçoit "X-Forwarded-Proto" égal à "https"
+
+  Scenario: CF-Visitor hors Cloudflare ignoré
+    Given une requête directe (hors plages Cloudflare) en HTTP clair avec CF-Visitor '{"scheme":"https"}'
+    When le WAF transmet la requête
+    Then l'upstream reçoit "X-Forwarded-Proto" égal à "http"
+
+  Scenario: Préfixe /waf/ réservé — jamais transmis à l'upstream
+    When un visiteur envoie GET "/waf/stats", GET "/waf/admin/visitors" puis GET "/waf/inconnu"
+    Then chaque requête reçoit HTTP 404 du WAF
+    And aucune n'est transmise à l'upstream
+
+  Scenario: Endpoint du WAF désactivé — 404, pas de transmission
+    Given challenge.enabled = false sans domaine qui l'active
+    And origin_protection.enabled = false
+    When un visiteur envoie POST "/waf/verify" puis GET "/waf/origin/verify"
+    Then chaque requête reçoit HTTP 404 du WAF
+    And aucune n'est transmise à l'upstream
+
   Scenario: Routage par domaine — première entrée correspondante gagnante
     Given les domaines configurés, dans cet ordre :
       | host             | upstream              |

@@ -2,6 +2,7 @@ package cloudflare
 
 import (
 	"context"
+	"encoding/json"
 	"net"
 	"net/http"
 	"net/netip"
@@ -9,6 +10,10 @@ import (
 )
 
 const connectingIPHeader = "Cf-Connecting-Ip" // CF-Connecting-IP, forme canonique
+
+// visitorHeader porte le schéma de la connexion du client à Cloudflare
+// ({"scheme":"https"}).
+const visitorHeader = "Cf-Visitor"
 
 // infrastructureHeaderPrefix est le préfixe des en-têtes posés par Cloudflare
 // (CF-IPCountry, CF-Ray, Cf-Bot-Management-Ja3Hash…), comparé sans casse.
@@ -86,6 +91,29 @@ func RealIP(r *http.Request) string {
 		return r.RemoteAddr
 	}
 	return ip.String()
+}
+
+// VisitorScheme rend le schéma ("http" ou "https") de la connexion du client à
+// Cloudflare, lu dans CF-Visitor ; "" sans en-tête exploitable. Un CF-* ne
+// survit à l'entrée que venu d'une plage Cloudflare (Middleware,
+// StripUntrusted) : l'en-tête lu ici ne peut pas être forgé.
+func VisitorScheme(r *http.Request) string {
+	raw := r.Header.Get(visitorHeader)
+	if raw == "" {
+		return ""
+	}
+	var visitor struct {
+		Scheme string `json:"scheme"`
+	}
+	if err := json.Unmarshal([]byte(raw), &visitor); err != nil {
+		return ""
+	}
+	switch visitor.Scheme {
+	case "http", "https":
+		return visitor.Scheme
+	default:
+		return ""
+	}
 }
 
 func IsCloudflareIP(ip netip.Addr) bool {

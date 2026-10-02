@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/gaetandev/waf/internal/hostname"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/wafheader"
@@ -54,7 +55,7 @@ type Metrics struct {
 	alertsFailed    *prometheus.CounterVec
 	panics          prometheus.Counter
 	visitors        *visitorTracker
-	domains         domainLabels
+	domains         hostname.Declared
 	now             func() time.Time
 }
 
@@ -182,9 +183,11 @@ func (m *Metrics) WithVisitorBounds(window time.Duration, maxVisitors int) *Metr
 }
 
 // WithDomains déclare les hôtes de domains[] : seuls eux portent leur propre
-// label domain, les autres sont comptés sous undeclaredDomain.
+// label domain, les autres sont comptés sous hostname.Undeclared (« _undeclared ») :
+// sans server.strict_host, chaque Host inventé par un client créait sinon une
+// série Prometheus, conservée jusqu'à l'arrêt du processus.
 func (m *Metrics) WithDomains(hosts []string) *Metrics {
-	m.domains = newDomainLabels(hosts)
+	m.domains = hostname.NewDeclared(hosts)
 	return m
 }
 
@@ -197,7 +200,7 @@ func (m *Metrics) SetTLSCertExpiry(domain string, notAfter time.Time) {
 // IncAssetRequest compte une requête d'asset statique bypassée (FR-24). Le
 // ratio avec waf_requests_total sert à ajuster static_assets.
 func (m *Metrics) IncAssetRequest(host string) {
-	m.assetRequests.WithLabelValues(m.domains.label(host)).Inc()
+	m.assetRequests.WithLabelValues(m.domains.Label(host)).Inc()
 }
 
 // SetPowDifficulty publie la difficulté courante du PoW adaptatif (FR-14).
@@ -213,7 +216,7 @@ func (m *Metrics) SetUnderAttack(domain string, active bool) {
 		value = 1
 	}
 	if domain != globalScope {
-		domain = m.domains.label(domain)
+		domain = m.domains.Label(domain)
 	}
 	m.underAttack.WithLabelValues(domain).Set(value)
 }
@@ -326,7 +329,7 @@ func (m *Metrics) Middleware(scores *trust.ScoreManager, next http.Handler) http
 
 		action := wafheader.EffectiveAction(recorder.Header(), r.Header)
 		reason := wafReason(r, recorder)
-		domain := m.domains.label(r.Host)
+		domain := m.domains.Label(r.Host)
 		m.requests.WithLabelValues(action, domain).Inc()
 		m.duration.WithLabelValues(action).Observe(m.now().Sub(startedAt).Seconds())
 		if action == actionChallenge {
