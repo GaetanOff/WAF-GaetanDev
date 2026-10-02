@@ -79,6 +79,24 @@ Les ASNs hosting déclenchent un delta score de -10 (pas un blocage — des huma
 - Config : `threat_intel` section dans `config.schema.json`
 - Nouvelle métrique : `waf_threat_intel_lookups_total{source,result}`
 
+## Amendement — implémentation livrée (2026-10-02)
+
+Constat d'audit : les conséquences ci-dessus décrivent une implémentation qui
+n'a pas été livrée. L'implémentation réelle (FR-13 v2.9.1) :
+
+- `internal/threatintel/threatintel.go` (`Checker` : cache TTL borné à
+  100 000 verdicts, résolution asynchrone par un pool fixe de 16 workers, file de
+  1 024 ; `StaticSource` : plages CIDR `blocklist_cidrs` / `suspect_cidrs`),
+  `abuseipdb.go` (`HTTPSource`, sans retry : un échec vaut « propre », gardé une
+  minute ; un `429` suspend les appels jusqu'au `Retry-After`) et
+  `middleware.go`
+- Ni liste Tor, ni base ASN MaxMind, ni feeds YAML : aucune dépendance
+  `maxminddb-golang` ; des plages Tor ou datacenter ne sont prises en compte que
+  saisies en CIDR
+- Config : `threat_intel.enabled`, `cache_ttl`, `blocklist_cidrs`,
+  `suspect_cidrs`, `abuseipdb.{enabled,url,api_key}`
+- Aucune métrique dédiée : `waf_threat_intel_lookups_total` est différée
+
 ## Spec References
 
 - [requirements-advanced.md](../requirements-advanced.md) FR-13

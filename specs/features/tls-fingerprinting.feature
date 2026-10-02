@@ -3,6 +3,9 @@ Feature: TLS / JA3 Fingerprinting
   Je veux utiliser le fingerprint TLS du client pour une détection de bot plus robuste
   Afin d'identifier les outils d'attaque même quand ils imitent un navigateur légitime.
 
+  # Contrat : FR-11 (requirements-advanced.md), réaligné sur le code le
+  # 2026-10-02. Les scénarios @deferred sont spécifiés mais NON implémentés.
+
   Background:
     Given le WAF est configuré avec tls_fingerprint.enabled = true
 
@@ -11,7 +14,7 @@ Feature: TLS / JA3 Fingerprinting
     And Cloudflare envoie le header "Cf-Bot-Management-Ja3Hash: 3b5074b1b5d032e5620f69f9159a1b97"
     When le WAF traite la requête
     Then le JA3 hash "3b5074b1b5d032e5620f69f9159a1b97" est extrait
-    And stocké dans le VisitorProfile
+    And il est retenu comme dernier JA3 du visiteur (cache borné en mémoire)
 
   Scenario: JA3 hash en blacklist — déclencheur déterministe, BLOCK
     Given le hash "3b5074b1b5d032e5620f69f9159a1b97" est dans la blacklist JA3 (Mirai)
@@ -35,6 +38,7 @@ Feature: TLS / JA3 Fingerprinting
     When une requête avec ce JA3 arrive
     Then aucun delta de score n'est appliqué pour le JA3
 
+  @deferred
   Scenario: Mode TLS direct — JA3 calculé depuis le ClientHello
     Given le WAF termine lui-même le TLS (server.tls configuré)
     And un client se connecte avec TLS 1.3, cipher suites [TLS_AES_128_GCM_SHA256, TLS_AES_256_GCM_SHA384]
@@ -46,8 +50,9 @@ Feature: TLS / JA3 Fingerprinting
     Given un visiteur avec cookie valide a un JA3 "a0e9f5d6" enregistré
     When il revient avec un JA3 "ff00aa11" (outil différent)
     Then le WAF détecte l'incohérence de fingerprint TLS
-    And le trust score est décrémenté de 15
-    And l'événement est journalisé avec reason="ja3_session_mismatch"
+    And la contribution "tls" publiée au moteur de risque vaut tls_fingerprint.swap_contribution (défaut 50)
+    And aucun delta de trust score n'est appliqué
+    And l'événement est journalisé avec reason="ja3_swap"
 
   Scenario: JA3 de Python requests — score dégradé
     Given le hash JA3 "ab16e0fd5f7a6bb6a0a2da7d8e9e3a78" correspond à python-requests
@@ -70,6 +75,7 @@ Feature: TLS / JA3 Fingerprinting
     Then le WAF fonctionne normalement sans JA3
     And aucune erreur n'est loggée
 
+  @deferred
   Scenario: Ajout d'un hash JA3 à la blacklist via API
     Given l'API admin est authentifiée
     When POST /waf/admin/ja3-blacklist avec body {"hash": "deadbeef12345678", "reason": "known C2 tool"}

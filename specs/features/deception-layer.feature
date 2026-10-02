@@ -12,19 +12,19 @@ Feature: Deception Layer (Tarpit + Honeypot Content)
   Background:
     Given le WAF est configuré avec deception.enabled = true
     And deception.tarpit_max_connections = 500
-    And deception.tarpit_chunk_delay_ms = 2000
-    And deception.injection.enabled = true
+    And deception.tarpit_chunks = 20
+    And deception.tarpit_chunk_delay = "1s"
 
   # ── Tarpit ──────────────────────────────────────────────────────────────────
 
-  Scenario: Bot à score très bas — tarpit activé
-    Given un visiteur avec score = 8 (< block_threshold = 10)
-    And une règle de tarpit est configurée pour score < 15
+  Scenario: Requête classée TARPIT — tarpit activé
+    Given une règle de tarpit est configurée pour trust_score < 15
+    And un visiteur avec score = 8
     When ce visiteur envoie une requête GET
     Then le WAF retourne HTTP 200 avec Content-Type text/html
-    And les bytes de réponse sont envoyés par chunks de 64 bytes
-    And chaque chunk est espacé de 2000ms
-    And la connexion reste ouverte pendant 60 secondes
+    And la réponse est envoyée en 20 morceaux (deception.tarpit_chunks), chacun vidé vers le client
+    And les morceaux sont espacés de 1 s (deception.tarpit_chunk_delay)
+    And la connexion reste ouverte environ 20 secondes
 
   Scenario: Tarpit — requête tarpitée journalisée et comptée TARPIT
     Given une requête classée TARPIT par le moteur de risque ou une règle
@@ -51,15 +51,15 @@ Feature: Deception Layer (Tarpit + Honeypot Content)
     When un 501ème bot entre en condition de tarpit
     Then le WAF retourne HTTP 429 immédiatement au lieu du tarpit
     And l'événement de sécurité porte action = "TARPIT" et reason = "tarpit_saturated"
-    And la métrique waf_tarpit_connections_total reste à 500
     And aucune goroutine supplémentaire n'est créée
+    # Pas de métrique de connexions tarpitées (waf_tarpit_connections_total
+    # différée) : waf_requests_total{action="TARPIT"} compte les réponses.
 
   Scenario: Tarpit — connexion abandonnée par le bot
     Given un bot est en mode tarpit depuis 15 secondes
     When le bot ferme la connexion TCP
     Then la goroutine de tarpit se termine immédiatement (context cancellation)
     And le slot de connexion est libéré
-    And la métrique waf_tarpit_connections_total est décrémentée
 
   Scenario: Tarpit — visiteurs légitimes non affectés
     Given un visiteur avec score = 75 (TRUSTED)

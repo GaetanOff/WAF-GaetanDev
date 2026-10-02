@@ -116,6 +116,22 @@ Pour 100 000 visiteurs : 500 MB → configurable, défaut 10 000 visiteurs avec 
 - Config : `behavioral.enabled`, `behavioral.window_size`, `behavioral.signal_weights`
 - Métriques : `waf_behavioral_score_histogram`, `waf_behavioral_triggers_total{signal}`
 
+## Amendement — implémentation livrée (2026-10-02)
+
+Constat d'audit : l'implémentation réelle (FR-12 v2.10.2) diffère des
+conséquences ci-dessus.
+
+- Un seul fichier, `internal/behavioral/behavioral.go` : cinq signaux
+  (uniformité temporelle 30, répétition 25, vélocité 25, absence d'assets 20,
+  ordre alphabétique 20 — sommés, bornés à 100), sous 5 pages aucun score
+- Le score est la contribution `behavioral` du moteur de risque ; il ne modifie
+  pas le trust score, et `VisitorProfile` n'est pas étendu (profils en mémoire,
+  oubliés après 30 min d'inactivité)
+- Config : `behavioral.enabled` et `behavioral.max_records` (≥ 5) ; ni
+  `window_size` ni `signal_weights`
+- Métrique : `waf_behavioral_events_dropped_total` seule ;
+  `waf_behavioral_score_histogram` et `waf_behavioral_triggers_total` différées
+
 ## Spec References
 
 - [requirements-advanced.md](../requirements-advanced.md) FR-12, NFR-07
