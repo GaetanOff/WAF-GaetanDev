@@ -63,8 +63,15 @@ Feature: Intégration Threat Intelligence
     Given l'API AbuseIPDB répond en erreur ou est injoignable (timeout 3 s)
     When une IP inconnue envoie une requête
     Then le WAF continue à fonctionner normalement, sans attendre le lookup
-    And le verdict de l'IP est « propre » (mis en cache pour cache_ttl)
+    And le verdict de l'IP est « propre », mis en cache une minute seulement (et non cache_ttl)
+    And l'IP est réévaluée auprès de l'API après cette minute
     And les décisions se basent uniquement sur les autres signaux disponibles
+
+  Scenario: Quota AbuseIPDB épuisé — appels suspendus
+    Given l'API AbuseIPDB répond 429 avec Retry-After: 3600
+    When de nouvelles IP envoient des requêtes pendant l'heure qui suit
+    Then aucun appel à l'API n'est effectué avant l'expiration du Retry-After
+    And les plages locales (blocklist_cidrs, suspect_cidrs) restent évaluées
 
   @deferred
   Scenario: Métrique d'erreur AbuseIPDB
