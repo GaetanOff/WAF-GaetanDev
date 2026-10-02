@@ -19,9 +19,10 @@ import (
 // cluster-event.schema.json, n'a pas de constante : aucun nœud ne le publie ni
 // ne l'applique (coordination de la pression globale différée, cf. tasks.md).
 const (
-	EventBlacklistAdd  = "blacklist_add"
-	EventScoreCritical = "score_critical"
-	EventCircuitOpen   = "circuit_open"
+	EventBlacklistAdd    = "blacklist_add"
+	EventBlacklistRemove = "blacklist_remove"
+	EventScoreCritical   = "score_critical"
+	EventCircuitOpen     = "circuit_open"
 )
 
 const (
@@ -38,8 +39,11 @@ type Event struct {
 	Type string `json:"type"`
 	// Node identifie l'émetteur : Redis Pub/Sub renvoie à un nœud ses propres
 	// publications, qu'il ignore.
-	Node   string     `json:"node,omitempty"`
-	Value  string     `json:"value,omitempty"`   // IP/CIDR pour blacklist_add
+	Node string `json:"node,omitempty"`
+	// TS est l'instant d'émission, signé avec l'événement : un récepteur
+	// ignore un événement trop ancien (rejeu d'un message capturé, FR-20).
+	TS     time.Time  `json:"ts"`
+	Value  string     `json:"value,omitempty"`   // IP/CIDR pour blacklist_add et blacklist_remove
 	IPHash string     `json:"ip_hash,omitempty"` // pour score_critical/circuit_open
 	Domain string     `json:"domain,omitempty"`
 	Score  int        `json:"score,omitempty"`
@@ -63,7 +67,10 @@ type Syncer struct {
 	// directement au RuleSet ; avec l'API admin active, elle doit passer par
 	// l'état admin (WithBlacklistApplier), seul propriétaire de la blacklist.
 	addBlacklist func(value string) error
-	now          func() time.Time
+	// removeBlacklist applique un retrait propagé (WithBlacklistRemover) ;
+	// sans API admin, aucun nœud ne retire d'entrée, et l'événement est ignoré.
+	removeBlacklist func(value string) error
+	now             func() time.Time
 	node         string
 	outbox       chan Event
 
@@ -88,6 +95,13 @@ func (s *Syncer) WithBlacklistApplier(apply func(value string) error) {
 	s.addBlacklist = apply
 }
 
+// WithBlacklistRemover branche l'application des retraits de blacklist
+// propagés (blacklist_remove) : seuls les ajouts l'étaient, et une IP
+// débloquée sur un nœud restait bloquée sur les autres.
+func (s *Syncer) WithBlacklistRemover(remove func(value string) error) {
+	s.removeBlacklist = remove
+}
+
 func newNodeID() string {
 	raw := make([]byte, 8)
 	_, _ = rand.Read(raw) // ne peut pas échouer (crypto/rand, Go 1.24+)
@@ -110,6 +124,11 @@ func (s *Syncer) Apply(event Event) bool {
 		if s.addBlacklist != nil && event.Value != "" {
 			_ = s.addBlacklist(event.Value)
 		}
+	case EventBlacklistRemove:
+		if s.removeBlacklist == nil || event.Value == "" {
+			return false
+		}
+		_ = s.removeBlacklist(event.Value)
 	case EventScoreCritical:
 		s.applyScoreCritical(event)
 	case EventCircuitOpen:
@@ -187,6 +206,11 @@ func (s *Syncer) PublishBlacklistAdd(value string) {
 	s.Enqueue(Event{Type: EventBlacklistAdd, Value: value})
 }
 
+// PublishBlacklistRemove propage le retrait d'une entrée de blacklist.
+func (s *Syncer) PublishBlacklistRemove(value string) {
+	s.Enqueue(Event{Type: EventBlacklistRemove, Value: value})
+}
+
 // PublishCircuitOpen propage l'ouverture d'un circuit jusqu'à until.
 func (s *Syncer) PublishCircuitOpen(ipHash string, until time.Time) {
 	s.Enqueue(Event{Type: EventCircuitOpen, IPHash: ipHash, Until: &until})
@@ -235,6 +259,7 @@ func (s *Syncer) AppliedCount() int {
 // erreur de bus n'interrompt pas le traitement local, fallback autonome).
 func (s *Syncer) Publish(ctx context.Context, event Event) {
 	event.Node = s.node
+	event.TS = s.now().UTC()
 	_ = s.bus.Publish(ctx, event)
 }
 

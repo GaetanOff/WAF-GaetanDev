@@ -566,3 +566,45 @@ func TestDeleteVisitorRunsErasers(t *testing.T) {
 		t.Fatalf("erasers called with %v, want [%s]", erased, visitor.IPHash)
 	}
 }
+
+// FR-20 : un retrait admin est propagé ; un retrait reçu du cluster retire
+// une entrée ajoutée à l'exécution, jamais une entrée de la configuration.
+func TestBlacklistRemovalIsPropagatedAndSparesConfiguredEntries(t *testing.T) {
+	server := newTestServerWith(t, func(cfg *config.Config) { cfg.Blacklist = []string{"7.7.7.7"} })
+	handler := server.Handler()
+	var removed []string
+	server.WithBlacklistRemoveObserver(func(value string) { removed = append(removed, value) })
+
+	handler.ServeHTTP(httptest.NewRecorder(), requestWithAuth(http.MethodPost, "/waf/admin/blacklist", `{"ip":"5.5.5.5"}`))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, requestWithAuth(http.MethodDelete, "/waf/admin/blacklist/5.5.5.5", ""))
+	if response.Code != http.StatusNoContent || len(removed) != 1 || removed[0] != "5.5.5.5" {
+		t.Fatalf("DELETE: status %d, published removals %v; want 204 and [5.5.5.5]", response.Code, removed)
+	}
+
+	if err := server.ApplyClusterBlacklist("9.9.9.9"); err != nil {
+		t.Fatalf("ApplyClusterBlacklist() error = %v", err)
+	}
+	if err := server.ApplyClusterBlacklistRemove("9.9.9.9"); err != nil {
+		t.Fatalf("ApplyClusterBlacklistRemove() error = %v", err)
+	}
+	if ok, _ := server.accessRules.IsBlacklisted("9.9.9.9"); ok {
+		t.Fatal("a propagated removal left the runtime entry in place")
+	}
+
+	configured := server.state.ListBlacklist()
+	if len(configured) != 1 {
+		t.Fatalf("blacklist = %+v, want the configured 7.7.7.7 alone", configured)
+	}
+	for _, entry := range configured {
+		if err := server.ApplyClusterBlacklistRemove(entry.IP); err != nil {
+			t.Fatalf("ApplyClusterBlacklistRemove() error = %v", err)
+		}
+	}
+	if got := server.state.ListBlacklist(); len(got) != len(configured) {
+		t.Fatalf("blacklist = %+v, want the configured entries %+v kept", got, configured)
+	}
+	if len(removed) != 1 {
+		t.Fatalf("published removals = %v, want a propagated removal never re-published", removed)
+	}
+}

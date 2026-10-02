@@ -647,9 +647,9 @@ cluster:
   channel: "waf:events"
 ```
 
-Synchronise les décisions (blacklist, ouverture de circuit, score critique) entre plusieurs instances WAF via Redis Pub/Sub, sur la connexion `storage.redis` (quel que soit `storage.backend`).
+Synchronise les décisions (ajouts et retraits de blacklist par l'API admin, ouverture de circuit, score critique) entre plusieurs instances WAF via Redis Pub/Sub, sur la connexion `storage.redis` (quel que soit `storage.backend`).
 
-Chaque événement est signé (HMAC-SHA256, clé dérivée de `challenge.secret_key`) : un message non signé, mal signé ou de type inconnu est ignoré et compté dans `waf_cluster_rejected_events_total`. Tous les nœuds doivent donc partager le même `challenge.secret_key` (`WAF_CHALLENGE_SECRET_KEY`). La signature n'empêche pas le rejeu d'un message capturé : garder Redis sur un réseau privé, avec mot de passe, TLS et une ACL qui réserve `PUBLISH`/`SUBSCRIBE` sur le canal aux nœuds WAF.
+Chaque événement est signé (HMAC-SHA256, clé dérivée de `challenge.secret_key`) : un message non signé, mal signé ou de type inconnu est ignoré et compté dans `waf_cluster_rejected_events_total`. Tous les nœuds doivent donc partager le même `challenge.secret_key` (`WAF_CHALLENGE_SECRET_KEY`). Chaque événement porte aussi son instant d'émission, signé : un événement à plus de 2 minutes de l'horloge du récepteur est ignoré (rejeu d'un message capturé). Les nœuds doivent avoir des horloges synchronisées (NTP) ; pendant une mise à jour progressive, les événements des nœuds pas encore à jour (sans horodatage) sont ignorés. Un rejeu reste possible dans la fenêtre de 2 minutes : garder Redis sur un réseau privé, avec mot de passe, TLS et une ACL qui réserve `PUBLISH`/`SUBSCRIBE` sur le canal aux nœuds WAF. Un retrait reçu d'un autre nœud ne retire qu'une entrée ajoutée à l'exécution : une entrée de `blacklist` dans la configuration du nœud reste en place. Les listes modifiées par l'API admin ne survivent pas à un redémarrage.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|

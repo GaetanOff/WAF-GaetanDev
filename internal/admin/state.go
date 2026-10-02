@@ -82,13 +82,22 @@ func (s *State) AddBlacklist(entry IPEntry) (IPEntry, bool, error) {
 
 // RemoveWhitelist retire une entrée ; found est faux si elle n'existe pas.
 func (s *State) RemoveWhitelist(ip string) (found bool, err error) {
-	return s.removeEntry(s.whitelist, ip)
+	return s.removeEntry(s.whitelist, ip, anyEntry)
 }
 
 // RemoveBlacklist retire une entrée ; found est faux si elle n'existe pas.
 func (s *State) RemoveBlacklist(ip string) (found bool, err error) {
-	return s.removeEntry(s.blacklist, ip)
+	return s.removeEntry(s.blacklist, ip, anyEntry)
 }
+
+// RemoveRuntimeBlacklist retire une entrée ajoutée à l'exécution (API admin
+// ou cluster) ; une entrée de la configuration, sans date d'ajout, reste en
+// place. found est faux si aucune entrée de ce type n'existe.
+func (s *State) RemoveRuntimeBlacklist(ip string) (found bool, err error) {
+	return s.removeEntry(s.blacklist, ip, func(entry IPEntry) bool { return entry.AddedAt != "" })
+}
+
+func anyEntry(IPEntry) bool { return true }
 
 func (s *State) Config() config.Config {
 	s.mu.RLock()
@@ -140,7 +149,7 @@ func (s *State) addEntry(target map[string]IPEntry, entry IPEntry, whitelist boo
 // échec de synchronisation était ignoré : l'API ne listait plus l'entrée que
 // le middleware continuait d'appliquer. Comme pour addEntry, l'état est alors
 // restauré et l'erreur remontée.
-func (s *State) removeEntry(target map[string]IPEntry, ip string) (bool, error) {
+func (s *State) removeEntry(target map[string]IPEntry, ip string, removable func(IPEntry) bool) (bool, error) {
 	normalized, err := normalizeIPRule(ip)
 	if err != nil {
 		return false, nil
@@ -148,7 +157,7 @@ func (s *State) removeEntry(target map[string]IPEntry, ip string) (bool, error) 
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	entry, exists := target[normalized]
-	if !exists {
+	if !exists || !removable(entry) {
 		return false, nil
 	}
 	delete(target, normalized)

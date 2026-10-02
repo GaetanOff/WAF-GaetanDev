@@ -335,6 +335,9 @@ func (s *Server) deleteBlacklist(w http.ResponseWriter, r *http.Request) {
 		writeSyncFailure(w, err)
 		return
 	}
+	if normalized, err := normalizeIPRule(target); err == nil && s.onBlacklistRemove != nil {
+		s.onBlacklistRemove(normalized)
+	}
 	s.record("remove_blacklist", target, "removed")
 	w.WriteHeader(http.StatusNoContent)
 }

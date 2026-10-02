@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"sync/atomic"
+	"time"
 
 	"github.com/gaetandev/waf/internal/config"
 	"github.com/redis/go-redis/v9"
@@ -65,7 +66,7 @@ func (b *RedisBus) Subscribe(ctx context.Context, handler func(Event)) error {
 // deliver transmet au handler un message dont la signature est valide ; les
 // autres sont comptés, jamais appliqués.
 func (b *RedisBus) deliver(message string, handler func(Event)) {
-	event, err := open(b.key, message)
+	event, err := open(b.key, message, time.Now())
 	if err != nil {
 		b.rejected.Add(1)
 		return

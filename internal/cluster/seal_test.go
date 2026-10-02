@@ -11,12 +11,12 @@ const testSecret = "0123456789abcdef0123456789abcdef"
 func TestSealedEventRoundTrips(t *testing.T) {
 	key := EventKey(testSecret)
 	until := time.Date(2026, 10, 1, 12, 0, 0, 0, time.UTC)
-	sent := Event{Type: EventCircuitOpen, Node: "0123456789abcdef", IPHash: "fedcba9876543210", Until: &until}
+	sent := Event{Type: EventCircuitOpen, Node: "0123456789abcdef", TS: until, IPHash: "fedcba9876543210", Until: &until}
 	message, err := seal(key, sent)
 	if err != nil {
 		t.Fatalf("seal: %v", err)
 	}
-	received, err := open(key, string(message))
+	received, err := open(key, string(message), until)
 	if err != nil {
 		t.Fatalf("open: %v", err)
 	}
@@ -46,7 +46,7 @@ func TestOpenRejectsUnsignedAndForgedMessages(t *testing.T) {
 	}
 	for name, message := range tests {
 		t.Run(name, func(t *testing.T) {
-			if event, err := open(key, message); err == nil {
+			if event, err := open(key, message, time.Now()); err == nil {
 				t.Fatalf("open accepted %q as %+v", message, event)
 			}
 		})
@@ -61,9 +61,36 @@ func TestOpenRejectsUnknownEventTypes(t *testing.T) {
 		if err != nil {
 			t.Fatalf("seal: %v", err)
 		}
-		if _, err := open(key, string(message)); err == nil {
+		if _, err := open(key, string(message), time.Now()); err == nil {
 			t.Fatalf("open accepted the unknown type %q", eventType)
 		}
+	}
+}
+
+// multi-node-sync.feature, « Événement rejoué hors fenêtre — ignoré » : un
+// message signé mais capturé se rejouait indéfiniment.
+func TestOpenRejectsStaleOrUndatedEvents(t *testing.T) {
+	key := EventKey(testSecret)
+	now := time.Date(2026, 10, 2, 12, 0, 0, 0, time.UTC)
+	for name, ts := range map[string]time.Time{
+		"undated":           {},
+		"captured 10m ago":  now.Add(-10 * time.Minute),
+		"10m in the future": now.Add(10 * time.Minute),
+	} {
+		message, err := seal(key, Event{Type: EventBlacklistAdd, TS: ts, Value: "5.5.5.5"})
+		if err != nil {
+			t.Fatalf("seal: %v", err)
+		}
+		if _, err := open(key, string(message), now); err == nil {
+			t.Fatalf("%s: open accepted the event", name)
+		}
+	}
+	fresh, err := seal(key, Event{Type: EventBlacklistAdd, TS: now.Add(-time.Minute), Value: "5.5.5.5"})
+	if err != nil {
+		t.Fatalf("seal: %v", err)
+	}
+	if _, err := open(key, string(fresh), now); err != nil {
+		t.Fatalf("open refused an event within the window: %v", err)
 	}
 }
 
@@ -71,7 +98,7 @@ func TestSealAndOpenRefuseAnEmptyKey(t *testing.T) {
 	if _, err := seal(nil, Event{Type: EventBlacklistAdd, Value: "5.5.5.5"}); err == nil {
 		t.Fatal("seal signed with an empty key")
 	}
-	if _, err := open(nil, "x."+`{"type":"blacklist_add","value":"5.5.5.5"}`); err == nil {
+	if _, err := open(nil, "x."+`{"type":"blacklist_add","value":"5.5.5.5"}`, time.Now()); err == nil {
 		t.Fatal("open accepted a message with an empty key")
 	}
 }
@@ -82,7 +109,7 @@ func TestRedisBusCountsRejectedMessagesAndNeverDeliversThem(t *testing.T) {
 	handler := func(event Event) { delivered = append(delivered, event) }
 
 	bus.deliver(`{"type":"blacklist_add","value":"0.0.0.0/0"}`, handler)
-	genuine, err := seal(bus.key, Event{Type: EventBlacklistAdd, Value: "5.5.5.5"})
+	genuine, err := seal(bus.key, Event{Type: EventBlacklistAdd, TS: time.Now(), Value: "5.5.5.5"})
 	if err != nil {
 		t.Fatalf("seal: %v", err)
 	}

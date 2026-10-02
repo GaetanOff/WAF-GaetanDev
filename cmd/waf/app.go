@@ -570,6 +570,8 @@ func (a *app) buildAdmin() error {
 	if a.syncer != nil {
 		adminServer.WithBlacklistObserver(a.syncer.PublishBlacklistAdd)
 		a.syncer.WithBlacklistApplier(adminServer.ApplyClusterBlacklist)
+		adminServer.WithBlacklistRemoveObserver(a.syncer.PublishBlacklistRemove)
+		a.syncer.WithBlacklistRemover(adminServer.ApplyClusterBlacklistRemove)
 	}
 	// PATCH /waf/admin/config (hot-reload) : la configuration validée est
 	// poussée aux composants qui la lisent par requête.

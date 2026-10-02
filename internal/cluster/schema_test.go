@@ -39,6 +39,7 @@ func TestPublishedEventsMatchClusterEventSchema(t *testing.T) {
 	until := time.Now().Add(time.Minute)
 	for _, event := range []Event{
 		{Type: EventBlacklistAdd, Value: "5.5.5.5"},
+		{Type: EventBlacklistRemove, Value: "5.5.5.5"},
 		{Type: EventCircuitOpen, IPHash: "0123456789abcdef", Until: &until},
 		{Type: EventScoreCritical, IPHash: "0123456789abcdef", Domain: "example.test", Score: 3},
 	} {
@@ -47,7 +48,7 @@ func TestPublishedEventsMatchClusterEventSchema(t *testing.T) {
 	syncer.PublishScoreCritical(storage.VisitorState{IPHash: "0123456789abcdef", Score: 0})
 	syncer.Publish(t.Context(), <-syncer.outbox)
 
-	requiredByType := map[string]string{EventBlacklistAdd: "value", EventScoreCritical: "ip_hash", EventCircuitOpen: "ip_hash"}
+	requiredByType := map[string]string{EventBlacklistAdd: "value", EventBlacklistRemove: "value", EventScoreCritical: "ip_hash", EventCircuitOpen: "ip_hash"}
 	for _, payload := range bus.payloads {
 		var document map[string]any
 		if err := json.Unmarshal(payload, &document); err != nil {
@@ -89,7 +90,7 @@ func (b *capturingBus) Publish(_ context.Context, event Event) error {
 	if err != nil {
 		return err
 	}
-	if _, err := open(key, string(message)); err != nil {
+	if _, err := open(key, string(message), time.Now()); err != nil {
 		return err
 	}
 	_, payload, _ := strings.Cut(string(message), ".")

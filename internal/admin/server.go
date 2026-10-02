@@ -29,6 +29,9 @@ type Server struct {
 	startedAt   time.Time
 	httpServer  *http.Server
 	onBlacklist func(value string)
+	// onBlacklistRemove est notifié de chaque retrait de la blacklist
+	// (propagation cluster, FR-20).
+	onBlacklistRemove func(value string)
 	onPanic     func()
 	applyConfig ConfigApplier
 	erasers     []func(ipHash string)
@@ -66,6 +69,20 @@ func (s *Server) WithPanicObserver(observer func()) {
 // (propagation cluster, FR-20).
 func (s *Server) WithBlacklistObserver(observer func(value string)) {
 	s.onBlacklist = observer
+}
+
+// WithBlacklistRemoveObserver est notifié de chaque entrée retirée de la
+// blacklist (propagation cluster, FR-20).
+func (s *Server) WithBlacklistRemoveObserver(observer func(value string)) {
+	s.onBlacklistRemove = observer
+}
+
+// ApplyClusterBlacklistRemove retire une entrée que l'administrateur d'un
+// autre nœud a retirée (FR-20). Seule une entrée ajoutée à l'exécution l'est :
+// une entrée de la configuration de ce nœud reste en place.
+func (s *Server) ApplyClusterBlacklistRemove(value string) error {
+	_, err := s.state.RemoveRuntimeBlacklist(value)
+	return err
 }
 
 // ApplyClusterBlacklist enregistre une entrée de blacklist reçue d'un autre
