@@ -555,7 +555,7 @@ func messageFor(ev Event) string {
 	case TriggerCircuitBreaker:
 		return "Trop de violations consécutives : circuit ouvert pour cette IP."
 	case TriggerUnderAttackStart:
-		return "Pression critique : challenge JS forcé pour les requêtes sans clearance (FR-39)."
+		return "Pression au-delà de under_attack.trigger_pressure : challenge JS forcé pour les requêtes sans clearance (FR-39)."
 	case TriggerUnderAttackEnd:
 		return "Pression retombée : sortie du mode sous attaque, challenge forcé désactivé."
 	case TriggerBlock:

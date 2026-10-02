@@ -9,6 +9,18 @@ Le schéma JSON (validation) est dans [`specs/schemas/config.schema.json`](specs
 
 ---
 
+## Modification à chaud
+
+La configuration est lue au démarrage. Sans redémarrage, seuls changent :
+
+- `rate_limit`, `trust` (`challenge_threshold`, `block_threshold`) et `challenge` (`enabled`, `pow_difficulty`), par `PATCH /waf/admin/config` ;
+- les listes `whitelist` et `blacklist`, par l'API admin (elles ne survivent pas à un redémarrage) ;
+- les certificats TLS renouvelés sur disque (`server.tls`, `domains[].tls`), réexaminés chaque minute.
+
+Tout autre réglage — dont `rules.file`, `risk_engine` et `domains[]` — demande un redémarrage. `SIGHUP` ne recharge rien.
+
+---
+
 ## Secrets — variables d'environnement
 
 Ne mettez **jamais** de secrets dans `config.yaml`. Fournissez-les via l'environnement :
@@ -52,6 +64,7 @@ server:
   idle_timeout: "60s"
   graceful_shutdown_timeout: "15s"
   max_header_bytes: 65536
+  max_header_value_count: 100
   strict_host: false
 ```
 
@@ -59,10 +72,11 @@ server:
 |---|---|---|---|
 | `listen` | string | — | Adresse d'écoute du port public (trafic entrant depuis Cloudflare). Ex : `":8080"`, `"0.0.0.0:443"`. **Obligatoire.** |
 | `admin_listen` | string | `"127.0.0.1:9090"` | Adresse d'écoute de l'API d'administration (HTTP clair, jeton `Bearer`). **Ne jamais exposer publiquement.** Boucle locale par défaut ; dans un conteneur, la lier explicitement à l'interface du réseau interne (ex. `0.0.0.0:9090` sans publier le port). |
-| `read_timeout` | durée | `"30s"` | Délai max pour lire la requête entière (headers + body). Protège contre les connexions lentes (Slowloris). |
+| `read_timeout` | durée | `"30s"` | Délai max pour lire la requête entière (headers + body). Protège contre les connexions lentes (Slowloris). Un upload plus long que ce délai est coupé : l'augmenter pour une origine qui reçoit de gros fichiers. |
 | `write_timeout` | durée | `"30s"` | Délai max pour envoyer la réponse complète au client, **streaming compris** : un téléchargement ou un flux (SSE, long polling) plus long que ce délai est coupé. L'augmenter pour une origine qui sert de tels contenus. Les WebSockets n'y sont pas soumis (l'échéance est levée à l'upgrade). |
 | `idle_timeout` | durée | `"60s"` | Délai max d'inactivité sur une connexion keep-alive avant fermeture. |
 | `max_header_bytes` | int | `65536` | Taille maximale des en-têtes d'une requête (64 Kio). Au-delà : `431`, avant tout middleware. `0` = défaut Go (1 Mio) ; sinon entre `4096` et `1048576`. |
+| `max_header_value_count` | int | `100` | Nombre maximal de lignes d'en-tête d'une requête, borné avant tout middleware (FR-23). `0` = défaut Go (500) ; entre `0` et `10000`. |
 | `graceful_shutdown_timeout` | durée | `"15s"` | Délai accordé aux connexions en cours pour se terminer proprement lors d'un arrêt (SIGTERM). |
 | `strict_host` | bool | `false` | Répond `400` (`X-WAF-Reason: host_not_declared`) à toute requête dont le `Host` ne correspond à aucune entrée [`domains`](#domains--configuration-par-domaine), `/waf/health` excepté ([ADR-020](specs/decisions/ADR-020-host-header-routing-trust.md)). Exige au moins une entrée `domains[]`. `/waf/metrics` n'est **pas** exempté : un scraper Prometheus doit alors présenter un `Host` déclaré. **Opt-in** : activé, il coupe l'accès par IP. |
 
@@ -458,8 +472,10 @@ Détecte les requêtes malformées ou suspectes : chemins trop longs, bodies tro
 |---|---|---|---|
 | `enabled` | bool | `true` | Active l'analyse d'intégrité. |
 | `max_body_bytes` | int | `10485760` | Taille maximale du body acceptée (en octets). 10 485 760 = 10 MB. Les requêtes plus lourdes reçoivent un HTTP 413. |
-| `max_path_length` | int | `2048` | Longueur maximale du chemin URL (sans la query string). Les chemins plus longs reçoivent un HTTP 414. |
-| `max_query_length` | int | `4096` | Longueur maximale de la query string. |
+| `max_path_length` | int | `2048` | Longueur au-delà de laquelle le chemin URL (sans la query string) est jugé excessif : contribution `integrity` de 25 au moteur de risque, sans refus (aucun 414). |
+| `max_query_length` | int | `4096` | Même seuil pour la query string. |
+
+Les détections (path traversal 60, null byte 60, injection 40, longueur 25 — cumulées, bornées à 100) ne bloquent pas : elles alimentent la famille `integrity` du moteur de risque, et restent sans effet sans lui (`risk_engine.enabled: false`). Seul le body trop lourd est refusé. Les assets statiques ne sont pas analysés.
 
 ---
 

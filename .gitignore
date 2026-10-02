@@ -30,6 +30,7 @@ out/
 *.exe
 /waf
 coverage.out
+*_cov.out
 
 # Logs
 *.log
