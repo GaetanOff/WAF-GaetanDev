@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 2.10.1
+version: 2.10.2
 last-reviewed: 2026-10-02
 reviewed-by: GaetanDev
 extends: requirements.md (v2.0.0)
-change: "FR-12 : behavioral.max_records ≥ 5. FR-17 : une règle sans name ou sans condition, une condition header/query_param sans name sont refusées au chargement. Précédent (2.10.0) — FR-20 : retraits de blacklist admin propagés (blacklist_remove) ; événements horodatés (ts signé), ignorés à plus de 2 minutes de l'horloge du récepteur (rejeu). Précédent (2.9.1) — FR-13 : un verdict propre obtenu sur source indisponible n'est mis en cache qu'une minute (et non cache_ttl) ; un 429 d'AbuseIPDB suspend les appels jusqu'à Retry-After. Précédent (2.9.0) — FR-14 : plafond adaptive.max_difficulty abaissé à 20 bits par défaut et borné à 24 (32 auparavant) — à 24 bits, un mobile dépassait le token_ttl de 30 s sous pression critique. Précédent (2.8.0) — FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de challenge.secret_key, exigé avec cluster.enabled) ; messages non signés, invalides ou de type inconnu ignorés et comptés dans waf_cluster_rejected_events_total. Précédent (2.7.1) — FR-20 : réaligné sur le code — canal unique cluster.channel, métrique waf_cluster_sync_events_total{type} ; publication de la pression (degraded_mode) et waf_cluster_lag_seconds différés. Précédent (2.7.0) — FR-14 : la difficulté décroît dans le câblage réel (la pression publiée à chaque requête ne réarme plus l'horloge) ; baseline de l'AII fonction du temps (1 h), plus du nombre de challenges servis. Précédent (2.6.1) — FR-16 : avertissement au démarrage quand geo.challenge_countries est inerte faute de moteur de risque. Précédent (2.6.0) — FR-14 : anti-rétrogradation spécifiée en `invalid_pow`, plancher de pression précisé, message de page, métrique d'intensité et baseline 24 h marqués différés. Précédent (2.5.5) — FR-13 : paliers AbuseIPDB réalignés sur le vérificateur (≥ 80 déclencheur threat_intel_critical, ≥ 50 trust score plafonné à 20), plages locales et échec de source spécifiés. Précédent (2.5.4) — FR-16 : exigences réalignées sur le bloc `geo` implémenté, rate limit et score par pays, règles par domaine et métriques par pays marqués différés. Précédent (2.5.3) — FR-11 : sans moteur de risque, le middleware de trust score applique le déclencheur `ja3_blacklist` (403) — la blacklist JA3 était sans effet. Précédent (2.5.2) — FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par le moteur de risque, FR-35), la clause « score -= 40 et challenge immédiat » antérieure au moteur est retirée. Précédent (2.5.1) — FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
+change: "FR-18 : réaligné sur le code — contributions integrity 60/60/40/25 (traversal, null byte, injection, longueur), sans blocage ni delta de trust ; 413 sur body trop grand ; 400/414, normalisation et contrôle du Content-Type différés. Précédent (2.10.1) — FR-12 : behavioral.max_records ≥ 5. FR-17 : une règle sans name ou sans condition, une condition header/query_param sans name sont refusées au chargement. Précédent (2.10.0) — FR-20 : retraits de blacklist admin propagés (blacklist_remove) ; événements horodatés (ts signé), ignorés à plus de 2 minutes de l'horloge du récepteur (rejeu). Précédent (2.9.1) — FR-13 : un verdict propre obtenu sur source indisponible n'est mis en cache qu'une minute (et non cache_ttl) ; un 429 d'AbuseIPDB suspend les appels jusqu'à Retry-After. Précédent (2.9.0) — FR-14 : plafond adaptive.max_difficulty abaissé à 20 bits par défaut et borné à 24 (32 auparavant) — à 24 bits, un mobile dépassait le token_ttl de 30 s sous pression critique. Précédent (2.8.0) — FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de challenge.secret_key, exigé avec cluster.enabled) ; messages non signés, invalides ou de type inconnu ignorés et comptés dans waf_cluster_rejected_events_total. Précédent (2.7.1) — FR-20 : réaligné sur le code — canal unique cluster.channel, métrique waf_cluster_sync_events_total{type} ; publication de la pression (degraded_mode) et waf_cluster_lag_seconds différés. Précédent (2.7.0) — FR-14 : la difficulté décroît dans le câblage réel (la pression publiée à chaque requête ne réarme plus l'horloge) ; baseline de l'AII fonction du temps (1 h), plus du nombre de challenges servis. Précédent (2.6.1) — FR-16 : avertissement au démarrage quand geo.challenge_countries est inerte faute de moteur de risque. Précédent (2.6.0) — FR-14 : anti-rétrogradation spécifiée en `invalid_pow`, plancher de pression précisé, message de page, métrique d'intensité et baseline 24 h marqués différés. Précédent (2.5.5) — FR-13 : paliers AbuseIPDB réalignés sur le vérificateur (≥ 80 déclencheur threat_intel_critical, ≥ 50 trust score plafonné à 20), plages locales et échec de source spécifiés. Précédent (2.5.4) — FR-16 : exigences réalignées sur le bloc `geo` implémenté, rate limit et score par pays, règles par domaine et métriques par pays marqués différés. Précédent (2.5.3) — FR-11 : sans moteur de risque, le middleware de trust score applique le déclencheur `ja3_blacklist` (403) — la blacklist JA3 était sans effet. Précédent (2.5.2) — FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par le moteur de risque, FR-35), la clause « score -= 40 et challenge immédiat » antérieure au moteur est retirée. Précédent (2.5.1) — FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)
@@ -191,17 +191,37 @@ change: "FR-12 : behavioral.max_records ≥ 5. FR-17 : une règle sans name ou s
 
 ## FR-18 — Analyse d'Intégrité des Requêtes
 
-- Le WAF DOIT normaliser les paths HTTP et détecter les tentatives d'obfuscation :
-  - Path traversal : `../`, `%2e%2e`, `%2f`, double-encoding
-  - Null bytes : `%00` dans le path ou query string
-  - Excessive longueur : path > 2048 chars ou query string > 4096 chars
-- Le WAF DOIT détecter les patterns d'injection dans les query parameters :
-  - SQL keywords patterns (SELECT, UNION, DROP, etc.) dans les params
-  - Script injection patterns (`<script>`, `javascript:`, `onerror=`)
-  - Note : ces détections contribuent au score (delta -30) mais ne bloquent pas directement (laisser l'app décider)
-- Le WAF DOIT valider le header `Content-Type` sur les requêtes POST/PUT/PATCH :
-  - Mismatch entre Content-Type déclaré et body réel → log event
-- Le WAF DOIT limiter la taille du body des requêtes (configurable, défaut 10 MB)
+> Réaligné sur le code (2026-10-02) : la version précédente annonçait des refus
+> `400`/`414`, un delta de trust score -30, une normalisation du chemin et un
+> contrôle du `Content-Type` qui n'existent pas.
+
+- Le WAF DOIT détecter, sur le chemin et la query string bruts puis sur chacune
+  de leurs formes décodées (jusqu'à 3 décodages URL, double-encodage compris) :
+  - Path traversal (`../`, `..\`, `%2e%2e`…) → contribution `integrity` **60**,
+    raison `path_traversal`
+  - Null byte (`%00`) → contribution **60**, raison `null_byte`
+  - Patterns d'injection SQL (`union select`, quote suivie de `--`, `or 1=1`…)
+    ou de script (`<script`, `javascript:`, `onerror=`) → contribution **40**,
+    raison `injection_pattern`. Les sous-chaînes isolées (`--`, `select `, `/*`)
+    ne sont PAS retenues (faux positifs sur des URL légitimes)
+  - Longueur excessive : chemin > `integrity.max_path_length` (2048) ou query
+    > `integrity.max_query_length` (4096) → contribution **25**, raison
+    `excessive_length`
+  - Les contributions se cumulent, bornées à 100 ; la première raison est
+    journalisée si aucune autre n'est déjà posée
+- Ces détections NE bloquent PAS : elles publient la famille `integrity` du
+  moteur de risque (FR-33), qui décide. Sans moteur de risque, elles sont sans
+  effet. Aucun delta de trust score n'est appliqué
+- Le WAF DOIT limiter la taille du body (`integrity.max_body_bytes`, défaut 10 MB) :
+  un `Content-Length` supérieur reçoit `413` (`BLOCK`, `body_too_large`) sans
+  ouvrir de connexion upstream ; un body sans `Content-Length` est borné en
+  lecture à la même taille
+- Un asset statique (FR-24) n'est pas analysé : l'intégrité est une décision
+  heuristique
+- **Différé** (`request-integrity.feature`, scénarios `@deferred`) : refus
+  `400` d'un traversal ou d'un null byte, `414` d'un chemin trop long,
+  normalisation des chemins (`//`), contrôle du `Content-Type` déclaré contre
+  le body
 
 ## FR-19 — Protection de l'Origine
 
