@@ -200,7 +200,7 @@ deception:
 # Moteur de regles personnalisees (FR-17) : DSL YAML (cf. schemas/rule.schema.json)
 rules:
   enabled: false             # opt-in
-  file: ""                   # chemin du fichier YAML de regles (rechargeable a chaud)
+  file: ""                   # chemin du fichier YAML de regles (lu au demarrage : redemarrer apres modification)
 
 # Protection de l'origine (FR-19) : token HMAC rotatif injecte vers l'upstream
 origin_protection:
