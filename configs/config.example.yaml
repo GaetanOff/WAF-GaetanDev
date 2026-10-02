@@ -167,10 +167,11 @@ threat_intel:
 # Difficulte de PoW adaptative (FR-14) : monte sous attaque, redescend (decay)
 adaptive:
   enabled: true
-  # Plafond de bits sous attaque critique. Défaut du code : 24. Ici égal à
-  # challenge.pow_difficulty (16) : la difficulté adaptative ne monte PAS —
-  # choix de déploiement (24 bits = 3-5 s de CPU sur mobile). Relever pour
-  # que la PoW durcisse sous attaque (FR-14).
+  # Plafond de bits sous attaque critique (8 à 24). Défaut du code : 20
+  # (2^20 hachages : 2-4 s sur mobile ; 24 bits dépassent le token_ttl de 30 s
+  # sur mobile). Ici égal à challenge.pow_difficulty (16) : la difficulté
+  # adaptative ne monte PAS — choix de déploiement. Relever (20 au plus
+  # recommandé) pour que la PoW durcisse sous attaque (FR-14).
   max_difficulty: 16
   decay_tau: "5m"            # constante de temps de retour au niveau normal
 

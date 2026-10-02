@@ -807,3 +807,21 @@ func TestValidateRejectsUnknownFusion(t *testing.T) {
 		t.Fatalf("Validate() error = %v, want risk_engine.fusion", err)
 	}
 }
+
+// FR-14 : 2^n hachages en moyenne ; au-delà de 24 bits, la PoW est insoluble
+// dans le token_ttl sur un mobile. Le défaut est 20.
+func TestAdaptiveDifficultyCeiling(t *testing.T) {
+	if got := Default().Adaptive.MaxDifficulty; got != 20 {
+		t.Fatalf("default adaptive.max_difficulty = %d, want 20", got)
+	}
+	cfg := Default()
+	cfg.Version = "1.0"
+	cfg.Server.Listen = ":8080"
+	cfg.Upstream.Address = "http://example.test"
+	cfg.Challenge.SecretKey = testSecret
+	cfg.Admin.Token = testSecret
+	cfg.Adaptive.MaxDifficulty = 28
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "adaptive.max_difficulty must be between 8 and 24") {
+		t.Fatalf("Validate() error = %v, want the 24-bit bound", err)
+	}
+}

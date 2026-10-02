@@ -506,7 +506,7 @@ Consulte des listes de réputation IP (locales ou via l'API AbuseIPDB) pour enri
 ```yaml
 adaptive:
   enabled: true
-  max_difficulty: 24
+  max_difficulty: 20
   decay_tau: "5m"
 ```
 
@@ -515,7 +515,7 @@ Ajuste dynamiquement la difficulté du challenge Proof-of-Work selon l'intensit�
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `true` | Active l'adaptation automatique de la difficulté PoW. |
-| `max_difficulty` | int [8–32] | `24` | Plafond de bits de difficulté. 24 bits ≈ 3–5 secondes sur un CPU standard. Doit être ≥ `challenge.pow_difficulty`. |
+| `max_difficulty` | int [8–24] | `20` | Plafond de bits de difficulté. Une PoW de `n` bits coûte en moyenne `2ⁿ` hachages SHA-256 : 20 bits ≈ 0,4 s sur un poste récent et 2 à 4 s sur un mobile ; 24 bits ≈ 6,5 s sur poste et 35 à 55 s sur mobile, au-delà de `challenge.token_ttl` (30 s) — les mobiles boucleraient sur `token_expired`. Doit être ≥ `challenge.pow_difficulty`. Une valeur au-delà de 24 est refusée au démarrage. |
 | `decay_tau` | durée | `"5m"` | Constante de temps du retour à la normale (décroissance exponentielle). Avec `5m`, la difficulté revient à ~37% de son pic après 5 minutes. |
 
 ---

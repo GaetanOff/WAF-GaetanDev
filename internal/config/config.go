@@ -614,8 +614,11 @@ func Default() Config {
 			},
 		},
 		Adaptive: Adaptive{
-			Enabled:       true,
-			MaxDifficulty: 24,
+			Enabled: true,
+			// 2^n hachages en moyenne, sur le thread du navigateur : à 24 bits
+			// (16 + 8 sous pression critique), un mobile dépassait le token_ttl
+			// de 30 s et bouclait sur token_expired (FR-14).
+			MaxDifficulty: 20,
 			DecayTau:      "5m",
 		},
 		Geo: Geo{
@@ -840,7 +843,7 @@ func (c *Config) Validate() error {
 	}
 	if c.Adaptive.Enabled {
 		validateDuration(&fields, "adaptive.decay_tau", c.Adaptive.DecayTau)
-		validateRange(&fields, "adaptive.max_difficulty", c.Adaptive.MaxDifficulty, 8, 32)
+		validateRange(&fields, "adaptive.max_difficulty", c.Adaptive.MaxDifficulty, 8, maxPowDifficulty)
 		if c.Adaptive.MaxDifficulty < c.Challenge.PowDifficulty {
 			fields = append(fields, "adaptive.max_difficulty must be >= challenge.pow_difficulty")
 		}
@@ -925,7 +928,7 @@ func (c *Config) Validate() error {
 	if c.challengeReachable() && len(c.Challenge.SecretKey) < 32 {
 		fields = append(fields, "challenge.secret_key is required and must be at least 32 characters; set WAF_CHALLENGE_SECRET_KEY")
 	}
-	validateRange(&fields, "challenge.pow_difficulty", c.Challenge.PowDifficulty, 8, 24)
+	validateRange(&fields, "challenge.pow_difficulty", c.Challenge.PowDifficulty, 8, maxPowDifficulty)
 	if c.Challenge.MinElapsedMS < 0 {
 		fields = append(fields, "challenge.min_elapsed_ms must be >= 0")
 	}
@@ -1262,6 +1265,10 @@ func validateDuration(fields *[]string, name, value string) {
 		*fields = append(*fields, name+" must be a valid Go duration")
 	}
 }
+
+// maxPowDifficulty borne la difficulté du PoW, statique comme adaptative : à
+// 2^24 hachages, un mobile met déjà plusieurs dizaines de secondes (FR-14).
+const maxPowDifficulty = 24
 
 func validateRange(fields *[]string, name string, value, min, max int) {
 	if value < min || value > max {
