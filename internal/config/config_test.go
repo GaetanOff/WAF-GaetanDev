@@ -825,3 +825,39 @@ func TestAdaptiveDifficultyCeiling(t *testing.T) {
 		t.Fatalf("Validate() error = %v, want the 24-bit bound", err)
 	}
 }
+
+// config.schema.json : bornes que la validation n'appliquait pas.
+func TestValidateEnforcesSchemaBounds(t *testing.T) {
+	base := func() Config {
+		cfg := Default()
+		cfg.Version = "1.0"
+		cfg.Server.Listen = ":8080"
+		cfg.Upstream.Address = "http://example.test"
+		cfg.Challenge.SecretKey = testSecret
+		cfg.Admin.Token = testSecret
+		return cfg
+	}
+	for want, mutate := range map[string]func(*Config){
+		"behavioral.max_records must be >= 5":                       func(c *Config) { c.Behavioral.MaxRecords = 4 },
+		"risk_engine.human_credit.challenge_passed must be between": func(c *Config) { c.RiskEngine.HumanCredit.ChallengePassed = 10 },
+		"risk_engine.human_credit.stable_fingerprint must be between": func(c *Config) {
+			c.RiskEngine.HumanCredit.StableFingerprint = -101
+		},
+		"alerting.webhooks[0].type must be one of": func(c *Config) {
+			c.Alerting.Enabled = true
+			c.Alerting.Webhooks = []AlertWebhook{{Type: "teams", URL: "https://hooks.example.test/x"}}
+		},
+	} {
+		cfg := base()
+		mutate(&cfg)
+		if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), want) {
+			t.Errorf("Validate() error = %v, want %q", err, want)
+		}
+	}
+	cfg := base()
+	cfg.Alerting.Enabled = true
+	cfg.Alerting.Webhooks = []AlertWebhook{{URL: "https://hooks.example.test/x"}}
+	if err := cfg.Validate(); err != nil {
+		t.Fatalf("a webhook without type (generic) must be accepted: %v", err)
+	}
+}

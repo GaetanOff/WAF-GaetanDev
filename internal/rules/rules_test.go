@@ -352,3 +352,20 @@ func TestTrustScoreConditionIsFalseWithoutScores(t *testing.T) {
 	NewMiddleware(lowTrustCheckoutRules(t), nil).Handler(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {})).
 		ServeHTTP(httptest.NewRecorder(), req)
 }
+
+// FR-17 / rule.schema.json : une règle sans nom ou sans condition, une
+// condition header ou query_param sans nom, sont refusées au chargement.
+func TestLoadRejectsIncompleteRules(t *testing.T) {
+	block := []Action{{Type: "block"}}
+	path := Condition{Field: "path", Operator: "equals", Value: "/x"}
+	for name, rule := range map[string]Rule{
+		"no name":             {Enabled: true, Conditions: []Condition{path}, Actions: block},
+		"no condition":        {Name: "r", Enabled: true, Actions: block},
+		"header without name": {Name: "r", Enabled: true, Conditions: []Condition{{Field: "header", Operator: "exists"}}, Actions: block},
+		"query without name":  {Name: "r", Enabled: true, Conditions: []Condition{{Field: "query_param", Operator: "equals", Value: "1"}}, Actions: block},
+	} {
+		if err := NewRuleSet().Load([]Rule{rule}); err == nil {
+			t.Errorf("%s: Load() error = nil, want the rule refused", name)
+		}
+	}
+}

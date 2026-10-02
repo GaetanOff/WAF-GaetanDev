@@ -835,8 +835,10 @@ func (c *Config) Validate() error {
 			fields = append(fields, "integrity.max_query_length must be >= 1")
 		}
 	}
-	if c.Behavioral.Enabled && c.Behavioral.MaxRecords < 1 {
-		fields = append(fields, "behavioral.max_records must be >= 1")
+	// Sous minBehavioralRecords pages, aucun score n'est calculé (FR-12) :
+	// 1 à 4 étaient acceptés et rendaient l'analyse inerte.
+	if c.Behavioral.Enabled && c.Behavioral.MaxRecords < minBehavioralRecords {
+		fields = append(fields, fmt.Sprintf("behavioral.max_records must be >= %d", minBehavioralRecords))
 	}
 	if c.ThreatIntel.Enabled {
 		validateDuration(&fields, "threat_intel.cache_ttl", c.ThreatIntel.CacheTTL)
@@ -882,6 +884,10 @@ func (c *Config) Validate() error {
 			fields = append(fields, "alerting.webhooks must not be empty when enabled")
 		}
 		for i, webhook := range c.Alerting.Webhooks {
+			// Un type inconnu était accepté puis envoyé au format générique.
+			if webhook.Type != "" {
+				validateEnum(&fields, fmt.Sprintf("alerting.webhooks[%d].type", i), webhook.Type, "generic", "slack", "discord")
+			}
 			name := fmt.Sprintf("alerting.webhooks[%d].url", i)
 			if strings.TrimSpace(webhook.URL) == "" {
 				fields = append(fields, fmt.Sprintf("%s is required; set %s", name, fmt.Sprintf(envWebhookURLFormat, i)))
@@ -1186,6 +1192,9 @@ func validateRiskEngine(fields *[]string, cfg RiskEngine) {
 		*fields = append(*fields, "risk_engine.tiers must be strictly increasing")
 	}
 	validateRange(fields, "risk_engine.family_corroboration_threshold", cfg.FamilyCorroborationThreshold, 0, 100)
+	// Crédits de preuve humaine (FR-37) : des contributions négatives.
+	validateRange(fields, "risk_engine.human_credit.challenge_passed", cfg.HumanCredit.ChallengePassed, -100, 0)
+	validateRange(fields, "risk_engine.human_credit.stable_fingerprint", cfg.HumanCredit.StableFingerprint, -100, 0)
 	allowedWeights := map[string]bool{
 		"reputation":   true,
 		"behavioral":   true,
@@ -1268,6 +1277,10 @@ func validateDuration(fields *[]string, name, value string) {
 		*fields = append(*fields, name+" must be a valid Go duration")
 	}
 }
+
+// minBehavioralRecords est le nombre de pages sous lequel l'analyse
+// comportementale ne calcule aucun score (internal/behavioral).
+const minBehavioralRecords = 5
 
 // maxPowDifficulty borne la difficulté du PoW, statique comme adaptative : à
 // 2^24 hachages, un mobile met déjà plusieurs dizaines de secondes (FR-14).

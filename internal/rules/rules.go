@@ -139,6 +139,9 @@ func (rs *RuleSet) Load(rules []Rule) error {
 		if !rule.Enabled {
 			continue
 		}
+		if err := validateShape(rule); err != nil {
+			return err
+		}
 		if err := validateActions(rule.Actions); err != nil {
 			return fmt.Errorf("rule %q: %w", rule.Name, err)
 		}
@@ -175,6 +178,25 @@ func (rs *RuleSet) LoadFile(path string) error {
 		return fmt.Errorf("parse rules yaml: %w", err)
 	}
 	return rs.Load(doc.Rules)
+}
+
+// validateShape refuse une règle sans nom ou sans condition, et une condition
+// header ou query_param sans nom (rule.schema.json) : une règle sans
+// condition ne matchait jamais, en silence, et une condition header sans nom
+// lisait l'en-tête vide.
+func validateShape(rule Rule) error {
+	if strings.TrimSpace(rule.Name) == "" {
+		return errors.New("rule without a name")
+	}
+	if len(rule.Conditions) == 0 {
+		return fmt.Errorf("rule %q: at least one condition is required", rule.Name)
+	}
+	for _, condition := range rule.Conditions {
+		if (condition.Field == "header" || condition.Field == "query_param") && condition.Name == "" {
+			return fmt.Errorf("rule %q: a %s condition requires a name", rule.Name, condition.Field)
+		}
+	}
+	return nil
 }
 
 func validateActions(actions []Action) error {

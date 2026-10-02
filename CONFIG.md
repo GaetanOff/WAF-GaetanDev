@@ -425,8 +425,8 @@ Récompense les visiteurs qui prouvent leur nature humaine, en réduisant leur s
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
-| `challenge_passed` | int | `-40` | Réduction du score de risque quand le challenge JS est réussi (valeur négative). |
-| `stable_fingerprint` | int | `-15` | Réduction du score si le fingerprint navigateur est identique entre les sessions. |
+| `challenge_passed` | int [-100–0] | `-40` | Réduction du score de risque quand le challenge JS est réussi (valeur négative). |
+| `stable_fingerprint` | int [-100–0] | `-15` | Réduction du score si le fingerprint navigateur est identique entre les sessions. |
 | `sticky_trust_ttl` | durée | `"30m"` | Durée pendant laquelle le crédit humain est maintenu sans nouvelle preuve. |
 
 ### `risk_engine.verified_bots` — Bots légitimes vérifiés
@@ -476,7 +476,7 @@ Analyse les N dernières requêtes d'un visiteur pour détecter des patterns ano
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `true` | Active l'analyse comportementale. |
-| `max_records` | int | `50` | Nombre de requêtes conservées par visiteur pour l'analyse. Plus la valeur est haute, plus la détection est précise mais plus la mémoire consommée est importante. |
+| `max_records` | int [≥ 5] | `50` | Nombre de requêtes conservées par visiteur pour l'analyse. Plus la valeur est haute, plus la détection est précise mais plus la mémoire consommée est importante. Sous 5, aucun score n'est calculé : la valeur est refusée au démarrage. |
 
 ---
 
@@ -830,7 +830,7 @@ Envoie des notifications vers Slack, Discord ou tout endpoint HTTP générique l
 | `enabled` | bool | `false` | Active les alertes webhook. **Opt-in.** |
 | `cooldown` | durée | `"5m"` | Délai minimum entre deux alertes identiques (même trigger + même domaine). Évite le flood de notifications. Le domaine est borné à `domains[]` : tout Host non déclaré partage la clé `_undeclared`, pour qu'une rotation du Host ne multiplie pas les alertes. Les transitions du mode sous attaque n'y sont pas soumises. |
 | `max_retries` | int | `3` | Nombre de tentatives en cas d'échec d'envoi du webhook. |
-| `webhooks[].type` | string | — | Type de webhook : `"slack"`, `"discord"`, ou `"generic"` (POST JSON brut). |
+| `webhooks[].type` | string | `"generic"` | Type de webhook : `"slack"`, `"discord"`, ou `"generic"` (POST JSON brut, valeur par défaut). Une autre valeur est refusée au démarrage. |
 | `webhooks[].url` | string | — | URL absolue du webhook, requise quand `enabled`. Elle porte le jeton d'accès : **préférer `WAF_ALERTING_WEBHOOKS_<i>_URL`**. |
 
 ---
