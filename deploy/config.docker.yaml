@@ -50,8 +50,8 @@ challenge:
   cookie_ttl: "24h"
   cookie_name: "waf_session"
   pow_difficulty: 16
-  min_elapsed_ms: 500
-  max_elapsed_ms: 10000
+  min_elapsed_ms: 0        # plancher désactivé, comme le défaut (FR-06)
+  max_elapsed_ms: 60000
 
 admin:
   enabled: true

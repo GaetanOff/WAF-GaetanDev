@@ -2,6 +2,13 @@
 
 This guide covers how to apply the Bootstrap IA SDD ruleset to a new or existing project.
 
+> Generic guide of the SDD bootstrap, kept for reference. **This repository is a
+> Go project**: the Node.js examples (npm, vitest, cucumber) do not apply. Its
+> gates are the `make` targets (`make gates`: spec-lint, typecheck, lint,
+> conformance, behavior, security — see `README.md` and `CLAUDE.md`), and the
+> Gherkin scenarios are implemented as Go tests (no Gherkin runner). See
+> « For Go Projects » below.
+
 ---
 
 ## Requirements

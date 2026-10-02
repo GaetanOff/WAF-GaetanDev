@@ -8,6 +8,12 @@
 
 ## Quick Start — Choose Your Mode
 
+> The `templates/` kit referenced below belongs to the SDD bootstrap
+> (<https://github.com/GaetanOff/bootstrap-ia-sdd>) and is **not vendored in
+> this repository**. Here, use the existing documents of `specs/` as models
+> (requirements, features, schemas, ADRs) and the `make` gates of the Quality
+> Gates table.
+
 ```
 New project (no existing code)?
   → Use Greenfield mode: templates/workflows/greenfield.md
