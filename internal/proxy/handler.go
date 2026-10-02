@@ -54,11 +54,12 @@ func (h *Handler) WithPool(pool *upstream.Pool, tlsVerify bool, maxIdleConns int
 		proxy := newReverseProxy(target, tlsVerify, maxIdleConns, timeout, preserveHost)
 		member := u
 		proxy.ErrorHandler = func(w http.ResponseWriter, r *http.Request, err error) {
-			// Failover : exclure dès l'échec de l'upstream. Un client parti
-			// (context.Canceled) n'en est pas un : une seule annulation retirait
-			// le membre, et un pool d'un membre répondait « no healthy upstream »
-			// à tous jusqu'aux sondes suivantes.
-			if !isClientCancellation(r, err) {
+			// Failover : exclure dès l'échec de connexion à l'upstream. Un délai
+			// de réponse ou une coupure après connexion n'en est pas un, ni un
+			// client parti (context.Canceled) : une seule requête lente
+			// retirait le membre, et un pool d'un membre répondait « no healthy
+			// upstream » à tous jusqu'aux sondes suivantes (FR-25).
+			if isConnectFailure(err) && !isClientCancellation(r, err) {
 				member.SetHealthy(false)
 			}
 			logUpstreamError(r, target, err)
@@ -307,6 +308,14 @@ func logUpstreamError(r *http.Request, target *url.URL, err error) {
 		return
 	}
 	slog.Warn("upstream request failed", "upstream", target.Host, "method", r.Method, "path", r.URL.Path, "error", err)
+}
+
+// isConnectFailure : l'upstream n'a pas pu être joint (connexion refusée,
+// hôte injoignable, délai de connexion). Le transport rend alors une
+// *net.OpError d'opération « dial ».
+func isConnectFailure(err error) bool {
+	var opErr *net.OpError
+	return errors.As(err, &opErr) && opErr.Op == "dial"
 }
 
 // isClientCancellation indique que l'échec vient du départ du client, pas de
