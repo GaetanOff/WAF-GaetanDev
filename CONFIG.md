@@ -101,6 +101,15 @@ pas au certificat fait **échouer le démarrage** du WAF (on ne sert jamais un
 vhost cassé). La métrique `waf_tls_cert_expiry_seconds{domain}` expose la date
 d'expiration (timestamp Unix) de chaque certificat chargé.
 
+**Renouvellement** : les fichiers de certificats sont réexaminés chaque minute.
+Une paire modifiée sur disque (renouvellement certbot, liens symboliques de
+`live/` suivis) est rechargée et servie aux handshakes suivants, sans
+redémarrage ; `waf_tls_cert_expiry_seconds` suit le nouveau certificat. Une
+paire invalide au rechargement (écriture en cours, clé non concordante) est
+ignorée avec un avertissement : le certificat en service est conservé et la
+paire est retentée à la minute suivante. `SIGHUP` ne déclenche pas de
+rechargement.
+
 ---
 
 ## `upstream` — Upstream par défaut

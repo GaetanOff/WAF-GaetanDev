@@ -673,11 +673,26 @@ func (a *app) configureTLS(server *http.Server) (*acme.Manager, *tlsmgr.Manager,
 		tlsManager = manager
 		server.Addr = a.cfg.Server.TLS.Listen
 		server.TLSConfig = tlsManager.TLSConfig()
-		for domain, notAfter := range tlsManager.Expiries() {
-			a.metrics.SetTLSCertExpiry(domain, notAfter)
-		}
+		a.observeCertExpiries(tlsManager.Expiries())
+		// Un certificat renouvelé sur disque (certbot) est rechargé sans
+		// redémarrage (FR-40) ; une paire invalide garde celle en service.
+		watchCtx, watchCancel := context.WithCancel(context.Background())
+		a.stop.add(watchCancel)
+		tlsManager.Watch(watchCtx, tlsmgr.ReloadInterval, func(expiries map[string]time.Time) {
+			a.observeCertExpiries(expiries)
+			slog.Info("tls certificates reloaded")
+		}, func(err error) {
+			slog.Warn("tls certificate reload failed, keeping the certificate in service", "error", err)
+		})
 	}
 	return acmeManager, tlsManager, nil
+}
+
+// observeCertExpiries publie waf_tls_cert_expiry_seconds par domaine.
+func (a *app) observeCertExpiries(expiries map[string]time.Time) {
+	for domain, notAfter := range expiries {
+		a.metrics.SetTLSCertExpiry(domain, notAfter)
+	}
 }
 
 // newSideServer construit un serveur annexe (challenge ACME HTTP-01,
