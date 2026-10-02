@@ -17,58 +17,28 @@ type DecisionTiers struct {
 	Block     int
 }
 
+// DefaultDecisionConfig rend la décision du profil, sans surcharge.
 func DefaultDecisionConfig(profile Profile) DecisionConfig {
-	cfg := DecisionConfig{
-		Profile:                  profile,
-		BlockMinConfidence:       0.6,
-		MinCorroboratingFamilies: 2,
-		Tiers: DecisionTiers{
-			Observe:   25,
-			Throttle:  45,
-			Challenge: 65,
-			Tarpit:    80,
-			Block:     90,
-		},
-	}
-
-	switch profile {
-	case ProfileLenient:
-		cfg.BlockMinConfidence = 0.75
-		cfg.Tiers = DecisionTiers{
-			Observe:   35,
-			Throttle:  55,
-			Challenge: 75,
-			Tarpit:    88,
-			Block:     96,
-		}
-	case ProfileStrict:
-		cfg.BlockMinConfidence = 0.5
-		cfg.Tiers = DecisionTiers{
-			Observe:   15,
-			Throttle:  35,
-			Challenge: 55,
-			Tarpit:    72,
-			Block:     85,
-		}
-	default:
-		cfg.Profile = ProfileBalanced
-	}
-
-	return cfg
+	return DecisionConfigFromConfig(config.RiskEngine{Profile: string(profile)})
 }
 
+// DecisionConfigFromConfig rend la décision configurée : paliers et seuils
+// absents prennent la valeur du profil (config.RiskEngine.Resolved). Ils
+// écrasaient le profil, que Default() pré-remplissait avec balanced.
 func DecisionConfigFromConfig(cfg config.RiskEngine) DecisionConfig {
-	decision := DefaultDecisionConfig(Profile(cfg.Profile))
-	decision.BlockMinConfidence = cfg.BlockMinConfidence
-	decision.MinCorroboratingFamilies = cfg.MinCorroboratingFamilies
-	decision.Tiers = DecisionTiers{
-		Observe:   cfg.Tiers.Observe,
-		Throttle:  cfg.Tiers.Throttle,
-		Challenge: cfg.Tiers.Challenge,
-		Tarpit:    cfg.Tiers.Tarpit,
-		Block:     cfg.Tiers.Block,
+	resolved := cfg.Resolved()
+	return DecisionConfig{
+		Profile:                  knownProfile(resolved.Profile),
+		BlockMinConfidence:       resolved.BlockMinConfidence,
+		MinCorroboratingFamilies: resolved.MinCorroboratingFamilies,
+		Tiers: DecisionTiers{
+			Observe:   resolved.Tiers.Observe,
+			Throttle:  resolved.Tiers.Throttle,
+			Challenge: resolved.Tiers.Challenge,
+			Tarpit:    resolved.Tiers.Tarpit,
+			Block:     resolved.Tiers.Block,
+		},
 	}
-	return decision
 }
 
 func Decide(score int, confidence float64, cfg DecisionConfig) Decision {

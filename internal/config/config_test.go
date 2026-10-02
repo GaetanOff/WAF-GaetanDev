@@ -225,7 +225,7 @@ upstream:
 risk_engine:
   profile: "aggressive"
   block_min_confidence: 1.2
-  min_corroborating_families: 0
+  min_corroborating_families: -1
   tiers:
     observe: 25
     throttle: 45
@@ -753,5 +753,57 @@ metrics:
 	short.Metrics.AuthToken = "court"
 	if err := short.Validate(); err == nil || !strings.Contains(err.Error(), "metrics.auth_token") {
 		t.Fatalf("Validate() error = %v, want it to reject a short metrics.auth_token", err)
+	}
+}
+
+// FR-33 : le profil fournit les paliers, poids et seuils absents ; une valeur
+// explicite prime. Default() les pré-remplissait avec balanced, et le profil
+// était inerte.
+func TestLoadResolvesRiskProfile(t *testing.T) {
+	t.Setenv(envChallengeSecretKey, testSecret)
+	t.Setenv(envAdminToken, testSecret)
+	path := writeConfig(t, `
+version: "1.0"
+server:
+  listen: ":8080"
+upstream:
+  address: "http://example.test"
+risk_engine:
+  profile: "strict"
+  fusion: "available"
+  tiers:
+    block: 95
+  weights:
+    geo: 0
+`)
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load() error = %v", err)
+	}
+	risk := cfg.RiskEngine
+	if risk.Tiers != (RiskTiers{Observe: 15, Throttle: 35, Challenge: 55, Tarpit: 72, Block: 95}) {
+		t.Fatalf("tiers = %+v, want strict with block 95", risk.Tiers)
+	}
+	if risk.BlockMinConfidence != 0.5 || risk.FamilyCorroborationThreshold != 45 || risk.MinCorroboratingFamilies != 2 {
+		t.Fatalf("thresholds = %v / %d / %d, want the strict profile", risk.BlockMinConfidence, risk.FamilyCorroborationThreshold, risk.MinCorroboratingFamilies)
+	}
+	if risk.Weights["reputation"] != 1.8 || risk.Weights["geo"] != 0 {
+		t.Fatalf("weights = %v, want strict reputation 1.8 and the explicit geo 0", risk.Weights)
+	}
+	if risk.Fusion != FusionAvailable {
+		t.Fatalf("fusion = %q, want available", risk.Fusion)
+	}
+}
+
+func TestValidateRejectsUnknownFusion(t *testing.T) {
+	cfg := Default()
+	cfg.Version = "1.0"
+	cfg.Server.Listen = ":8080"
+	cfg.Upstream.Address = "http://example.test"
+	cfg.Challenge.SecretKey = testSecret
+	cfg.Admin.Token = testSecret
+	cfg.RiskEngine.Fusion = "normalized"
+	if err := cfg.Validate(); err == nil || !strings.Contains(err.Error(), "risk_engine.fusion") {
+		t.Fatalf("Validate() error = %v, want risk_engine.fusion", err)
 	}
 }

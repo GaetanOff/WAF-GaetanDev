@@ -49,9 +49,11 @@ func NewMiddleware(store storage.Store, scores *trust.ScoreManager, cfg config.C
 	if err != nil {
 		return nil, err
 	}
+	fusion := FusionConfigFromConfig(cfg.RiskEngine)
+	fusion.InitialTrustScore = cfg.Trust.InitialScore
 	return &Middleware{
 		scores:   scores,
-		fusion:   FusionConfigFromConfig(cfg.RiskEngine),
+		fusion:   fusion,
 		decision: DecisionConfigFromConfig(cfg.RiskEngine),
 		humans:   NewHumanTrustManager(store, humanConfig),
 		bots:     NewBotVerifier(botConfig, nil),
@@ -172,7 +174,7 @@ func (m *Middleware) serveAsset(w http.ResponseWriter, r *http.Request, next htt
 func (m *Middleware) assess(r *http.Request) RiskAssessment {
 	ip := cloudflare.RealIP(r)
 	visitor := m.scores.Get(ip, r.Host)
-	contributions := CollectContributions(signalProvidersFromRequest(r, visitor.Score))
+	contributions := CollectContributions(signalProvidersFromRequest(r, visitor.Score, m.fusion))
 	assessment := Fuse(contributions, m.fusion)
 	assessment = applyDeterministicTrigger(assessment, r.Header.Get(headerDeterministicTrigger))
 	assessment = ApplyDecision(assessment, m.decision)
@@ -238,7 +240,7 @@ var familyHeaders = func() map[SignalFamily]string {
 	return headers
 }()
 
-func signalProvidersFromRequest(r *http.Request, trustScore int) []SignalProvider {
+func signalProvidersFromRequest(r *http.Request, trustScore int, fusion FusionConfig) []SignalProvider {
 	providers := []SignalProvider{
 		staticProvider{
 			family: FamilyReputation,
@@ -246,7 +248,7 @@ func signalProvidersFromRequest(r *http.Request, trustScore int) []SignalProvide
 				Family:       FamilyReputation,
 				Signal:       "trust_score",
 				Value:        trustScore,
-				Contribution: 100 - trustScore,
+				Contribution: reputationContribution(trustScore, fusion),
 			},
 		},
 	}

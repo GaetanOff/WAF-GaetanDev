@@ -190,6 +190,7 @@ type Trust struct {
 type RiskEngine struct {
 	Enabled                      bool               `yaml:"enabled"`
 	Profile                      string             `yaml:"profile"`
+	Fusion                       string             `yaml:"fusion"`
 	ShadowMode                   bool               `yaml:"shadow_mode"`
 	BlockMinConfidence           float64            `yaml:"block_min_confidence"`
 	MinCorroboratingFamilies     int                `yaml:"min_corroborating_families"`
@@ -493,6 +494,7 @@ func Load(path string) (*Config, error) {
 	}
 
 	cfg.applyEnvOverrides()
+	cfg.RiskEngine = cfg.RiskEngine.Resolved()
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
@@ -574,27 +576,13 @@ func Default() Config {
 			// sans les appliquer, le temps de la calibration (NFR-15 : >= 24 h de
 			// shadow avant enforcement). Passer à false après observation des
 			// métriques de faux positifs.
-			ShadowMode:               true,
-			BlockMinConfidence:       0.6,
-			MinCorroboratingFamilies: 2,
-			Tiers: RiskTiers{
-				Observe:   25,
-				Throttle:  45,
-				Challenge: 65,
-				Tarpit:    80,
-				Block:     90,
-			},
-			Weights: map[string]float64{
-				"reputation":   1.0,
-				"behavioral":   1.0,
-				"tls":          0.8,
-				"fingerprint":  1.0,
-				"integrity":    1.2,
-				"rate":         0.6,
-				"geo":          0.5,
-				"human_credit": 1.0,
-			},
-			FamilyCorroborationThreshold: 50,
+			ShadowMode: true,
+			// Fusion historique : la normalisation sur les familles portant une
+			// évidence (available) rend les heuristiques effectives, à activer
+			// après calibration en shadow (FR-33).
+			Fusion: FusionDiluted,
+			// Paliers, poids et seuils absents : ceux du profil (Resolved). Les
+			// pré-remplir ici avec les valeurs balanced écrasait le profil.
 			HumanCredit: HumanCredit{
 				ChallengePassed:   -40,
 				StableFingerprint: -15,
@@ -1174,6 +1162,8 @@ func validateUnderAttack(fields *[]string, cfg UnderAttack) {
 
 func validateRiskEngine(fields *[]string, cfg RiskEngine) {
 	validateEnum(fields, "risk_engine.profile", cfg.Profile, "lenient", "balanced", "strict")
+	validateEnum(fields, "risk_engine.fusion", cfg.Fusion, FusionDiluted, FusionAvailable)
+	cfg = cfg.Resolved()
 	validateFloatRange(fields, "risk_engine.block_min_confidence", cfg.BlockMinConfidence, 0, 1)
 	if cfg.MinCorroboratingFamilies < 1 {
 		*fields = append(*fields, "risk_engine.min_corroborating_families must be >= 1")

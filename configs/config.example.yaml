@@ -103,25 +103,30 @@ trust:
 risk_engine:
   enabled: true
   profile: "balanced"        # lenient | balanced | strict
+  # diluted (historique : seuls les déclencheurs déterministes bloquent) |
+  # available (heuristiques effectives : à activer après calibration en shadow)
+  fusion: "diluted"
   shadow_mode: true          # calibration : calcule/journalise sans appliquer (NFR-15, >= 24h avant enforcement)
-  block_min_confidence: 0.6
-  min_corroborating_families: 2
-  tiers:
-    observe: 25
-    throttle: 45
-    challenge: 65
-    tarpit: 80
-    block: 90
-  weights:
-    reputation: 1.0
-    behavioral: 1.0
-    tls: 0.8
-    fingerprint: 1.0
-    integrity: 1.2
-    rate: 0.6
-    geo: 0.5
-    human_credit: 1.0
-  family_corroboration_threshold: 50
+  # Paliers, poids et seuils : ceux du profil. Une clé décommentée prime sur le
+  # profil (poids par poids pour weights) ; les fixer tous neutralise le profil.
+  # block_min_confidence: 0.6
+  # min_corroborating_families: 2
+  # tiers:
+  #   observe: 25
+  #   throttle: 45
+  #   challenge: 65
+  #   tarpit: 80
+  #   block: 90
+  # weights:
+  #   reputation: 1.0
+  #   behavioral: 1.0
+  #   tls: 0.8
+  #   fingerprint: 1.0
+  #   integrity: 1.2
+  #   rate: 0.6
+  #   geo: 0.5
+  #   human_credit: 1.0
+  # family_corroboration_threshold: 50
   human_credit:
     challenge_passed: -40
     stable_fingerprint: -15

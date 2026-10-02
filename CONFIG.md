@@ -322,12 +322,13 @@ Chaque visiteur (identifié par le hash de son IP) se voit attribuer un score de
 | Événement | Variation |
 |---|---|
 | Challenge JS réussi | +25 |
-| Navigation normale | +1 par requête |
 | Challenge JS échoué | -20 |
 | Rate limit atteint | -10 |
 | User-agent suspect | -15 |
 | Pattern bot détecté | -30 |
-| Honeypot déclenché | → 0 immédiat |
+| Honeypot déclenché | → 0 immédiat, puis ban pendant `score_ttl` |
+
+La « navigation normale (+1 par requête) » n'existe pas : la confiance croîtrait avec le volume de requêtes, qu'un bot maîtrise.
 
 ---
 
@@ -337,25 +338,11 @@ Chaque visiteur (identifié par le hash de son IP) se voit attribuer un score de
 risk_engine:
   enabled: true
   profile: "balanced"
+  fusion: "diluted"
   shadow_mode: true
-  block_min_confidence: 0.6
-  min_corroborating_families: 2
-  tiers:
-    observe: 25
-    throttle: 45
-    challenge: 65
-    tarpit: 80
-    block: 90
-  weights:
-    reputation: 1.0
-    behavioral: 1.0
-    tls: 0.8
-    fingerprint: 1.0
-    integrity: 1.2
-    rate: 0.6
-    geo: 0.5
-    human_credit: 1.0
-  family_corroboration_threshold: 50
+  # Absents : valeurs du profil. Une clé explicite prime (poids par poids).
+  # tiers: { block: 95 }
+  # weights: { geo: 0 }
   human_credit:
     challenge_passed: -40
     stable_fingerprint: -15
@@ -370,12 +357,27 @@ risk_engine:
 
 Le moteur de risque fusionne plusieurs familles de signaux pour calculer un **score de risque composite** [0–100] et décider d'une action.
 
+`tiers`, `weights`, `block_min_confidence`, `min_corroborating_families` et `family_corroboration_threshold` prennent la valeur du **profil** quand ils sont absents (ou à 0) ; une valeur explicite prime, poids par poids pour `weights`. Les défauts des tableaux ci-dessous sont ceux du profil `balanced`. Ces clés étaient auparavant pré-remplies avec les valeurs `balanced` et écrasaient le profil : `profile: strict` ou `lenient` était sans effet. Une configuration qui les fixe toutes neutralise encore le profil.
+
+| Clé | lenient | balanced | strict |
+|---|---|---|---|
+| `tiers` (observe/throttle/challenge/tarpit/block) | 35/55/75/88/96 | 25/45/65/80/90 | 15/35/55/72/85 |
+| `block_min_confidence` | 0.75 | 0.6 | 0.5 |
+| `family_corroboration_threshold` | 60 | 50 | 45 |
+| `weights` reputation/behavioral/tls/fingerprint/integrity/rate/geo/human_credit | 0.6/0.7/0.5/0.7/0.9/0.3/0.2/3.0 | 1.0/1.0/0.8/1.0/1.2/0.6/0.5/1.0 | 1.8/1.5/1.2/1.5/1.6/1.0/0.8/0.5 |
+
+**Mode de fusion** (`fusion`) :
+
+- `diluted` (défaut, historique) : la somme pondérée est divisée par la somme de **tous** les poids. Sept familles à 100 donnent 86, un scanner réaliste (réputation 60, intégrité 100, rate 80) 32 : un `BLOCK` heuristique est inatteignable avec les paliers par défaut, seuls les déclencheurs déterministes (blacklist, honeypot, JA3, threat intel critique, circuit-breaker) bloquent en pratique.
+- `available` : la somme est divisée par la somme des poids des seules familles qui portent une évidence, et la réputation est neutre au score initial (`(initial_score - score) × 100 / initial_score`) — un nouveau visiteur obtient 0, ce même scanner (trust 30) 74 (`CHALLENGE`). Les heuristiques deviennent effectives : « assets absents » se déclenche dès qu'un CDN met les assets en cache et « intervalles réguliers » touche tout polling d'API. **Activer après au moins 24 h en `shadow_mode: true`**, en observant `waf_decisions_total{tier}`.
+
 ### Options principales
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `true` | Active le moteur de risque. Si désactivé, seul le système de confiance `trust` est utilisé. |
-| `profile` | string | `"balanced"` | Profil de sensibilité global. `lenient` : moins de faux positifs, moins de protection. `balanced` : équilibre recommandé. `strict` : plus agressif, risque accru de faux positifs. |
+| `profile` | string | `"balanced"` | Profil de sensibilité global. `lenient` : moins de faux positifs, moins de protection. `balanced` : équilibre recommandé. `strict` : plus agressif, risque accru de faux positifs. Fournit les clés absentes ci-dessous. |
+| `fusion` | string | `"diluted"` | Mode de fusion : `diluted` ou `available` (voir ci-dessus). |
 | `shadow_mode` | bool | `true` | **Mode calibration.** Le moteur calcule et journalise ses décisions sans les appliquer. Permet d'observer les faux positifs avant d'activer le blocage réel. **Passer à `false` après au moins 24h d'observation.** Il s'applique aussi aux blocages heuristiques de l'anti-bot, mais seulement moteur actif : avec `enabled: false`, il est sans effet. |
 | `block_min_confidence` | float [0–1] | `0.6` | Niveau de confiance minimum (score interne) pour qu'un blocage soit effectif. Évite les blocages sur des signaux trop faibles. |
 | `min_corroborating_families` | int | `2` | Nombre minimum de familles de signaux différentes qui doivent dépasser le seuil pour déclencher une action. Évite de bloquer sur un seul signal isolé. |
