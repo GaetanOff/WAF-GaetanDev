@@ -343,7 +343,14 @@
         "profile": {
           "type": "string",
           "enum": ["lenient", "balanced", "strict"],
-          "default": "balanced"
+          "default": "balanced",
+          "description": "Préréglage de tiers, weights, block_min_confidence, min_corroborating_families et family_corroboration_threshold : chacune de ces clés absente (ou à 0) prend la valeur du profil (FR-33)"
+        },
+        "fusion": {
+          "type": "string",
+          "enum": ["diluted", "available"],
+          "default": "diluted",
+          "description": "Mode de fusion (FR-33) : diluted divise par la somme de tous les poids (historique, BLOCK heuristique inatteignable) ; available divise par la somme des poids des familles portant une évidence, réputation neutre au score initial. available rend les heuristiques effectives : à activer après calibration en shadow_mode"
         },
         "shadow_mode": {
           "type": "boolean",
@@ -354,43 +361,45 @@
           "type": "number",
           "minimum": 0,
           "maximum": 1,
-          "default": 0.6
+          "description": "Confiance minimale d'un BLOCK. Absent ou 0 : valeur du profil (balanced 0,6 ; lenient 0,75 ; strict 0,5)"
         },
         "min_corroborating_families": {
           "type": "integer",
           "minimum": 1,
-          "default": 2
+          "description": "Familles corroborantes requises pour un BLOCK heuristique. Absent : valeur du profil (2)"
         },
         "tiers": {
           "type": "object",
           "additionalProperties": false,
+          "description": "Bornes de score par palier, strictement croissantes. Une borne absente (ou à 0) prend la valeur du profil (balanced 25/45/65/80/90 ; lenient 35/55/75/88/96 ; strict 15/35/55/72/85)",
           "properties": {
-            "observe": { "type": "integer", "minimum": 0, "maximum": 100, "default": 25 },
-            "throttle": { "type": "integer", "minimum": 0, "maximum": 100, "default": 45 },
-            "challenge": { "type": "integer", "minimum": 0, "maximum": 100, "default": 65 },
-            "tarpit": { "type": "integer", "minimum": 0, "maximum": 100, "default": 80 },
-            "block": { "type": "integer", "minimum": 0, "maximum": 100, "default": 90 }
+            "observe": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "throttle": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "challenge": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "tarpit": { "type": "integer", "minimum": 0, "maximum": 100 },
+            "block": { "type": "integer", "minimum": 0, "maximum": 100 }
           }
         },
         "weights": {
           "type": "object",
           "additionalProperties": false,
+          "description": "Poids de fusion par famille (0 = famille ignorée). Une famille absente prend le poids du profil (balanced : reputation 1,0, behavioral 1,0, tls 0,8, fingerprint 1,0, integrity 1,2, rate 0,6, geo 0,5, human_credit 1,0)",
           "properties": {
-            "reputation": { "type": "number", "minimum": 0, "default": 1.0 },
-            "behavioral": { "type": "number", "minimum": 0, "default": 1.0 },
-            "tls": { "type": "number", "minimum": 0, "default": 0.8 },
-            "fingerprint": { "type": "number", "minimum": 0, "default": 1.0 },
-            "integrity": { "type": "number", "minimum": 0, "default": 1.2 },
-            "rate": { "type": "number", "minimum": 0, "default": 0.6 },
-            "geo": { "type": "number", "minimum": 0, "default": 0.5 },
-            "human_credit": { "type": "number", "minimum": 0, "default": 1.0 }
+            "reputation": { "type": "number", "minimum": 0 },
+            "behavioral": { "type": "number", "minimum": 0 },
+            "tls": { "type": "number", "minimum": 0 },
+            "fingerprint": { "type": "number", "minimum": 0 },
+            "integrity": { "type": "number", "minimum": 0 },
+            "rate": { "type": "number", "minimum": 0 },
+            "geo": { "type": "number", "minimum": 0 },
+            "human_credit": { "type": "number", "minimum": 0 }
           }
         },
         "family_corroboration_threshold": {
           "type": "integer",
           "minimum": 0,
           "maximum": 100,
-          "default": 50
+          "description": "Contribution à partir de laquelle une famille corrobore. Absent ou 0 : valeur du profil (balanced 50 ; lenient 60 ; strict 45)"
         },
         "human_credit": {
           "type": "object",
