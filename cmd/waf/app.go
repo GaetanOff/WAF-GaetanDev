@@ -521,7 +521,7 @@ func (a *app) buildAlerting() error {
 	for _, wh := range cfg.Webhooks {
 		sinks = append(sinks, alert.Sink{Type: wh.Type, URL: wh.URL})
 	}
-	notifier := alert.NewNotifier(sinks, cooldown, cfg.MaxRetries, nil, alert.WithObserver(a.metrics))
+	notifier := alert.NewNotifier(sinks, cooldown, cfg.MaxRetries, nil, alert.WithObserver(a.metrics), alert.WithDomains(domainHosts(a.cfg.Domains)))
 	a.stop.add(notifier.Close)
 	a.metrics.WithAlertsPending(notifier.Pending)
 	a.securityLogger.Alerter = notifier

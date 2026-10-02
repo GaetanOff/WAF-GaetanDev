@@ -814,12 +814,12 @@ alerting:
     - type: "discord"      # url fournie par WAF_ALERTING_WEBHOOKS_1_URL
 ```
 
-Envoie des notifications vers Slack, Discord ou tout endpoint HTTP générique lors d'événements de sécurité critiques (pression globale critique, IP bloquée, circuit-breaker, honeypot, etc.).
+Envoie des notifications vers Slack, Discord ou tout endpoint HTTP générique lors d'événements de sécurité : requête bloquée (`block`), circuit-breaker ouvert, honeypot, entrée et sortie du mode sous attaque. Les champs des messages Slack et Discord sont tronqués aux limites de ces plateformes (valeur de champ : 1 024 caractères).
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `false` | Active les alertes webhook. **Opt-in.** |
-| `cooldown` | durée | `"5m"` | Délai minimum entre deux alertes identiques (même trigger + même domaine). Évite le flood de notifications. |
+| `cooldown` | durée | `"5m"` | Délai minimum entre deux alertes identiques (même trigger + même domaine). Évite le flood de notifications. Le domaine est borné à `domains[]` : tout Host non déclaré partage la clé `_undeclared`, pour qu'une rotation du Host ne multiplie pas les alertes. Les transitions du mode sous attaque n'y sont pas soumises. |
 | `max_retries` | int | `3` | Nombre de tentatives en cas d'échec d'envoi du webhook. |
 | `webhooks[].type` | string | — | Type de webhook : `"slack"`, `"discord"`, ou `"generic"` (POST JSON brut). |
 | `webhooks[].url` | string | — | URL absolue du webhook, requise quand `enabled`. Elle porte le jeton d'accès : **préférer `WAF_ALERTING_WEBHOOKS_<i>_URL`**. |
