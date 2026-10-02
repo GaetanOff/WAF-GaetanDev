@@ -1054,6 +1054,8 @@ User-agents de bots légitimes **exemptés du challenge JS proactif** (un crawle
 
 L'exemption consulte `risk_engine.verified_bots` : un crawler démasqué (reverse-DNS non conforme) n'en bénéficie pas, et **en mode sous attaque** (`antiddos.under_attack`) seul un crawler **vérifié** par reverse-DNS en bénéficie — un User-Agent non vérifiable (facebookexternalhit, LinkedInBot, Twitterbot…) reçoit alors le challenge.
 
+Défaut : `Googlebot`, `Bingbot`, `Slurp`, `DuckDuckBot`, `Baiduspider`, `facebookexternalhit`, `LinkedInBot`, `Twitterbot`, `Applebot`. Chaque crawler de `risk_engine.verified_bots.crawlers` doit y figurer : un crawler vérifiable absent de cette liste est challengé sous attaque, même vérifié. Une liste explicite remplace la liste par défaut.
+
 Ce n'est **pas** un bypass : un `User-Agent` se forge. La blacklist, l'anti-DDoS, le rate limiting et le moteur de risque s'appliquent. Un faux crawler démasqué par `risk_engine.verified_bots` (reverse-DNS) voit sa réputation dégradée et reçoit le challenge ou le blocage que décide le moteur ; un crawler vérifié est autorisé (`ALLOW`). Pour un bypass total, utiliser `whitelist` (IP ou CIDR).
 
 ---

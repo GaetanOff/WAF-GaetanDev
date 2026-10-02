@@ -36,6 +36,10 @@ type TokenPayload struct {
 	// durée du challenge, au lieu de croire l'elapsed_ms du client.
 	IssuedAtMS int64 `json:"issued_at_ms"`
 	ExpiresAt  int64 `json:"expires_at"`
+	// Flagged : page servie sur une décision CHALLENGE du moteur de risque ou
+	// du trust score (Enforcer). Sa réussite est un faux positif probable
+	// (FR-38, waf_challenge_pass_after_flag_total).
+	Flagged bool `json:"flagged,omitempty"`
 }
 
 // tokenKeyPurpose et clearanceKeyPurpose séparent les clés du token de
@@ -75,6 +79,16 @@ func (i TokenIssuer) GenerateForRedirect(ip string, domain string, redirectURL s
 // GenerateForRedirectWithDifficulty embarque la difficulté du PoW dans le token
 // signé : la validation utilise cette valeur (anti-rétrogradation, FR-14).
 func (i TokenIssuer) GenerateForRedirectWithDifficulty(ip string, domain string, redirectURL string, difficulty int) (string, error) {
+	return i.generate(ip, domain, redirectURL, difficulty, false)
+}
+
+// GenerateFlagged émet le token d'une page servie sur une décision CHALLENGE
+// (FR-38) : sa réussite est comptée comme faux positif probable.
+func (i TokenIssuer) GenerateFlagged(ip string, domain string, redirectURL string, difficulty int) (string, error) {
+	return i.generate(ip, domain, redirectURL, difficulty, true)
+}
+
+func (i TokenIssuer) generate(ip string, domain string, redirectURL string, difficulty int, flagged bool) (string, error) {
 	now := i.now()
 	payload := TokenPayload{
 		IPHash:      trust.HashIP(ip),
@@ -84,6 +98,7 @@ func (i TokenIssuer) GenerateForRedirectWithDifficulty(ip string, domain string,
 		IssuedAt:    now.Unix(),
 		IssuedAtMS:  now.UnixMilli(),
 		ExpiresAt:   now.Add(i.TTL).Unix(),
+		Flagged:     flagged,
 	}
 
 	rawPayload, err := json.Marshal(payload)

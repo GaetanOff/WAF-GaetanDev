@@ -723,6 +723,9 @@ func Default() Config {
 			"facebookexternalhit",
 			"LinkedInBot",
 			"Twitterbot",
+			// Vérifiable par reverse-DNS (verified_bots.crawlers) : absent
+			// d'ici, il était challengé sous attaque même vérifié (FR-36).
+			"Applebot",
 		},
 		// Aucun chemin qu'un site légitime sert à ses propres utilisateurs :
 		// /wp-admin et /wp-login.php en étaient, et bannissaient (score 0, 403)

@@ -184,3 +184,44 @@ func TestServedChallengePageAnnouncesChallengeAction(t *testing.T) {
 		t.Fatalf("X-WAF-Action = %q, want CHALLENGE", got)
 	}
 }
+
+// pageToken extrait le token de la page de test (« … {{.Token}} {{.Difficulty}} … »).
+func pageToken(t *testing.T, body string) string {
+	t.Helper()
+	fields := strings.Fields(strings.TrimPrefix(body, "Protected by GaetanDev.fr "))
+	if len(fields) == 0 {
+		t.Fatalf("no token in page %q", body)
+	}
+	return fields[0]
+}
+
+// FR-38 : la réussite d'un challenge servi sur une décision CHALLENGE est un
+// faux positif probable ; celle d'un challenge proactif ne l'est pas.
+func TestVerifyMarksPassesAfterAFlag(t *testing.T) {
+	middleware, store := newTestChallengeMiddleware(t)
+	defer store.Close()
+	next := http.HandlerFunc(func(http.ResponseWriter, *http.Request) { t.Fatal("the challenge page must be served") })
+
+	for name, serve := range map[string]func(http.ResponseWriter, *http.Request){
+		"flagged":   middleware.Enforcer(next).ServeHTTP,
+		"proactive": middleware.Handler(next).ServeHTTP,
+	} {
+		page := httptest.NewRecorder()
+		serve(page, enforcerRequest("CHALLENGE", "text/html"))
+		token := pageToken(t, page.Body.String())
+
+		response := httptest.NewRecorder()
+		submission := submissionJSON(token, solvePow(t, token, middleware.staticDifficulty()), 1200)
+		middleware.Handler(next).ServeHTTP(response, verifyRequest(t, "3.3.3.3:1234", submission))
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s: verify status = %d, body %s", name, response.Code, response.Body.String())
+		}
+		want := ""
+		if name == "flagged" {
+			want = "true"
+		}
+		if got := response.Header().Get("X-WAF-Challenge-Pass-After-Flag"); got != want {
+			t.Fatalf("%s: X-WAF-Challenge-Pass-After-Flag = %q, want %q", name, got, want)
+		}
+	}
+}
