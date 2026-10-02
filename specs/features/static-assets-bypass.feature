@@ -1,7 +1,8 @@
 Feature: Bypass des Assets Statiques
   En tant que WAF,
-  Je veux bypasser les middlewares de sécurité pour les ressources statiques
-  Afin de ne pas dégrader les performances et ne jamais challenger pour du CSS, JS, ou images.
+  Je veux dispenser les ressources statiques du challenge proactif et des décisions heuristiques
+  Afin de ne pas dégrader les performances, sans ouvrir de contournement des contrôles déterministes
+  ni de la défense anti-DDoS.
 
   Background:
     Given le WAF est configuré avec les extensions statiques par défaut:
@@ -9,7 +10,7 @@ Feature: Bypass des Assets Statiques
     And les paths statiques: [/static/, /assets/, /public/, /dist/]
     And les paths exacts: [/favicon.ico, /robots.txt, /sitemap.xml]
 
-  Scenario: Requête CSS — bypass total des middlewares de sécurité
+  Scenario: Requête CSS — dispensée du challenge et du trust score
     Given un nouveau visiteur sans cookie (score = 50, sous le challenge threshold)
     When il envoie GET "/styles/main.css"
     Then la requête est proxifiée directement sans challenge
@@ -20,7 +21,7 @@ Feature: Bypass des Assets Statiques
     Given un visiteur avec score = 25 (normalement challengé)
     When il envoie GET "/js/app.bundle.js"
     Then la requête est proxifiée sans challenge
-    Note: Le JS doit charger pour que le challenge lui-même fonctionne
+    Note: La page de challenge est autonome (script et style inline) : elle ne charge aucun asset
 
   Scenario: Image — bypass
     Given n'importe quel visiteur
@@ -53,12 +54,43 @@ Feature: Bypass des Assets Statiques
     Then la requête reçoit HTTP 403 (blacklist > bypass assets)
     Note: La blacklist s'applique toujours, même pour les assets
 
+  Scenario: Pays bloqué — pas de bypass pour un asset
+    Given geo.blocked_countries contient "XX"
+    When un visiteur de "XX" envoie GET "/index.php/x.js?id=1"
+    Then la requête reçoit HTTP 403 (géo-blocage > bypass assets)
+    And elle n'est pas transmise à l'upstream
+    Note: règles custom, threat intel critique et JA3 blacklisté bloquent aussi un asset
+
+  Scenario: Ban honeypot — appliqué aux assets
+    Given un visiteur a déclenché le honeypot "/.env"
+    When il envoie GET "/favicon.ico?cb=123"
+    Then la requête reçoit HTTP 403
+
+  Scenario: Les assets sont comptés dans la pression anti-DDoS
+    Given antiddos.global_requests_per_second = 100
+    When 500 IP distinctes envoient chacune GET "/x.js?r=<aléa>" à 3 req/s
+    Then chaque requête d'asset est comptée dans la pression du domaine
+    And le domaine entre en mode sous attaque
+    And le circuit-breaker de l'IP s'applique aux requêtes d'assets
+
+  Scenario: Sous attaque — un asset sans clearance est challengé
+    Given le domaine "status.example.com" est en mode sous attaque
+    When un client sans cookie waf_session envoie GET "/x.js?r=42" avec Accept "*/*"
+    Then la page de challenge est servie
+    And la requête n'est pas transmise à l'upstream
+
+  Scenario: Sous attaque — un asset avec clearance passe sans friction
+    Given le domaine "status.example.com" est en mode sous attaque
+    And un visiteur porte un cookie waf_session valide
+    When il envoie GET "/styles/main.css"
+    Then la requête est proxifiée sans challenge
+
   Scenario: Bypass n'inclut pas le rate limit pour les IPs normales
     Given un visiteur avec score = 75 en bypass asset
     When il envoie 500 requêtes d'assets en 10 secondes
     Then les requêtes d'assets sont comptées dans le rate limit global
     And si le rate limit est déclenché → 429 (même pour les assets)
-    Note: Le bypass concerne challenge + trust score, pas le rate limit
+    Note: Le bypass concerne le challenge proactif et les décisions heuristiques, pas le rate limit
 
   Scenario: Méthode d'écriture vers un chemin d'asset — pas de bypass
     When un visiteur envoie POST "/login.css"
