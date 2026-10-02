@@ -236,3 +236,60 @@ func TestMiddlewareKeepsStaticAssetReason(t *testing.T) {
 		t.Fatalf("score = %d, want <= %d (the asset is evaluated)", got, ceilingMalicious)
 	}
 }
+
+// unavailableSource ne se prononce jamais (API en panne, quota épuisé).
+type unavailableSource struct{}
+
+func (unavailableSource) Lookup(net.IP) Verdict { return unavailable }
+
+// FR-13 : un verdict propre obtenu sur source indisponible n'est gardé qu'une
+// minute ; il l'était cache_ttl (1 h), et un timeout blanchissait l'IP.
+func TestCheckerCachesUnavailableVerdictBriefly(t *testing.T) {
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	checker := NewChecker(time.Hour, unavailableSource{})
+	defer checker.Close()
+	checker.cache.WithClock(func() time.Time { return now })
+
+	checker.resolveSync("1.2.3.4")
+	if _, cached := checker.cache.Get("1.2.3.4"); !cached {
+		t.Fatal("the unavailable verdict should be cached briefly")
+	}
+	now = now.Add(unavailableTTL)
+	if _, cached := checker.cache.Get("1.2.3.4"); cached {
+		t.Fatal("the unavailable verdict outlived unavailableTTL")
+	}
+
+	// Une source qui classe l'IP l'emporte : le verdict est gardé cache_ttl.
+	classified := NewChecker(time.Hour, unavailableSource{}, NewStaticSource().Add("5.5.5.0/24", LevelMalicious, "blocklist"))
+	defer classified.Close()
+	if verdict := classified.resolveSync("5.5.5.5"); verdict.Level != LevelMalicious || verdict.Unavailable {
+		t.Fatalf("verdict = %+v, want malicious and available", verdict)
+	}
+}
+
+// FR-13 : un 429 suspend les appels jusqu'au Retry-After.
+func TestHTTPSourcePausesOnQuotaExhaustion(t *testing.T) {
+	var calls atomic.Int64
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		w.Header().Set("Retry-After", "3600")
+		w.WriteHeader(http.StatusTooManyRequests)
+	}))
+	defer server.Close()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	source := NewHTTPSource(server.URL, "test-key", server.Client())
+	source.now = func() time.Time { return now }
+
+	if verdict := source.Lookup(net.ParseIP("1.2.3.4")); !verdict.Unavailable || verdict.Level != LevelClean {
+		t.Fatalf("429 verdict = %+v, want clean and unavailable", verdict)
+	}
+	source.Lookup(net.ParseIP("1.2.3.5"))
+	if got := calls.Load(); got != 1 {
+		t.Fatalf("API calls during the pause = %d, want 1", got)
+	}
+	now = now.Add(time.Hour)
+	source.Lookup(net.ParseIP("1.2.3.6"))
+	if got := calls.Load(); got != 2 {
+		t.Fatalf("API calls after Retry-After = %d, want 2", got)
+	}
+}

@@ -492,12 +492,14 @@ Consulte des listes de réputation IP (locales ou via l'API AbuseIPDB) pour enri
 | Clé | Type | Défaut | Description |
 |---|---|---|---|
 | `enabled` | bool | `false` | Active le module threat intel. Nécessite au moins une source (listes locales ou AbuseIPDB). |
-| `cache_ttl` | durée | `"1h"` | Durée de mise en cache des résultats de lookup. Évite de re-interroger la même IP à chaque requête. |
-| `blocklist_cidrs` | liste | `[]` | Plages CIDR considérées comme **malveillantes** → verdict `malicious` → score de risque maximum. |
-| `suspect_cidrs` | liste | `[]` | Plages CIDR considérées comme **suspectes** (Tor, datacenter, VPN) → verdict `suspect` → contribution partielle au score de risque. |
+| `cache_ttl` | durée | `"1h"` | Durée de mise en cache des résultats de lookup. Évite de re-interroger la même IP à chaque requête. Un lookup dont une source n'a pas répondu (erreur, timeout, quota) n'est gardé qu'une minute. |
+| `blocklist_cidrs` | liste | `[]` | Plages CIDR considérées comme **malveillantes** → verdict `malicious` → trust score plafonné à 20. |
+| `suspect_cidrs` | liste | `[]` | Plages CIDR considérées comme **suspectes** (Tor, datacenter, VPN) → verdict `suspect` → trust score plafonné à 35. |
 | `abuseipdb.enabled` | bool | `false` | Active la consultation de l'API AbuseIPDB en complément des listes locales. |
 | `abuseipdb.url` | string | URL AbuseIPDB | URL de l'endpoint AbuseIPDB. Ne pas modifier sauf si vous utilisez un proxy interne. |
 | `abuseipdb.api_key` | string | `""` | Clé API AbuseIPDB. **Préférer la variable d'environnement `WAF_ABUSEIPDB_KEY`.** |
+
+Score AbuseIPDB ≥ 80 : déclencheur déterministe `threat_intel_critical` (403) ; ≥ 50 : trust score plafonné à 20. Le lookup est asynchrone : la première requête d'une IP inconnue est traitée comme « propre ». Un `429` d'AbuseIPDB (quota du plan gratuit : 1 000 requêtes par jour) suspend les appels jusqu'à son `Retry-After` (1 h à défaut, 24 h au plus) ; les plages locales restent évaluées.
 
 ---
 
