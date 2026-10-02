@@ -3,6 +3,8 @@ package main
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
@@ -222,5 +224,50 @@ func TestAppForwardsClientIPAndScheme(t *testing.T) {
 	}
 	if got := forwarded.Get("X-Forwarded-For"); got != "198.51.100.31" {
 		t.Errorf("direct request: X-Forwarded-For = %q, want 198.51.100.31", got)
+	}
+}
+
+// La racine de composition câble chaque composant optionnel : pool
+// d'upstreams, threat intel, règles, géo, alerting, API admin, protection
+// d'origine. Une requête propre est servie par le pool avec le token
+// d'origine, une règle custom bloque.
+func TestAppBuildsEveryOptionalComponent(t *testing.T) {
+	upstream := newUpstreamRecorder(t)
+	webhook := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	t.Cleanup(webhook.Close)
+	rulesFile := filepath.Join(t.TempDir(), "rules.yaml")
+	rules := "rules:\n  - name: block-admin-probe\n    enabled: true\n    conditions:\n      - field: path\n        operator: equals\n        value: /wp-login-probe\n    actions:\n      - type: block\n"
+	if err := os.WriteFile(rulesFile, []byte(rules), 0o600); err != nil {
+		t.Fatalf("write rules: %v", err)
+	}
+	cfg := testAppConfig("http://127.0.0.1:1")
+	cfg.Challenge.Enabled = false
+	cfg.UpstreamPool.Enabled = true
+	cfg.UpstreamPool.Upstreams = []config.PoolUpstream{{Address: upstream.server.URL}}
+	cfg.ThreatIntel.Enabled = true
+	cfg.ThreatIntel.BlocklistCIDRs = []string{"203.0.113.0/24"}
+	cfg.Rules.Enabled = true
+	cfg.Rules.File = rulesFile
+	cfg.Geo.Enabled = true
+	cfg.Geo.BlockedCountries = []string{"XX"}
+	cfg.Alerting.Enabled = true
+	cfg.Alerting.Webhooks = []config.AlertWebhook{{Type: "discord", URL: webhook.URL}}
+	cfg.Admin.Enabled = true
+	cfg.Admin.Token = strings.Repeat("a", 32)
+	cfg.OriginProtection.Enabled = true
+	cfg.OriginProtection.Secret = strings.Repeat("o", 32)
+	handler := newTestApp(t, cfg)
+
+	if response := serve(handler, edgeRequest(http.MethodGet, "http://example.test/page", "198.51.100.40")); response.Code != http.StatusNoContent {
+		t.Fatalf("clean request through the pool: status = %d, want 204", response.Code)
+	}
+	forwarded := <-upstream.hits
+	if forwarded.Get("X-Waf-Origin-Token") == "" {
+		t.Fatal("origin protection: the upstream received no X-WAF-Origin-Token")
+	}
+	if response := serve(handler, edgeRequest(http.MethodGet, "http://example.test/wp-login-probe", "198.51.100.41")); response.Code != http.StatusForbidden {
+		t.Fatalf("custom rule: status = %d, want 403", response.Code)
 	}
 }
