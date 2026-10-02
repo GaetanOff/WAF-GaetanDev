@@ -468,7 +468,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean", "default": true },
-        "max_difficulty": { "type": "integer", "minimum": 8, "maximum": 32, "default": 24 },
+        "max_difficulty": { "type": "integer", "minimum": 8, "maximum": 24, "default": 20, "description": "Plafond de la difficulté adaptative (FR-14), >= challenge.pow_difficulty. 2^n hachages en moyenne : au-delà de 20 bits, un mobile dépasse challenge.token_ttl" },
         "decay_tau": { "type": "string", "default": "5m" }
       }
     },
