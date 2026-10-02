@@ -441,7 +441,7 @@
       "additionalProperties": false,
       "properties": {
         "enabled": { "type": "boolean", "default": true },
-        "max_records": { "type": "integer", "minimum": 1, "default": 50 }
+        "max_records": { "type": "integer", "minimum": 5, "default": 50, "description": "Pages retenues par visiteur (FR-12). Sous 5 pages, aucun score n'est calculé : 1 à 4 rendait l'analyse inerte" }
       }
     },
     "threat_intel": {
@@ -606,7 +606,7 @@
             "type": "object",
             "additionalProperties": false,
             "properties": {
-              "type": { "type": "string", "enum": ["generic", "slack", "discord"] },
+              "type": { "type": "string", "enum": ["generic", "slack", "discord"], "default": "generic", "description": "Format du message ; absent : generic. Une autre valeur est refusée au démarrage" },
               "url": { "type": "string" }
             }
           }
@@ -624,10 +624,11 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
+            "required": ["address"],
             "properties": {
               "address": { "type": "string" },
-              "weight": { "type": "integer", "minimum": 0 },
-              "backup": { "type": "boolean" }
+              "weight": { "type": "integer", "minimum": 0, "default": 1 },
+              "backup": { "type": "boolean", "default": false }
             }
           }
         },
@@ -851,8 +852,7 @@
         },
         "challenge_enabled": {
           "type": "boolean",
-          "description": "Surcharge de challenge.enabled pour ce domaine. Clé absente = hérite du global. false = jamais de challenge JS sur ce domaine, y compris en mode sous attaque (FR-39). true = challenge servi même si challenge.enabled est false.",
-          "default": true
+          "description": "Surcharge de challenge.enabled pour ce domaine. Clé absente = hérite du global. false = jamais de challenge JS sur ce domaine, y compris en mode sous attaque (FR-39). true = challenge servi même si challenge.enabled est false. Pas de défaut : l'absence n'est pas true."
         },
         "tls": {
           "type": "object",
