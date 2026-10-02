@@ -198,12 +198,14 @@ func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout 
 	proxy := &httputil.ReverseProxy{BufferPool: sharedBuffers}
 	// Rewrite remplace Director (déprécié depuis Go 1.26). SetURL route vers
 	// l'upstream (scheme/host/path) et fixe l'hôte sortant ; SetXForwarded
-	// préserve les en-têtes X-Forwarded-* que l'ancien director ajoutait.
+	// pose les X-Forwarded-* que l'ancien director ajoutait, mais d'après la
+	// connexion reçue : derrière Cloudflare, celle du point de présence.
 	proxy.Rewrite = func(pr *httputil.ProxyRequest) {
 		clientIP := realIP(pr.In)
 		inHost := pr.In.Host
 		pr.SetURL(target)
 		pr.SetXForwarded()
+		setClientForwarding(pr, clientIP)
 		// Par défaut, l'hôte sortant est celui de l'upstream. Avec preserveHost,
 		// on conserve le Host entrant pour que l'upstream route par vhost.
 		if preserveHost {
@@ -245,6 +247,21 @@ func newReverseProxy(target *url.URL, tlsVerify bool, maxIdleConns int, timeout 
 	}
 
 	return proxy
+}
+
+// setClientForwarding rapporte à l'upstream le client et non la connexion
+// reçue (FR-01) : X-Forwarded-For valait l'IP du point de présence Cloudflare,
+// et une origine en « real_ip_header X-Forwarded-For » attribuait tout le
+// trafic à Cloudflare ; X-Forwarded-Proto valait http pour un client en HTTPS
+// derrière Cloudflare. Tout X-Forwarded-For reçu est remplacé.
+func setClientForwarding(pr *httputil.ProxyRequest, clientIP string) {
+	pr.Out.Header.Set("X-Forwarded-For", clientIP)
+	if pr.In.TLS != nil {
+		return
+	}
+	if scheme := cloudflare.VisitorScheme(pr.In); scheme != "" {
+		pr.Out.Header.Set("X-Forwarded-Proto", scheme)
+	}
 }
 
 // forwardedInternalHeaders sont les seuls en-têtes internes transmis à

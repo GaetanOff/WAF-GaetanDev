@@ -146,3 +146,21 @@ func TestStripUntrustedRemovesEveryInfrastructureHeader(t *testing.T) {
 		t.Fatalf("headers = %v, want every CF-* stripped when cloudflare.trusted is false", forwarded)
 	}
 }
+
+func TestVisitorScheme(t *testing.T) {
+	for raw, want := range map[string]string{
+		`{"scheme":"https"}`: "https",
+		`{"scheme":"http"}`:  "http",
+		`{"scheme":"ftp"}`:   "",
+		`not json`:           "",
+		``:                   "",
+	} {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test/", nil)
+		if raw != "" {
+			request.Header.Set("CF-Visitor", raw)
+		}
+		if got := VisitorScheme(request); got != want {
+			t.Errorf("VisitorScheme(%q) = %q, want %q", raw, got, want)
+		}
+	}
+}

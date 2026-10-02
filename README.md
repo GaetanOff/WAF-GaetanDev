@@ -146,8 +146,9 @@ challenge, rate limit et seuils de confiance par hôte.
    les [plages d'IP Cloudflare](https://www.cloudflare.com/ips/) vers `:8080`.
    Le WAF rejette de toute façon (`400`) tout `CF-Connecting-IP` provenant
    d'une source hors plages Cloudflare lorsque `cloudflare.trusted: true`.
-4. **IP réelle** : le WAF lit `CF-Connecting-IP` et transmet `X-Forwarded-For`
-   et `X-Real-IP` à l'origine.
+4. **IP réelle** : le WAF lit `CF-Connecting-IP` et transmet l'IP réelle du
+   client dans `X-Forwarded-For` (une seule adresse) et `X-Real-IP`, et le
+   schéma vu par le client (`CF-Visitor`) dans `X-Forwarded-Proto`.
 5. **Admin** : gardez `admin_listen` sur une interface privée (jamais publiée).
 
 ---

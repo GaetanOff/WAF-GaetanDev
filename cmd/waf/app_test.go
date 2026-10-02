@@ -184,3 +184,43 @@ func TestAppAntiBotBlocksWithoutRiskEngine(t *testing.T) {
 		t.Fatalf("automation UA without risk engine: status = %d, want 403", response.Code)
 	}
 }
+
+// FR-01 : l'upstream reçoit l'IP réelle du client et le schéma qu'il voit,
+// et non ceux de la connexion du point de présence Cloudflare.
+func TestAppForwardsClientIPAndScheme(t *testing.T) {
+	upstream := newUpstreamRecorder(t)
+	cfg := testAppConfig(upstream.server.URL)
+	cfg.Challenge.Enabled = false
+	handler := newTestApp(t, cfg)
+
+	request := edgeRequest(http.MethodGet, "http://example.test/page", "198.51.100.30")
+	request.Header.Set("CF-Visitor", `{"scheme":"https"}`)
+	request.Header.Set("X-Forwarded-For", "203.0.113.66")
+	if response := serve(handler, request); response.Code != http.StatusNoContent {
+		t.Fatalf("status = %d, want 204", response.Code)
+	}
+	forwarded := <-upstream.hits
+	if got := forwarded.Get("X-Forwarded-For"); got != "198.51.100.30" {
+		t.Errorf("X-Forwarded-For = %q, want the client IP 198.51.100.30", got)
+	}
+	if got := forwarded.Get("X-Forwarded-Proto"); got != "https" {
+		t.Errorf("X-Forwarded-Proto = %q, want https", got)
+	}
+
+	direct := httptest.NewRequest(http.MethodGet, "http://example.test/page", nil)
+	direct.RemoteAddr = "198.51.100.31:5555"
+	direct.Header.Set("CF-Visitor", `{"scheme":"https"}`)
+	direct.Header.Set("User-Agent", "Mozilla/5.0 Safari/605.1.15")
+	direct.Header.Set("Accept-Language", "fr")
+	direct.Header.Set("Accept-Encoding", "gzip")
+	if response := serve(handler, direct); response.Code != http.StatusNoContent {
+		t.Fatalf("direct request: status = %d, want 204", response.Code)
+	}
+	forwarded = <-upstream.hits
+	if got := forwarded.Get("X-Forwarded-Proto"); got != "http" {
+		t.Errorf("forged CF-Visitor outside Cloudflare: X-Forwarded-Proto = %q, want http", got)
+	}
+	if got := forwarded.Get("X-Forwarded-For"); got != "198.51.100.31" {
+		t.Errorf("direct request: X-Forwarded-For = %q, want 198.51.100.31", got)
+	}
+}
