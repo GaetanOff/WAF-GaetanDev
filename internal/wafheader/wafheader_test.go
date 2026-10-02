@@ -62,3 +62,36 @@ func TestEffectiveAction(t *testing.T) {
 		})
 	}
 }
+
+func TestPassKinds(t *testing.T) {
+	cases := []struct {
+		name                  string
+		action, reason        string
+		pass, asset, fullPass bool
+	}{
+		{name: "whitelist", action: ActionPass, reason: "whitelist", pass: true, fullPass: true},
+		{name: "asset", action: ActionPass, reason: ReasonStaticAsset, pass: true, asset: true},
+		{name: "challenge", action: ActionChallenge, reason: ReasonStaticAsset},
+		{name: "none"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			header := http.Header{}
+			if tc.action != "" {
+				header.Set(Action, tc.action)
+			}
+			if tc.reason != "" {
+				header.Set(Reason, tc.reason)
+			}
+			if got := IsPass(header); got != tc.pass {
+				t.Errorf("IsPass = %v, want %v", got, tc.pass)
+			}
+			if got := IsAssetPass(header); got != tc.asset {
+				t.Errorf("IsAssetPass = %v, want %v", got, tc.asset)
+			}
+			if got := IsFullPass(header); got != tc.fullPass {
+				t.Errorf("IsFullPass = %v, want %v", got, tc.fullPass)
+			}
+		})
+	}
+}

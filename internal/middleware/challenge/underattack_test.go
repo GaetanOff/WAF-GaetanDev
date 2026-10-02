@@ -191,3 +191,56 @@ func TestUnderAttackChallengesNonBrowserWhenConfigured(t *testing.T) {
 		}
 	}
 }
+
+// assetRequest simule une requête d'asset marquée par le bypass FR-24.
+func assetRequest(path string) *http.Request {
+	request := httptest.NewRequest(http.MethodGet, "http://status.test"+path, nil)
+	request.RemoteAddr = "9.9.9.9:1234"
+	request.Header.Set("Accept", "*/*")
+	request.Header.Set("X-WAF-Action", "PASS")
+	request.Header.Set("X-WAF-Reason", "static_asset")
+	return request
+}
+
+// FR-24 / FR-39 : un asset statique n'est dispensé que du challenge proactif.
+// Sous attaque, sans clearance, il est challengé : « GET /x.js?r=<aléa> »
+// franchissait sinon le mode sous attaque.
+func TestUnderAttackChallengesAssetWithoutClearance(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+
+	if servedChallenge(t, middleware, assetRequest("/x.js?r=42")) {
+		t.Fatal("hors attaque, un asset ne doit pas être challengé")
+	}
+	under := assetRequest("/x.js?r=42")
+	under.Header.Set("X-WAF-Under-Attack-Enforce", "true")
+	if !servedChallenge(t, middleware, under) {
+		t.Fatal("sous attaque, un asset sans clearance doit être challengé")
+	}
+}
+
+func TestUnderAttackPassesAssetWithClearance(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+	cookie, err := middleware.cookieIssuer.Issue("9.9.9.9", "status.test", strings.Repeat("a", 64), 75, time.Hour)
+	if err != nil {
+		t.Fatalf("Issue() error = %v", err)
+	}
+	request := assetRequest("/styles/main.css")
+	request.Header.Set("X-WAF-Under-Attack-Enforce", "true")
+	request.AddCookie(&cookie)
+
+	if servedChallenge(t, middleware, request) {
+		t.Fatal("sous attaque, un asset avec clearance doit passer sans friction")
+	}
+}
+
+// Le PASS de la whitelist IP lève toujours le challenge, sous attaque compris.
+func TestUnderAttackPassesWhitelistedIP(t *testing.T) {
+	middleware, _ := newTestChallengeMiddleware(t)
+	request := assetRequest("/")
+	request.Header.Set("X-WAF-Reason", "whitelist")
+	request.Header.Set("X-WAF-Under-Attack-Enforce", "true")
+
+	if servedChallenge(t, middleware, request) {
+		t.Fatal("une IP whitelistée ne doit pas être challengée")
+	}
+}

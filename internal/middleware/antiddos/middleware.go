@@ -102,7 +102,9 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.Header.Get(wafheader.Action) == wafheader.ActionPass {
+		// Un asset statique (FR-24) est compté dans la pression et soumis au
+		// circuit-breaker : seul le PASS de la whitelist IP en dispense.
+		if wafheader.IsFullPass(r.Header) {
 			next.ServeHTTP(w, r)
 			return
 		}

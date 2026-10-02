@@ -210,3 +210,29 @@ func TestCheckerCloseIsIdempotentAndSafeWithConcurrentMisses(t *testing.T) {
 		t.Fatalf("level after Close = %d, want clean", v.Level)
 	}
 }
+
+// FR-24 : la réputation s'applique à un asset statique sans remplacer sa
+// raison static_asset, qui en ferait un PASS de whitelist IP.
+func TestMiddlewareKeepsStaticAssetReason(t *testing.T) {
+	source := NewStaticSource().Add("5.5.5.0/24", LevelMalicious, "blocklist")
+	checker := NewChecker(time.Hour, source)
+	checker.resolveSync("5.5.5.5")
+	scores, store := newScores(t)
+	defer store.Close()
+	scores.Set("5.5.5.5", "example.test", 80)
+
+	request := httptest.NewRequest(http.MethodGet, "http://example.test/app.js", nil)
+	request.RemoteAddr = "5.5.5.5:1234"
+	request.Header.Set("X-WAF-Action", "PASS")
+	request.Header.Set("X-WAF-Reason", "static_asset")
+	NewMiddleware(checker, scores).Handler(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if got := r.Header.Get("X-WAF-Reason"); got != "static_asset" {
+			t.Fatalf("X-WAF-Reason = %q, want static_asset", got)
+		}
+		w.WriteHeader(http.StatusNoContent)
+	})).ServeHTTP(httptest.NewRecorder(), request)
+
+	if got := scores.Get("5.5.5.5", "example.test").Score; got > ceilingMalicious {
+		t.Fatalf("score = %d, want <= %d (the asset is evaluated)", got, ceilingMalicious)
+	}
+}

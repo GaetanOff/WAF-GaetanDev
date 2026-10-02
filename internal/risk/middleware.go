@@ -110,8 +110,15 @@ func (m *Middleware) GrantChallengePass(ip string, domain string, fpHash string)
 
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get(headerAction) == wafheader.ActionPass {
+		if wafheader.IsFullPass(r.Header) {
 			next.ServeHTTP(w, r)
+			return
+		}
+		// Un asset statique (FR-24) n'est pas évalué par le score : seuls les
+		// déclencheurs déterministes des détecteurs (JA3 blacklisté, threat
+		// intel critique) s'y appliquent.
+		if wafheader.IsAssetPass(r.Header) {
+			m.serveAsset(w, r, next)
 			return
 		}
 
@@ -147,6 +154,19 @@ func (m *Middleware) Handler(next http.Handler) http.Handler {
 
 		next.ServeHTTP(w, r)
 	})
+}
+
+// serveAsset bloque un asset statique sur un déclencheur déterministe, hors
+// mode shadow comme toute décision du moteur, et le transmet sinon.
+func (m *Middleware) serveAsset(w http.ResponseWriter, r *http.Request, next http.Handler) {
+	assessment := applyDeterministicTrigger(RiskAssessment{}, r.Header.Get(headerDeterministicTrigger))
+	if assessment.DeterministicTrigger == nil || m.shadow {
+		next.ServeHTTP(w, r)
+		return
+	}
+	w.Header().Set(headerAction, string(DecisionBlock))
+	w.Header().Set(headerReason, reasonForAssessment(assessment))
+	http.Error(w, "forbidden", http.StatusForbidden)
 }
 
 func (m *Middleware) assess(r *http.Request) RiskAssessment {

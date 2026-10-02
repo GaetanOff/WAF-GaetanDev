@@ -79,7 +79,8 @@ func (a *app) routes() http.Handler {
 	proxyHandler = a.securityLogger.Middleware(a.scoreManager, proxyHandler)
 	proxyHandler = a.metrics.Middleware(a.scoreManager, proxyHandler)
 	// Bypass des assets statiques (FR-24) : le plus en amont du pipeline pour
-	// marquer PASS avant challenge/trust/détecteurs (la blacklist reste appliquée).
+	// marquer PASS static_asset avant le challenge et les décisions
+	// heuristiques ; les contrôles déterministes et l'anti-DDoS l'ignorent.
 	if cfg.StaticAssets.Enabled {
 		proxyHandler = staticassets.New(cfg.StaticAssets).WithCounter(a.metrics.IncAssetRequest).Handler(proxyHandler)
 	}

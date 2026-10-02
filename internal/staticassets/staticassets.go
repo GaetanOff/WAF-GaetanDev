@@ -1,15 +1,16 @@
-// Package staticassets court-circuite le challenge, le trust et les détecteurs
-// pour les ressources statiques (FR-24). Sans ce bypass, le CSS/JS chargé par la
-// page de challenge elle-même serait challengé → deadlock de bootstrap.
+// Package staticassets dispense les ressources statiques du challenge proactif
+// et des décisions heuristiques (FR-24) : trust score, anti-bot, intégrité,
+// score du moteur de risque.
 //
-// Seuls GET et HEAD sont éligibles : le PASS court-circuite aussi intégrité,
-// règles, géo, threat intel et anti-DDoS, et « POST /login.css » y échappait.
+// Seuls GET et HEAD sont éligibles : « POST /login.css » n'est pas un asset.
 //
-// Le bypass pose X-WAF-Action=PASS avec X-WAF-Reason=static_asset (honoré par
-// challenge/trust/antibot/risk). La blacklist (middleware access) reste
-// appliquée : un asset depuis une IP blacklistée est toujours bloqué. Le rate
-// limit aussi : il reconnaît la raison Reason et compte l'asset, faute de quoi
-// n'importe quel chemin en .css inondait l'origine sans aucune borne.
+// Le bypass pose X-WAF-Action=PASS avec X-WAF-Reason=static_asset. Ce PASS
+// n'est pas celui de la whitelist IP (wafheader.IsFullPass) : la blacklist,
+// le géo-blocage, les règles, la threat intel, la blacklist JA3, le ban
+// honeypot, le rate limit, le comptage de pression anti-DDoS, le
+// circuit-breaker et le challenge sous attaque (FR-39) s'appliquent aux
+// assets. Honoré par toute la chaîne, il laissait « GET /x.js?r=<aléa> »
+// contourner la défense contre un flood L7 distribué.
 package staticassets
 
 import (

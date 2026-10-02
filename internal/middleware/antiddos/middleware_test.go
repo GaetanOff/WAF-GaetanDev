@@ -253,3 +253,41 @@ func requestFrom(remoteAddr string) *http.Request {
 	request.RemoteAddr = remoteAddr
 	return request
 }
+
+// FR-24 : un asset statique est compté dans la pression et soumis au
+// circuit-breaker ; seul le PASS de la whitelist IP en dispense.
+func TestMiddlewareCountsStaticAssetsAndAppliesBreaker(t *testing.T) {
+	store := memory.New(100)
+	defer store.Close()
+	breaker := NewCircuitBreaker(store, DefaultViolationThreshold, DefaultOpenDuration)
+	detector := NewGlobalRateDetector(1, time.Second, PressureConfig{})
+	handler := New(breaker, detector, DefaultRetryAfterSeconds).Handler(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+	asset := func(reason string) *http.Request {
+		request := requestFrom("1.2.3.4:1234")
+		request.Header.Set("X-WAF-Action", "PASS")
+		request.Header.Set("X-WAF-Reason", reason)
+		return request
+	}
+
+	handler.ServeHTTP(httptest.NewRecorder(), asset("static_asset"))
+	if got := detector.RecordAndPressure(); got != PressureHigh {
+		t.Fatalf("pressure after one asset = %s, want high (the asset is counted)", got)
+	}
+
+	for range 5 {
+		breaker.RecordViolation("1.2.3.4")
+	}
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, asset("static_asset"))
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("asset with an open circuit: status = %d, want 403", response.Code)
+	}
+
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, asset("whitelist"))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("whitelisted IP: status = %d, want 204", response.Code)
+	}
+}

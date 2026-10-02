@@ -26,7 +26,6 @@ const (
 
 	headerAction    = wafheader.Action
 	headerReason    = wafheader.Reason
-	actionPass      = wafheader.ActionPass
 	actionChallenge = wafheader.ActionChallenge
 	actionBlock     = wafheader.ActionBlock
 	// reasonPrefix préfixe le code d'erreur d'une soumission rejetée dans la
@@ -208,7 +207,12 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		if r.Header.Get(headerAction) == actionPass {
+		underAttack := r.Header.Get(wafheader.UnderAttackEnforce) == "true"
+		// Un asset statique (FR-24) n'est dispensé que du challenge proactif :
+		// sous attaque, sans clearance, il est challengé comme une page (FR-39).
+		// Dispensé sans condition, « GET /x.js?r=<aléa> » franchissait le mode
+		// sous attaque. Un navigateur renvoie son cookie sur chaque asset.
+		if wafheader.IsFullPass(r.Header) || (wafheader.IsAssetPass(r.Header) && !underAttack) {
 			next.ServeHTTP(w, r)
 			return
 		}
@@ -217,7 +221,6 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		underAttack := r.Header.Get(wafheader.UnderAttackEnforce) == "true"
 		// whitelist_user_agents exempte du seul challenge proactif : un crawler
 		// n'exécute pas le JS. Une décision CHALLENGE du moteur de risque (faux
 		// crawler démasqué par reverse-DNS) reste appliquée par l'Enforcer.

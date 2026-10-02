@@ -71,7 +71,8 @@ func NewMiddleware(cfg config.TLSFingerprint, maxVisitors int) *Middleware {
 
 func (m *Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if !m.enabled || r.Header.Get(wafheader.Action) == wafheader.ActionPass {
+		// La blacklist JA3 s'applique aux assets statiques (FR-24).
+		if !m.enabled || wafheader.IsFullPass(r.Header) {
 			next.ServeHTTP(w, r)
 			return
 		}

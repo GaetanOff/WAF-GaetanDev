@@ -502,3 +502,38 @@ func TestApplyIsAtomicUnderConcurrency(t *testing.T) {
 		t.Fatalf("score = %d, want 10 (60 - 50 penalties)", visitor.Score)
 	}
 }
+
+// FR-24 : un asset statique n'est dispensé que de la décision heuristique du
+// score ; un déclencheur déterministe le bloque.
+func TestTrustMiddlewareAppliesOnlyDeterministicTriggersToAssets(t *testing.T) {
+	manager, store, _ := newTestManager(t)
+	defer store.Close()
+	manager.Set("9.9.9.9", "example.test", 0)
+	asset := func() *http.Request {
+		request := httptest.NewRequest(http.MethodGet, "http://example.test/app.js", nil)
+		request.RemoteAddr = "9.9.9.9:1234"
+		request.Header.Set("X-WAF-Action", "PASS")
+		request.Header.Set("X-WAF-Reason", "static_asset")
+		return request
+	}
+	handler := manager.Middleware(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}))
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, asset())
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("asset with a blocking score: status = %d, want 204 (no heuristic decision)", response.Code)
+	}
+
+	request := asset()
+	request.Header.Set("X-WAF-Deterministic-Trigger", "ja3_blacklist")
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusForbidden {
+		t.Fatalf("asset with a deterministic trigger: status = %d, want 403", response.Code)
+	}
+	if got := response.Header().Get("X-WAF-Reason"); got != "deterministic_ja3_blacklist" {
+		t.Fatalf("X-WAF-Reason = %q, want deterministic_ja3_blacklist", got)
+	}
+}

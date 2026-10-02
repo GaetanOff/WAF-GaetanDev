@@ -263,16 +263,23 @@ func (m *ScoreManager) State(score int) string {
 
 func (m *ScoreManager) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Header.Get(wafheader.Action) == wafheader.ActionPass {
+		if wafheader.IsFullPass(r.Header) {
 			next.ServeHTTP(w, r)
 			return
 		}
 
 		// Sans moteur de risque, ce middleware est le seul à décider : ignorer le
 		// déclencheur laissait passer, sans blocage ni challenge, une IP classée
-		// critique par AbuseIPDB ou un JA3 explicitement blacklisté.
+		// critique par AbuseIPDB ou un JA3 explicitement blacklisté. Un asset
+		// statique y reste soumis (FR-24).
 		if trigger := r.Header.Get(headerDeterministicTrigger); deterministicTriggers[trigger] {
 			blockDeterministic(w, r, trigger)
+			return
+		}
+		// Un asset statique n'est dispensé que de la décision heuristique du
+		// score (FR-24).
+		if wafheader.IsAssetPass(r.Header) {
+			next.ServeHTTP(w, r)
 			return
 		}
 
@@ -306,7 +313,7 @@ func (m *ScoreManager) Middleware(next http.Handler) http.Handler {
 // avec la raison posée par le détecteur (ex. ja3_blacklisted).
 func blockDeterministic(w http.ResponseWriter, r *http.Request, trigger string) {
 	reason := r.Header.Get(wafheader.Reason)
-	if reason == "" {
+	if reason == "" || wafheader.IsAssetPass(r.Header) {
 		reason = "deterministic_" + trigger
 	}
 	w.Header().Set(headerDeterministicTrigger, trigger)

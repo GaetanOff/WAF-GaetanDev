@@ -712,7 +712,7 @@ static_assets:
   exact_paths: ["/favicon.ico", "/robots.txt", "/sitemap.xml"]
 ```
 
-Les requêtes `GET` et `HEAD` vers des assets statiques (CSS, JS, images, fonts…) ne déclenchent pas le challenge JS et n'affectent pas le trust score. Une écriture (`POST`, `PUT`, `PATCH`, `DELETE`) vers un chemin d'asset traverse le pipeline complet : `POST /login.css` n'est pas un asset. Cela évite que la page de challenge elle-même soit bloquée par le WAF. La blacklist et le rate limit s'appliquent toujours : les requêtes d'assets sont comptées dans les buckets de l'IP. Chaque requête bypassée est comptée dans `waf_asset_requests_total{domain}`.
+Les requêtes `GET` et `HEAD` vers des assets statiques (CSS, JS, images, fonts…) ne déclenchent pas le challenge JS proactif et échappent aux décisions heuristiques (trust score, anti-bot, intégrité, score du moteur de risque). Une écriture (`POST`, `PUT`, `PATCH`, `DELETE`) vers un chemin d'asset traverse le pipeline complet : `POST /login.css` n'est pas un asset. Les contrôles déterministes et la défense volumétrique s'appliquent toujours aux assets : blacklist, géo-blocage, règles custom, threat intel, blacklist JA3, ban honeypot, rate limit, comptage de pression anti-DDoS et circuit-breaker. Sous attaque (`antiddos.under_attack`), un asset sans cookie de clearance est challengé comme une page — un navigateur qui a franchi le challenge renvoie son cookie sur chaque asset du domaine. Chaque requête bypassée est comptée dans `waf_asset_requests_total{domain}`.
 
 | Clé | Type | Défaut | Description |
 |---|---|---|---|

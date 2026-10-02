@@ -101,3 +101,19 @@ func TestGeoUnknownCountryPassesAndCodesAreNormalized(t *testing.T) {
 		t.Fatalf("blocked code in another case: status = %d, want 403", blocked.Code)
 	}
 }
+
+// FR-24 : le géo-blocage s'applique aux assets statiques ; seul le PASS de la
+// whitelist IP l'en dispense.
+func TestGeoBlocksStaticAssetButNotWhitelistedIP(t *testing.T) {
+	h, _ := handlerWith(config.Geo{Enabled: true, BlockedCountries: []string{"RU"}})
+	for reason, want := range map[string]int{"static_asset": http.StatusForbidden, "whitelist": http.StatusNoContent} {
+		request := requestFromCountry("RU")
+		request.Header.Set("X-WAF-Action", "PASS")
+		request.Header.Set("X-WAF-Reason", reason)
+		response := httptest.NewRecorder()
+		h.ServeHTTP(response, request)
+		if response.Code != want {
+			t.Errorf("PASS %s: status = %d, want %d", reason, response.Code, want)
+		}
+	}
+}
