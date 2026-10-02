@@ -28,6 +28,18 @@ Feature: Reverse Proxy (FR-01)
     When le WAF transmet la requête
     Then l'upstream reçoit "X-Forwarded-Proto" égal à "http"
 
+  Scenario: Préfixe /waf/ réservé — jamais transmis à l'upstream
+    When un visiteur envoie GET "/waf/stats", GET "/waf/admin/visitors" puis GET "/waf/inconnu"
+    Then chaque requête reçoit HTTP 404 du WAF
+    And aucune n'est transmise à l'upstream
+
+  Scenario: Endpoint du WAF désactivé — 404, pas de transmission
+    Given challenge.enabled = false sans domaine qui l'active
+    And origin_protection.enabled = false
+    When un visiteur envoie POST "/waf/verify" puis GET "/waf/origin/verify"
+    Then chaque requête reçoit HTTP 404 du WAF
+    And aucune n'est transmise à l'upstream
+
   Scenario: Routage par domaine — première entrée correspondante gagnante
     Given les domaines configurés, dans cet ordre :
       | host             | upstream              |

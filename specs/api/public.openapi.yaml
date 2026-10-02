@@ -5,15 +5,16 @@ info:
   description: |
     Endpoints servis par le WAF lui-même sur le listener public
     (server.listen), sur tous les domaines. Le préfixe /waf/ est réservé au
-    WAF : ces chemins ne sont jamais transmis à l'upstream. L'API
-    d'administration, sur son port privé, a son propre contrat
-    (admin.openapi.yaml).
+    WAF : ces chemins ne sont jamais transmis à l'upstream. Tout autre chemin
+    sous /waf/ (dont /waf/stats et /waf/admin/*, servis par la seule API
+    d'administration) reçoit 404 text/plain du WAF. L'API d'administration,
+    sur son port privé, a son propre contrat (admin.openapi.yaml).
 
     Avec acme.enabled, un serveur annexe écoute sur acme.http_challenge_listen
     (défaut :80), hors de la chaîne de protection : il sert le challenge
     HTTP-01 (/.well-known/acme-challenge/{token}) et redirige toute autre
-    requête GET/HEAD vers HTTPS (302 ; 400 pour les autres méthodes).
-  version: 1.6.0
+    requête vers HTTPS (301) quand son Host est dans acme.domains, 400 sinon.
+  version: 1.7.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -113,6 +114,15 @@ components:
           schema:
             type: string
             const: "GET, HEAD"
+    Disabled:
+      description: >-
+        Fonction de l'endpoint désactivée : aucun hôte ne peut être challengé
+        (/waf/verify), origin_protection.enabled faux (/waf/origin/verify). Le
+        chemin reste réservé au WAF et n'est pas transmis à l'upstream
+      content:
+        text/plain:
+          schema:
+            type: string
 
   headers:
     RetryAfter:
@@ -210,6 +220,8 @@ paths:
             text/plain:
               schema:
                 type: string
+        "404":
+          $ref: "#/components/responses/Disabled"
         "405":
           description: Méthode autre que POST (X-WAF-Action BLOCK, X-WAF-Reason verify_method_not_allowed)
           headers:
@@ -254,7 +266,7 @@ paths:
       summary: Vérifier un token de protection d'origine
       description: |
         Appelé par l'upstream pour vérifier le X-WAF-Origin-Token qu'il a reçu
-        (FR-19). Servi seulement si origin_protection.enabled. Le token est
+        (FR-19). Servi seulement si origin_protection.enabled, 404 sinon. Le token est
         validé par HMAC pour le domaine demandé (query domain, sinon Host), avec
         la tolérance de rotation horaire.
       tags: [Origin]
@@ -289,6 +301,8 @@ paths:
                 valid: false
         "400":
           $ref: "#/components/responses/HostNotDeclared"
+        "404":
+          $ref: "#/components/responses/Disabled"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "405":
