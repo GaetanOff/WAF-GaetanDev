@@ -1,12 +1,12 @@
 package metrics
 
 import (
-	"github.com/gaetandev/waf/internal/hostname"
 	"net/http"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/gaetandev/waf/internal/hostname"
 	"github.com/gaetandev/waf/internal/middleware/cloudflare"
 	"github.com/gaetandev/waf/internal/trust"
 	"github.com/gaetandev/waf/internal/wafheader"
@@ -183,7 +183,9 @@ func (m *Metrics) WithVisitorBounds(window time.Duration, maxVisitors int) *Metr
 }
 
 // WithDomains déclare les hôtes de domains[] : seuls eux portent leur propre
-// label domain, les autres sont comptés sous undeclaredDomain.
+// label domain, les autres sont comptés sous hostname.Undeclared (« _undeclared ») :
+// sans server.strict_host, chaque Host inventé par un client créait sinon une
+// série Prometheus, conservée jusqu'à l'arrêt du processus.
 func (m *Metrics) WithDomains(hosts []string) *Metrics {
 	m.domains = hostname.NewDeclared(hosts)
 	return m

@@ -71,8 +71,8 @@ type Syncer struct {
 	// sans API admin, aucun nœud ne retire d'entrée, et l'événement est ignoré.
 	removeBlacklist func(value string) error
 	now             func() time.Time
-	node         string
-	outbox       chan Event
+	node            string
+	outbox          chan Event
 
 	mu      sync.Mutex
 	applied int
