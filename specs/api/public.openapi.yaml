@@ -14,7 +14,7 @@ info:
     (défaut :80), hors de la chaîne de protection : il sert le challenge
     HTTP-01 (/.well-known/acme-challenge/{token}) et redirige toute autre
     requête vers HTTPS (301) quand son Host est dans acme.domains, 400 sinon.
-  version: 1.7.0
+  version: 1.8.0
   contact:
     name: GaetanDev
     url: https://firewall.gaetandev.fr
@@ -191,6 +191,15 @@ paths:
               $ref: "#/components/headers/Pragma"
             Expires:
               $ref: "#/components/headers/Expires"
+            X-WAF-Challenge-Pass-After-Flag:
+              description: >-
+                true quand la page avait été servie sur une décision CHALLENGE
+                du moteur de risque ou du trust score : faux positif probable,
+                compté dans waf_challenge_pass_after_flag_total (FR-38). Absent
+                après un challenge proactif ou forcé sous attaque
+              schema:
+                type: string
+                const: "true"
           content:
             application/json:
               schema:
