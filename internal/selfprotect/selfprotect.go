@@ -5,6 +5,7 @@ package selfprotect
 
 import (
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/gaetandev/waf/internal/ipkey"
@@ -65,6 +66,17 @@ func (w *Window) Count(ip string) int {
 	return c.count
 }
 
+// RetryAfter rend le délai, en secondes entières arrondies au-dessus (au moins
+// 1), avant la réinitialisation du compteur de l'IP.
+func (w *Window) RetryAfter(ip string) int {
+	c, ok := w.counts.Get(ip)
+	if !ok {
+		return 1
+	}
+	remaining := c.resetAt.Sub(w.now())
+	return max(1, int((remaining+time.Second-1)/time.Second))
+}
+
 // Limited retourne true si l'IP a atteint la limite.
 func (w *Window) Limited(ip string) bool {
 	return w.Count(ip) >= w.max
@@ -78,7 +90,7 @@ func PathGuard(path string, window *Window) func(http.Handler) http.Handler {
 				// Compté par client : une IPv6 par son /64 (ipkey).
 				ip := ipkey.Subject(cloudflare.RealIP(r))
 				if window.Record(ip) > window.max {
-					w.Header().Set("Retry-After", "10")
+					w.Header().Set("Retry-After", strconv.Itoa(window.RetryAfter(ip)))
 					w.Header().Set(wafheader.Action, wafheader.ActionRateLimit)
 					w.Header().Set(wafheader.Reason, "self_protect_flood")
 					http.Error(w, "too many requests", http.StatusTooManyRequests)

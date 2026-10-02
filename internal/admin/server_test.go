@@ -7,6 +7,8 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -121,8 +123,51 @@ func TestAdminConfigMasksSecrets(t *testing.T) {
 	if bytes.Contains(response.Body.Bytes(), []byte(testAdminToken)) {
 		t.Fatalf("config response leaked admin token: %s", response.Body.String())
 	}
-	if !bytes.Contains(response.Body.Bytes(), []byte(`"Token":"***"`)) {
-		t.Fatalf("config response did not mask admin token: %s", response.Body.String())
+	var document struct {
+		Admin struct {
+			Token string `json:"token"`
+		} `json:"admin"`
+		Challenge struct {
+			SecretKey string `json:"secret_key"`
+		} `json:"challenge"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &document); err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	if document.Admin.Token != maskedSecret {
+		t.Fatalf("admin.token = %q, want %q under the snake_case key: %s", document.Admin.Token, maskedSecret, response.Body.String())
+	}
+}
+
+// Le contrat (admin.openapi.yaml) renvoie à config.schema.json : chaque clé
+// de premier niveau de la réponse en est une propriété. Faute de balises json,
+// la réponse sortait en PascalCase (« RateLimit », « Token »).
+func TestAdminConfigUsesTheSchemaKeys(t *testing.T) {
+	server := newTestServer(t)
+	response := httptest.NewRecorder()
+	server.Handler().ServeHTTP(response, requestWithAuth(http.MethodGet, "/waf/admin/config", ""))
+
+	raw, err := os.ReadFile(filepath.Join("..", "..", "specs", "schemas", "config.schema.json"))
+	if err != nil {
+		t.Fatalf("read config.schema.json: %v", err)
+	}
+	var schema struct {
+		Properties map[string]json.RawMessage `json:"properties"`
+	}
+	if err := json.Unmarshal(raw, &schema); err != nil {
+		t.Fatalf("decode schema: %v", err)
+	}
+	var document map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &document); err != nil {
+		t.Fatalf("decode config: %v", err)
+	}
+	if _, ok := document["rate_limit"]; !ok {
+		t.Fatalf("config has no rate_limit key: %s", response.Body.String())
+	}
+	for key := range document {
+		if _, ok := schema.Properties[key]; !ok {
+			t.Errorf("config key %q is not a config.schema.json property", key)
+		}
 	}
 }
 

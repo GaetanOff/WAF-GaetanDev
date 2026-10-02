@@ -32,9 +32,9 @@ type Server struct {
 	// onBlacklistRemove est notifié de chaque retrait de la blacklist
 	// (propagation cluster, FR-20).
 	onBlacklistRemove func(value string)
-	onPanic     func()
-	applyConfig ConfigApplier
-	erasers     []func(ipHash string)
+	onPanic           func()
+	applyConfig       ConfigApplier
+	erasers           []func(ipHash string)
 }
 
 // WithErasers branche l'effacement RGPD (FR-28) sur les états par visiteur
