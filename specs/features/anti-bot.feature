@@ -41,6 +41,27 @@ Feature: Détection Anti-Bot
     And un événement de sécurité est journalisé avec action="HONEYPOT"
     And le visiteur sera bloqué sur les requêtes suivantes
 
+  Scenario: Ban honeypot — moteur de risque actif
+    Given le WAF est configuré avec risk_engine.enabled = true et shadow_mode = false
+    And un visiteur avec l'IP "2.3.4.5" a envoyé GET "/.env"
+    When il envoie GET "/" puis GET "/page" puis GET "/app.js"
+    Then chaque requête reçoit HTTP 403
+    And l'action journalisée est "BLOCK" avec reason="honeypot_ban"
+    And aucune page de challenge n'est servie
+    # Le score à 0 ne bloquait que via le trust score, absent avec le moteur de
+    # risque : le ban ne durait qu'une requête.
+
+  Scenario: Ban honeypot — appliqué en shadow
+    Given le WAF est configuré avec risk_engine.shadow_mode = true
+    And un visiteur a envoyé GET "/.env"
+    When il envoie GET "/"
+    Then la requête reçoit HTTP 403
+
+  Scenario: Ban honeypot — expiration
+    Given un visiteur a envoyé GET "/.env"
+    When trust.score_ttl s'est écoulé
+    Then ses requêtes ne sont plus bannies
+
   Scenario: Accès à un chemin honeypot wp-config.php
     Given un visiteur avec l'IP "9.8.7.6" et score = 80
     When il envoie une requête GET "/wp-config.php"
@@ -49,8 +70,8 @@ Feature: Détection Anti-Bot
 
   Scenario: Configuration par défaut — l'administration WordPress n'est pas un piège
     Given le WAF utilise les honeypot_paths par défaut
-    When un administrateur envoie une requête GET "/wp-login.php" puis "/wp-admin"
-    Then aucune des deux n'est traitée comme un honeypot
+    When un administrateur envoie une requête GET "/wp-login.php", "/wp-admin" puis "/admin.php"
+    Then aucune n'est traitée comme un honeypot
     # Un chemin servi par l'application protégée ne doit jamais être un piège :
     # /wp-admin et /wp-login.php bannissaient l'administrateur de tout WordPress.
 
@@ -60,6 +81,12 @@ Feature: Détection Anti-Bot
     When il envoie une requête GET "/"
     Then le WAF n'applique PAS le blocage HTTP 403 (heuristique observée seulement)
     And le signal est publié au moteur de risque pour calibration
+
+  Scenario: Sans moteur de risque — shadow_mode sans effet sur l'anti-bot
+    Given le WAF est configuré avec risk_engine.enabled = false
+    And risk_engine.shadow_mode = true (défaut)
+    When un visiteur avec un User-Agent "Selenium" envoie GET "/"
+    Then la requête reçoit une réponse HTTP 403
 
   Scenario: Mode calibration — le honeypot reste bloquant
     Given le WAF est configuré avec risk_engine.shadow_mode = true

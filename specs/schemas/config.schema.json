@@ -747,10 +747,9 @@
         "/.env",
         "/wp-config.php",
         "/.git/config",
-        "/phpinfo.php",
-        "/admin.php"
+        "/phpinfo.php"
       ],
-      "description": "Chemins honeypot (correspondance exacte) : toute requête déclenche un score = 0 + log + blocage. Ne jamais y mettre un chemin que l'application protégée sert réellement (ex. /wp-admin, /wp-login.php, /xmlrpc.php pour un site WordPress)."
+      "description": "Chemins honeypot (correspondance exacte) : toute requête déclenche un score = 0, un log, un blocage, et bannit le visiteur (403 sur toutes ses requêtes) pendant trust.score_ttl (FR-07). Ne jamais y mettre un chemin que l'application protégée sert réellement (ex. /wp-admin, /wp-login.php, /xmlrpc.php pour un site WordPress)."
     },
     "domains": {
       "type": "array",
