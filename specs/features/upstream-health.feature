@@ -31,11 +31,18 @@ Feature: Upstream Health Checks & Load Balancing
     Then upstream-A est retiré du service
     And les requêtes sont routées uniquement vers upstream-B
 
-  Scenario: Erreur de proxy — retrait immédiat
+  Scenario: Échec de connexion pendant le proxying — retrait immédiat
     Given upstream-A refuse une connexion pendant le proxying d'une requête
     Then le client reçoit HTTP 502
     And upstream-A est retiré du service sans attendre unhealthy_threshold
-    And les sondes le remettront en service après healthy_threshold succès
+    And les sondes le remettront en service après healthy_threshold succès comptés depuis le retrait
+
+  Scenario: Requête lente — le membre reste en service
+    Given upstream-A est le seul membre sain du pool
+    And upstream-A ne répond pas à une requête dans upstream.timeout
+    Then le client reçoit HTTP 502
+    And upstream-A reste en service
+    And le visiteur suivant est routé vers upstream-A (pas de "no healthy upstream")
 
   Scenario: Client parti pendant le proxying — le membre reste en service
     Given upstream-A est le seul membre sain du pool
