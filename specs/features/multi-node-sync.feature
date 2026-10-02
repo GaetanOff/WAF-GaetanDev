@@ -21,6 +21,18 @@ Feature: Synchronisation Multi-Nœuds (Cluster Mode)
     Then WAF-2 et WAF-3 reçoivent l'événement en < 100ms
     And les trois instances bloquent "5.5.5.5" simultanemément
 
+  Scenario: Retrait d'une IP de la blacklist — propagation
+    Given "5.5.5.5" a été ajouté en blacklist via l'API de WAF-1 et propagé
+    When un administrateur retire "5.5.5.5" via l'API de WAF-1
+    Then WAF-1 publie l'événement "blacklist_remove"
+    And WAF-2 et WAF-3 ne bloquent plus "5.5.5.5"
+
+  Scenario: Événement rejoué hors fenêtre — ignoré
+    Given un message "blacklist_add" valide, signé, capturé sur le canal il y a 10 minutes
+    When il est republié sur cluster.channel
+    Then aucun nœud ne l'applique
+    And waf_cluster_rejected_events_total est incrémenté
+
   Scenario: Circuit-breaker ouvert — propagation aux autres nœuds
     Given WAF-1 ouvre le circuit-breaker pour l'IP "6.6.6.6" (5 violations)
     When WAF-1 publie l'événement "circuit_open" sur cluster.channel

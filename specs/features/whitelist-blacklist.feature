@@ -103,7 +103,10 @@ Feature: Gestion Whitelist / Blacklist
     When DELETE /waf/admin/blacklist/10.0.0.5 sans token d'authentification
     Then la réponse est HTTP 401
 
+  @deferred
   Scenario: Persistance des listes après redémarrage
+    # Différé : les listes modifiées par l'API admin vivent en mémoire et
+    # repartent de la configuration au redémarrage ; aucune sauvegarde n'existe.
     Given "8.8.4.4" a été ajouté en blacklist via l'API admin
     When le WAF est redémarré
     Then "8.8.4.4" est toujours en blacklist (si sauvegarde config activée)

@@ -1,10 +1,10 @@
 ---
 status: implemented
-version: 2.9.1
+version: 2.10.0
 last-reviewed: 2026-10-02
 reviewed-by: GaetanDev
 extends: requirements.md (v2.0.0)
-change: "FR-13 : un verdict propre obtenu sur source indisponible n'est mis en cache qu'une minute (et non cache_ttl) ; un 429 d'AbuseIPDB suspend les appels jusqu'à Retry-After. Précédent (2.9.0) — FR-14 : plafond adaptive.max_difficulty abaissé à 20 bits par défaut et borné à 24 (32 auparavant) — à 24 bits, un mobile dépassait le token_ttl de 30 s sous pression critique. Précédent (2.8.0) — FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de challenge.secret_key, exigé avec cluster.enabled) ; messages non signés, invalides ou de type inconnu ignorés et comptés dans waf_cluster_rejected_events_total. Précédent (2.7.1) — FR-20 : réaligné sur le code — canal unique cluster.channel, métrique waf_cluster_sync_events_total{type} ; publication de la pression (degraded_mode) et waf_cluster_lag_seconds différés. Précédent (2.7.0) — FR-14 : la difficulté décroît dans le câblage réel (la pression publiée à chaque requête ne réarme plus l'horloge) ; baseline de l'AII fonction du temps (1 h), plus du nombre de challenges servis. Précédent (2.6.1) — FR-16 : avertissement au démarrage quand geo.challenge_countries est inerte faute de moteur de risque. Précédent (2.6.0) — FR-14 : anti-rétrogradation spécifiée en `invalid_pow`, plancher de pression précisé, message de page, métrique d'intensité et baseline 24 h marqués différés. Précédent (2.5.5) — FR-13 : paliers AbuseIPDB réalignés sur le vérificateur (≥ 80 déclencheur threat_intel_critical, ≥ 50 trust score plafonné à 20), plages locales et échec de source spécifiés. Précédent (2.5.4) — FR-16 : exigences réalignées sur le bloc `geo` implémenté, rate limit et score par pays, règles par domaine et métriques par pays marqués différés. Précédent (2.5.3) — FR-11 : sans moteur de risque, le middleware de trust score applique le déclencheur `ja3_blacklist` (403) — la blacklist JA3 était sans effet. Précédent (2.5.2) — FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par le moteur de risque, FR-35), la clause « score -= 40 et challenge immédiat » antérieure au moteur est retirée. Précédent (2.5.1) — FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
+change: "FR-20 : retraits de blacklist admin propagés (blacklist_remove) ; événements horodatés (ts signé), ignorés à plus de 2 minutes de l'horloge du récepteur (rejeu). Précédent (2.9.1) — FR-13 : un verdict propre obtenu sur source indisponible n'est mis en cache qu'une minute (et non cache_ttl) ; un 429 d'AbuseIPDB suspend les appels jusqu'à Retry-After. Précédent (2.9.0) — FR-14 : plafond adaptive.max_difficulty abaissé à 20 bits par défaut et borné à 24 (32 auparavant) — à 24 bits, un mobile dépassait le token_ttl de 30 s sous pression critique. Précédent (2.8.0) — FR-20 : événements cluster signés (HMAC-SHA256, clé dérivée de challenge.secret_key, exigé avec cluster.enabled) ; messages non signés, invalides ou de type inconnu ignorés et comptés dans waf_cluster_rejected_events_total. Précédent (2.7.1) — FR-20 : réaligné sur le code — canal unique cluster.channel, métrique waf_cluster_sync_events_total{type} ; publication de la pression (degraded_mode) et waf_cluster_lag_seconds différés. Précédent (2.7.0) — FR-14 : la difficulté décroît dans le câblage réel (la pression publiée à chaque requête ne réarme plus l'horloge) ; baseline de l'AII fonction du temps (1 h), plus du nombre de challenges servis. Précédent (2.6.1) — FR-16 : avertissement au démarrage quand geo.challenge_countries est inerte faute de moteur de risque. Précédent (2.6.0) — FR-14 : anti-rétrogradation spécifiée en `invalid_pow`, plancher de pression précisé, message de page, métrique d'intensité et baseline 24 h marqués différés. Précédent (2.5.5) — FR-13 : paliers AbuseIPDB réalignés sur le vérificateur (≥ 80 déclencheur threat_intel_critical, ≥ 50 trust score plafonné à 20), plages locales et échec de source spécifiés. Précédent (2.5.4) — FR-16 : exigences réalignées sur le bloc `geo` implémenté, rate limit et score par pays, règles par domaine et métriques par pays marqués différés. Précédent (2.5.3) — FR-11 : sans moteur de risque, le middleware de trust score applique le déclencheur `ja3_blacklist` (403) — la blacklist JA3 était sans effet. Précédent (2.5.2) — FR-11 : un JA3 blacklisté est un déclencheur déterministe (BLOCK par le moteur de risque, FR-35), la clause « score -= 40 et challenge immédiat » antérieure au moteur est retirée. Précédent (2.5.1) — FR-19 : le domaine signé est l'hôte normalisé (minuscules, port retiré). Précédent (2.5.0) — FR-12/FR-13 : profils comportementaux et entrées de réputation détaillés marqués différés (schémas draft). FR-17 : conditions et actions réalignées sur le moteur implémenté (rule.schema.json v2.0.0), chargement fail-fast, capacités non implémentées marquées différées. Précédent (2.4.0) — FR-16 : un `CF-IPCountry` non prouvé Cloudflare est supprimé à l'entrée (ADR-019 option B). Précédent (2.3.0) — FR-17 : la condition `ip` DOIT être évaluée sur l'IP réelle établie par le WAF, jamais sur un en-tête client — un `X-Real-IP` forgé contournait toute règle de blocage par IP (FR-19 v2.2.0 : lecture du token retransmis sur `GET /waf/origin/verify`)"
 ---
 
 # Requirements Advanced — WAF Anti-DDoS / Anti-Bot (v2)
@@ -220,6 +220,10 @@ change: "FR-13 : un verdict propre obtenu sur source indisponible n'est mis en c
 - Le WAF DOIT supporter un mode **cluster** activable via config (`cluster.enabled: true`)
 - En mode cluster, les événements suivants DOIVENT être partagés en temps réel via Redis Pub/Sub :
   - Nouvelles entrées blacklist (propagation < 1 s entre nœuds)
+  - Retraits d'entrées blacklist par l'API admin (`blacklist_remove`) : seuls
+    les ajouts étaient propagés, et une IP débloquée sur un nœud restait bloquée
+    sur les autres. Un nœud n'applique un retrait qu'à une entrée de son API
+    admin ; une entrée de sa configuration (`blacklist`) reste en place
   - Ouverture de circuit-breaker pour une IP (tous les nœuds bloquent immédiatement)
   - Score de confiance d'un visiteur identifié comme très dangereux (score < 5)
 - Les événements transitent par un seul canal Redis Pub/Sub (`cluster.channel`,
@@ -237,9 +241,15 @@ change: "FR-13 : un verdict propre obtenu sur source indisponible n'est mis en c
   (`0.0.0.0/0` compris), un score ou un circuit
   - `cluster.enabled` exige donc `challenge.secret_key` (≥ 32 caractères),
     identique sur tous les nœuds — ce que les `ip_hash` propagés exigeaient déjà
-  - Limite assumée : la signature ne protège pas du rejeu d'un message valide
-    capturé sur le canal ; l'accès à Redis reste à restreindre (réseau privé,
-    mot de passe, TLS, ACL)
+  - Chaque événement porte son instant d'émission (`ts`, signé avec lui). Un
+    nœud DOIT ignorer — et compter dans `waf_cluster_rejected_events_total` —
+    un événement sans `ts`, ou dont le `ts` s'écarte de plus de **2 minutes** de
+    son horloge : un message valide capturé sur le canal se rejouait
+    indéfiniment (un `blacklist_add` réimposait une entrée retirée). Les nœuds
+    DOIVENT donc avoir des horloges synchronisées (NTP). Pendant une mise à jour
+    progressive, les événements des nœuds antérieurs (sans `ts`) sont ignorés
+  - Limite assumée : un rejeu reste possible dans la fenêtre de 2 minutes ;
+    l'accès à Redis reste à restreindre (réseau privé, mot de passe, TLS, ACL)
 - **Différé** : publication du niveau de pression global (`degraded_mode`,
   réservé par le schéma, aucun émetteur)
 - La propagation DOIT suivre un modèle **eventual consistency** (pas de transaction distribuée)
