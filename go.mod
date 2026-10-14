@@ -1,9 +1,11 @@
 module github.com/gaetandev/waf
 
-// Plancher de version à go1.27.0 : la directive `go` fait elle-même office de
-// toolchain minimum, et go1.27.0 embarque le correctif GO-2026-5856 (fuite ECH
-// dans crypto/tls, atteignable : le WAF termine le TLS) livré en go1.26.5.
-go 1.27.0
+// Plancher de version à go1.27.2 : la directive `go` fait elle-même office de
+// toolchain minimum. go1.27.0 embarquait le correctif GO-2026-5856 (fuite ECH
+// dans crypto/tls, atteignable : le WAF termine le TLS) ; go1.27.2 corrige les
+// vulnérabilités stdlib signalées par Trivy sur go1.27.1 (CVE-2026-78667,
+// CVE-2026-78669, CVE-2026-97031 et suivantes).
+go 1.27.2
 
 require (
 	github.com/prometheus/client_golang v1.24.1
@@ -20,7 +22,7 @@ require (
 	github.com/prometheus/common v0.70.1 // indirect
 	github.com/prometheus/procfs v0.21.1 // indirect
 	go.uber.org/atomic v1.11.0 // indirect
-	golang.org/x/net v0.58.0 // indirect
+	golang.org/x/net v0.60.0 // indirect
 	golang.org/x/sys v0.48.0 // indirect
 	golang.org/x/text v0.42.0 // indirect
 	google.golang.org/protobuf v1.36.11 // indirect
