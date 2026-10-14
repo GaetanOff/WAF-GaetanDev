@@ -6,6 +6,20 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — alertes code-scanning du 2026-10-14
+
+- Toolchain Go `go1.27.1` → **`go1.27.2`** : directive `go 1.27.2` dans
+  `go.mod` (plancher pour setup-go, govulncheck et les builds locaux) et image
+  de build `golang:1.27-alpine` épinglée sur le digest 1.27.2. Corrige 13
+  alertes Trivy stdlib sur le binaire, dont 3 HIGH (CVE-2026-78667,
+  CVE-2026-78669, CVE-2026-97031).
+- `golang.org/x/net` `v0.58.0` → `v0.60.0` (5 alertes, dont HIGH
+  CVE-2026-78669).
+- Dépendances alignées sur les PR Dependabot ouvertes : `go-redis/v9`
+  `v9.23.0`, `x/crypto` `v0.58.0`, `prometheus/client_golang` `v1.25.0`
+  (et leurs transitives), actions `upload-artifact`, `setup-node` `v7.1.0`,
+  `codeql-action/upload-sarif`.
+
 ### Security — treizième audit du 2026-10-02 (phase 28)
 
 - Le bypass des assets statiques ne lève plus que le challenge proactif et les
