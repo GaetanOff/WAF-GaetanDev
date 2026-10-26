@@ -6,6 +6,16 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — CI de la PR Dependabot groupée du 2026-10-26
+
+- Toolchain Go `go1.27.2` → **`go1.27.3`** : directive `go 1.27.3` dans
+  `go.mod` et image de build `golang:1.27-alpine` épinglée sur le digest
+  1.27.3. Corrige GO-2026-6809 / CVE-2026-111943 (HIGH, crypto/x509,
+  man-in-the-middle), remontée par govulncheck (atteignable via
+  `httpbody.Drain`) et par Trivy sur le binaire.
+- Digests `distroless/static-debian13:nonroot` et `nginx:1.31-alpine`,
+  action `codeql-action/upload-sarif` `4.39.1` (PR Dependabot regroupées).
+
 ### Security — alertes code-scanning du 2026-10-14
 
 - Toolchain Go `go1.27.1` → **`go1.27.2`** : directive `go 1.27.2` dans
