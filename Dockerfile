@@ -3,7 +3,7 @@
 # --- Build stage -----------------------------------------------------------
 # Base images are pinned by digest (the tag documents the version, Dependabot
 # bumps both): a moved tag must not change what the release is built from.
-FROM golang:1.27-alpine@sha256:f92b6ef800e499660581efdabdf25d9d817a9d124eaf900924f0504e7e27e12d AS builder
+FROM golang:1.27-alpine@sha256:b8c9b82affbbb82a020bbcf998dad2ba9516944ac7e883524642a481a9505e9c AS builder
 
 WORKDIR /src
 
@@ -23,7 +23,7 @@ RUN CGO_ENABLED=0 GOOS=linux go build \
 # --- Runtime stage ---------------------------------------------------------
 # distroless/static: ~2 MB, ships CA certificates + tzdata, runs as nonroot.
 # Debian 13: debian12 still ships tzdata 2026b (DLA-4792-1, fixed in 2026c).
-FROM gcr.io/distroless/static-debian13:nonroot@sha256:e2e927ec666bae08560abb3c55d0659eceabb657f56b6782ab500a9fc7f555e3
+FROM gcr.io/distroless/static-debian13:nonroot@sha256:18f4cc26c9ffa7f20a359298be7deadac5c607c8e03a02b8119f1a5fc2f82c99
 
 WORKDIR /app
 
