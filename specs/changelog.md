@@ -6,6 +6,13 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Security — alertes code-scanning du 2026-10-28
+
+- `golang.org/x/net` `v0.60.0` → **`v0.62.0`** : corrige les 2 alertes Trivy
+  sur le binaire (CVE-2026-97045, transitions d'espaces de noms lors du rendu
+  de texte brut dans `html` ; CVE-2026-78661, complexité quadratique à la
+  fusion des nœuds texte dans `html`).
+
 ### Security — CI de la PR Dependabot groupée du 2026-10-26
 
 - Toolchain Go `go1.27.2` → **`go1.27.3`** : directive `go 1.27.3` dans
