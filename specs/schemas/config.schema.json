@@ -854,6 +854,20 @@
           "type": "boolean",
           "description": "Surcharge de challenge.enabled pour ce domaine. Clé absente = hérite du global. false = jamais de challenge JS sur ce domaine, y compris en mode sous attaque (FR-39). true = challenge servi même si challenge.enabled est false. Pas de défaut : l'absence n'est pas true."
         },
+        "non_browser_paths": {
+          "type": "array",
+          "description": "FR-41 (ADR-023) : chemins dont les clients ne sont pas des navigateurs (API serveur à serveur, webhooks). Motif terminé par '/' = préfixe, sinon exact ; sensible à la casse ; chemin de requête non canonique ('.', '..', '//') jamais exempté. Lève uniquement les pénalités anti-bot missing_user_agent, suspicious_user_agent et missing_browser_header ; honeypot, UA d'automatisation, headless, état BLOCKED, rate limit, anti-DDoS, challenge et blacklist restent appliqués. Seule la liste de la première entrée domains[] correspondant à l'hôte s'applique, sans héritage. Absent = aucun chemin. Le pattern est compatible ECMA-262 et RE2 : config.Validate applique les mêmes règles (test de cohérence).",
+          "maxItems": 32,
+          "uniqueItems": true,
+          "default": [],
+          "items": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 256,
+            "pattern": "^(?:/(?:[^./*?#\\x00-\\x20\\x7f-\\x9f][^/*?#\\x00-\\x20\\x7f-\\x9f]*|\\.[^./*?#\\x00-\\x20\\x7f-\\x9f][^/*?#\\x00-\\x20\\x7f-\\x9f]*|\\.\\.[^/*?#\\x00-\\x20\\x7f-\\x9f]+))+/?$"
+          },
+          "examples": [["/v1/"], ["/api/", "/webhook"]]
+        },
         "tls": {
           "type": "object",
           "additionalProperties": false,

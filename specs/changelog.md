@@ -6,6 +6,24 @@ Versioning: [Semantic Versioning](https://semver.org/spec/v2.0.0.html)
 
 ## [Unreleased]
 
+### Added — FR-41 : chemins non-navigateur par domaine
+
+- `domains[].non_browser_paths` (préfixe si terminé par `/`, sinon exact,
+  sensible à la casse) : l'anti-bot n'applique plus `missing_user_agent`,
+  `suspicious_user_agent` ni `missing_browser_header` sur ces chemins — ni
+  pénalité de score, ni contribution de risque `fingerprint`. Honeypot, UA
+  d'automatisation, headless, état `BLOCKED`, rate limit, anti-DDoS, challenge
+  et blacklist inchangés. Liste de la première entrée `domains[]`
+  correspondante, sans héritage ; chemin de requête non canonique jamais
+  exempté ; motif invalide refusé au démarrage. Métrique
+  `waf_antibot_non_browser_exempt_total{domain}` (ADR-023,
+  `requirements-ops.md` 3.17.0, `non-browser-paths.feature`).
+- Ajout non cassant de `config.schema.json` (`DomainConfig`) : sans la clé, le
+  comportement est inchangé. Le `pattern` des motifs est compatible ECMA-262 et
+  RE2, et vérifié contre `config.Validate` par un test de cohérence.
+- Corrige le blocage de `POST /v1/siteverify` appelé serveur à serveur par les
+  backends intégrateurs du service captcha (audit du 2026-11-09).
+
 ### Security — alertes code-scanning du 2026-10-28
 
 - `golang.org/x/net` `v0.60.0` → **`v0.62.0`** : corrige les 2 alertes Trivy

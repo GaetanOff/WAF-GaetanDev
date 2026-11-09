@@ -339,7 +339,10 @@ func (a *app) buildProtection() error {
 	}
 	// shadow_mode est un réglage du moteur de risque : sans lui, le défaut
 	// (true) désactivait tout blocage heuristique de l'anti-bot (FR-07).
-	a.antiBot = antibot.New(antibot.NewRules(cfg), scoreManager, cfg.RiskEngine.Enabled && cfg.RiskEngine.ShadowMode)
+	// domains[].non_browser_paths (FR-41) est lu par NewRules ; chaque
+	// exemption effective est comptée par domaine configuré.
+	a.antiBot = antibot.New(antibot.NewRules(cfg), scoreManager, cfg.RiskEngine.Enabled && cfg.RiskEngine.ShadowMode).
+		WithNonBrowserExemptCounter(a.metrics.IncNonBrowserExempt)
 	if a.riskMiddleware, err = risk.NewMiddleware(a.store, scoreManager, cfg); err != nil {
 		return err
 	}

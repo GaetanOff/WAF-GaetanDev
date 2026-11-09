@@ -265,3 +265,17 @@ func TestPanicMetric(t *testing.T) {
 
 	assertMetricContains(t, scrape(t, metrics), `waf_panics_total 1`)
 }
+
+// FR-41 : waf_antibot_non_browser_exempt_total{domain} porte le host configuré
+// de l'entrée domains[] qui a accordé l'exemption, wildcard compris.
+func TestNonBrowserExemptCounter(t *testing.T) {
+	metrics := New().WithDomains([]string{"captcha.example.com", "*.api.example.com"})
+
+	metrics.IncNonBrowserExempt("captcha.example.com")
+	metrics.IncNonBrowserExempt("captcha.example.com")
+	metrics.IncNonBrowserExempt("*.api.example.com")
+
+	body := scrape(t, metrics)
+	assertMetricContains(t, body, `waf_antibot_non_browser_exempt_total{domain="captcha.example.com"} 2`)
+	assertMetricContains(t, body, `waf_antibot_non_browser_exempt_total{domain="*.api.example.com"} 1`)
+}

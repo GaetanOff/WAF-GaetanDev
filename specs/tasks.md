@@ -1297,3 +1297,35 @@ last-updated: 2026-10-02
 - **Validation 2026-10-02** : `make spec-lint typecheck conformance behavior security` (spectral 6.16.3 0 erreur, vet/build, conformance, behavior `-race`, couverture 85,5 %, govulncheck v1.8.0 0 vulnerabilite atteignable), `golangci-lint` v2.14.0 (0 issue), `go test ./...` (998 tests et sous-tests).
 - **Statut** : implemente.
 
+
+## Sprint 29 - Chemins non-navigateur par domaine (Phase 29)
+
+> Audit du 2026-11-09 : `POST /v1/siteverify` de `captcha.gaetandev.fr`, appele
+> serveur a serveur par les backends integrateurs, etait bloque par l'anti-bot
+> (`missing_browser_header`, `suspicious_user_agent`) malgre
+> `challenge_enabled: false`. FR-41, ADR-023, branche `feat/non-browser-paths`
+> (workflow Feature Addition : spec, tests rouges, code, gates).
+
+### T29.1 - Spec
+- [x] FR-41 dans `requirements-ops.md` (3.17.0), `DomainConfig.non_browser_paths` dans `config.schema.json`, `features/non-browser-paths.feature`, ADR-023 (accepte, option E). Le `pattern` propose en revue (assertions avant) n'etait pas compilable en RE2 : reecrit sans lookahead pour permettre le test de coherence
+
+### T29.2 - Tests rouges
+- [x] Validation de configuration table-driven (chaque motif du Scenario Outline, doublon, plus de 32 motifs, index de l'entree cite) et coherence `pattern` du schema contre `config.Validate`
+- [x] Anti-bot : prefixe, exact, casse et port, wildcard et apex, sans heritage, hors perimetre, non canonique, honeypot, puppeteer, headless, visiteur BLOCKED, whitelist UA sans `missing_user_agent`
+
+### T29.3 - Implementation
+- [x] `DomainConfig.NonBrowserPaths` et `validateNonBrowserPaths` (`internal/config`)
+- [x] Resolveur hote -> motifs (`internal/middleware/antibot/nonbrowser.go`) : `hostname.Normalize`, premiere entree gagnante, wildcard couvrant l'apex, toutes les entrees considerees ; chemin non canonique jamais couvert
+- [x] `antibot.Middleware` : exemption apres `Rules.Evaluate` pour `isNonBrowserPathSignal` (`isNonBrowserSignal` + `missing_user_agent`), `isNonBrowserSignal` inchange pour la whitelist UA
+- [x] `waf_antibot_non_browser_exempt_total{domain}` (`internal/metrics`), cable dans `cmd/waf/app.go`
+- [x] Pipeline (`cmd/waf`) : 100 x `POST /v1/siteverify` UA `node` sans `Accept-*` -> 0 x 403 (trust score et moteur de risque applique) ; meme flux sur `/` -> 403 ; rate limit, blacklist et ban honeypot appliques
+
+### T29.4 - Documentation
+- [x] `CONFIG.md` (cle et encadre « leve / non leve »), `configs/config.example.yaml`, `README.md`, `changelog.md`, `validation.md`
+
+### T29.5 - Deploiement (hors depot)
+- [ ] 5.1 Ajouter `non_browser_paths: ["/v1/"]` a l'entree `captcha.gaetandev.fr` du `config.yml` de production
+- [ ] 5.2 Lever les visiteurs deja bloques (`DELETE /waf/admin/visitors/{ip_hash}`) ou attendre `trust.score_ttl`
+- [ ] 5.3 Verifier l'absence de `BLOCK` anti-bot sur `captcha.gaetandev.fr /v1/*` dans les journaux et `waf_antibot_non_browser_exempt_total` > 0
+- **Validation 2026-11-09** : `go test ./...` (1 069 tests et sous-tests, couverture 85,0 %), `go vet`/`go build`, conformance (G3), spectral 6.16.3 (0 erreur). Non executes localement : `-race` (cgo absent), `golangci-lint` v2.14.0 et `govulncheck` v1.8.0 (proxy.golang.org et vuln.go.dev injoignables) — couverts par la CI.
+- **Statut** : implemente (deploiement T29.5 a faire).

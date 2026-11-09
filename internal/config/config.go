@@ -11,6 +11,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
 
 	"gopkg.in/yaml.v3"
 )
@@ -400,6 +402,11 @@ type DomainConfig struct {
 	// seul upstream ou son certificat TLS aurait désactivé le challenge en silence.
 	ChallengeEnabled *bool      `yaml:"challenge_enabled"`
 	TLS              *DomainTLS `yaml:"tls"`
+	// NonBrowserPaths (FR-41, ADR-023) : motifs de chemin dont les clients ne
+	// sont pas des navigateurs (API serveur à serveur). L'anti-bot n'y applique
+	// pas les signaux « client non navigateur ». '/' final = préfixe, sinon
+	// exact.
+	NonBrowserPaths []string `yaml:"non_browser_paths"`
 
 	// Surcharges retirées du contrat (ADR-022) : acceptées puis ignorées par le
 	// pipeline, elles donnaient l'illusion d'une protection. Elles ne sont
@@ -973,6 +980,7 @@ func (c *Config) Validate() error {
 		for _, key := range domain.removedDomainKeys() {
 			fields = append(fields, fmt.Sprintf("%s.%s is not supported: it was accepted but never applied (ADR-022); remove it", prefix, key))
 		}
+		validateNonBrowserPaths(&fields, prefix+".non_browser_paths", domain.NonBrowserPaths)
 	}
 
 	if len(fields) > 0 {
@@ -1260,6 +1268,73 @@ func validateStaticAssets(fields *[]string, cfg StaticAssets) {
 			*fields = append(*fields, fmt.Sprintf("static_assets.exact_paths[%d] must be an absolute path other than /", i))
 		}
 	}
+}
+
+const (
+	// maxNonBrowserPaths borne domains[].non_browser_paths (FR-41) : la liste
+	// est parcourue pour chaque requête qui porte un signal non-navigateur.
+	maxNonBrowserPaths = 32
+	// maxNonBrowserPathLength est la longueur maximale d'un motif, en
+	// caractères (maxLength de config.schema.json).
+	maxNonBrowserPathLength = 256
+)
+
+// validateNonBrowserPaths applique à domains[].non_browser_paths les règles du
+// pattern de config.schema.json (FR-41) : un motif mal formé — qui
+// n'exempterait rien ou exempterait trop — échoue au démarrage (cf. ADR-022).
+func validateNonBrowserPaths(fields *[]string, name string, patterns []string) {
+	if len(patterns) > maxNonBrowserPaths {
+		*fields = append(*fields, fmt.Sprintf("%s must not exceed %d entries", name, maxNonBrowserPaths))
+	}
+	seen := make(map[string]struct{}, len(patterns))
+	for i, pattern := range patterns {
+		if problem := nonBrowserPathProblem(pattern); problem != "" {
+			*fields = append(*fields, fmt.Sprintf("%s[%d] %s", name, i, problem))
+		}
+		if _, duplicate := seen[pattern]; duplicate {
+			*fields = append(*fields, fmt.Sprintf("%s has duplicate entry %q", name, pattern))
+		}
+		seen[pattern] = struct{}{}
+	}
+}
+
+// nonBrowserPathProblem décrit ce qui rend un motif invalide, ou rend "".
+func nonBrowserPathProblem(pattern string) string {
+	switch {
+	case pattern == "":
+		return "must not be empty"
+	case !strings.HasPrefix(pattern, "/"):
+		return `must start with "/"`
+	case pattern == "/":
+		return `must not be "/" (would exempt the whole domain)`
+	case utf8.RuneCountInString(pattern) > maxNonBrowserPathLength:
+		return fmt.Sprintf("must not exceed %d characters", maxNonBrowserPathLength)
+	case strings.ContainsAny(pattern, "*?#"):
+		return "must not contain wildcard or query characters"
+	case strings.ContainsFunc(pattern, isSpaceOrControl):
+		return "must not contain spaces or control characters"
+	case hasNonCanonicalSegment(pattern):
+		return `must not contain "..", "." segments or "//"`
+	}
+	return ""
+}
+
+// isSpaceOrControl : espace ASCII ou caractère de contrôle C0, DEL ou C1 —
+// exactement la classe [\x00-\x20\x7f-\x9f] exclue par le schéma.
+func isSpaceOrControl(r rune) bool {
+	return r == ' ' || unicode.IsControl(r)
+}
+
+// hasNonCanonicalSegment signale un segment vide ("//"), "." ou "..", le "/"
+// final mis à part. Un tel motif ne correspondrait qu'à des chemins non
+// canoniques, que l'anti-bot n'exempte jamais.
+func hasNonCanonicalSegment(pattern string) bool {
+	for segment := range strings.SplitSeq(strings.TrimSuffix(pattern[1:], "/"), "/") {
+		if segment == "" || segment == "." || segment == ".." {
+			return true
+		}
+	}
+	return false
 }
 
 func requireString(fields *[]string, name, value string) {
