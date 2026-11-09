@@ -390,6 +390,12 @@ domains:
   - host: "api.example.com"
     upstream: "http://10.0.0.2:8000"
     challenge_enabled: false   # API — pas de challenge JS
+    # Chemins appelés serveur à serveur (FR-41) : l'anti-bot n'y pénalise ni le
+    # User-Agent vide ou de librairie HTTP (curl, node, Guzzle…), ni l'absence
+    # d'Accept-Language / Accept-Encoding. "/" final = préfixe, sinon exact.
+    # Honeypot, UA d'automatisation, headless, rate limit et blacklist restent
+    # appliqués.
+    non_browser_paths: ["/v1/", "/webhook"]
 
   # Pas de clé challenge_enabled : ce domaine hérite de challenge.enabled.
   - host: "*.example.com"

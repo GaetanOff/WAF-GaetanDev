@@ -1108,6 +1108,7 @@ domains:
   - host: "api.example.com"
     upstream: "http://10.0.0.2:8000"
     challenge_enabled: false
+    non_browser_paths: ["/v1/", "/webhook"]   # appelés serveur à serveur
 ```
 
 Surcharge les paramètres globaux pour un domaine spécifique. Les entrées sont évaluées dans l'ordre ; la première correspondance gagne. Supporte les wildcards (`*.example.com`).
@@ -1128,11 +1129,40 @@ La correspondance d'hôte est insensible à la casse et ignore le port : `Host: 
 | `host` | string | Nom de domaine à matcher (exact ou wildcard `*.`). |
 | `upstream` | string | URL de l'upstream pour ce domaine (surcharge `upstream.address`). |
 | `challenge_enabled` | bool | Surcharge `challenge.enabled` pour ce domaine. ⚠ Sans [`server.strict_host`](#server--serveur-http), un `Host` non listé hérite de la politique **globale** et de `upstream.address` : si cet upstream est la même origine, durcir un domaine ne protège rien — il suffit de changer l'en-tête `Host` (ADR-020). Le WAF signale ce cas au démarrage (avertissement `challenge_enabled is bypassable`). **Clé absente = hérite du global** (un domaine déclaré pour son seul `upstream` ou son certificat ne perd pas le challenge). `false` = jamais de challenge JS sur ce domaine, **y compris en mode sous attaque** ([FR-39](#antiddosunder_attack--mode--sous-attaque--fr-39-adr-018)). `true` = challenge servi même si `challenge.enabled` est `false` globalement. |
+| `non_browser_paths` | string[] | Chemins dont les clients ne sont pas des navigateurs (API serveur à serveur, webhooks) : l'anti-bot n'y pénalise ni le User-Agent vide, ni un User-Agent de librairie HTTP, ni l'absence d'en-têtes navigateur ([FR-41](specs/requirements-ops.md), [ADR-023](specs/decisions/ADR-023-per-domain-non-browser-paths.md)). Motif terminé par `/` = **préfixe** (`/v1/` couvre `/v1/siteverify`, pas `/v1` ni `/v10/x`), sinon **exact** ; sensible à la casse. Défaut : aucun. |
 | `tls.cert_file` | string | Chemin du certificat PEM (chaîne complète) présenté pour ce domaine quand `server.tls.enabled: true` (sélection par SNI). |
 | `tls.key_file` | string | Chemin de la clé privée PEM correspondante. |
 
 > Le `host` (exact ou wildcard `*.`) sert de clé de correspondance SNI. Voir
 > [`server.tls`](#servertls--terminaison-tls-par-domaine-sni) pour le bloc global.
+
+> **`non_browser_paths` — ce que ça lève, ce que ça ne lève pas.**
+> `challenge_enabled: false` ne désactive que le challenge JS : sans
+> `non_browser_paths`, un backend qui appelle une API en `curl`, `node`,
+> Guzzle ou `python-requests` perd 5 à 20 points par requête et reçoit `403`
+> pendant `trust.score_ttl` après quelques appels.
+>
+> - **Levé**, sur ces chemins seulement : `missing_user_agent`,
+>   `suspicious_user_agent`, `missing_browser_header` — ni pénalité de score,
+>   ni contribution de risque `fingerprint`. Chaque exemption est comptée dans
+>   `waf_antibot_non_browser_exempt_total{domain}` (`domain` = `host` configuré).
+> - **Toujours appliqué** : honeypot, User-Agent d'automatisation (selenium,
+>   puppeteer), navigateur headless, visiteur déjà bloqué, whitelist/blacklist
+>   IP, rate limiting, anti-DDoS et mode sous attaque, règles, géo, threat
+>   intel, intégrité, JA3, challenge (piloté par `challenge_enabled`).
+> - **Résolution** : la liste de la **première** entrée `domains[]` qui
+>   correspond à l'hôte, sans héritage — une entrée exacte sans la clé ne
+>   prend pas la liste d'un wildcard placé après.
+> - **Chemin non canonique jamais exempté** : `/v1/../admin`, `/v1/./x`,
+>   `/v1//x` sont évalués normalement.
+> - **Refusé au démarrage** : motif vide, sans `/` initial, `/` seul (il
+>   exempterait tout le domaine), `*`, `?`, `#`, espace ou caractère de
+>   contrôle, segment `.`/`..`, `//`, plus de 256 caractères, doublon, plus de
+>   32 motifs. Lu au démarrage seulement (pas de `PATCH /waf/admin/config`).
+>
+> Après l'ajout sur un domaine déjà pénalisé, les visiteurs bloqués le restent
+> jusqu'à `trust.score_ttl` : les lever avec
+> `DELETE /waf/admin/visitors/{ip_hash}`.
 
 ---
 

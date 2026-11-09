@@ -24,21 +24,22 @@ const (
 )
 
 type Metrics struct {
-	registry        *prometheus.Registry
-	requests        *prometheus.CounterVec
-	assetRequests   *prometheus.CounterVec
-	blocked         *prometheus.CounterVec
-	challenged      *prometheus.CounterVec
-	duration        *prometheus.HistogramVec
-	decisions       *prometheus.CounterVec
-	challengeFP     prometheus.Counter
-	hardBlocks      *prometheus.CounterVec
-	verifiedBots    *prometheus.CounterVec
-	activeVisitors  prometheus.Gauge
-	visitorsByState *prometheus.GaugeVec
-	powDifficulty   prometheus.Gauge
-	globalPressure  *prometheus.GaugeVec
-	pressureGauges  [len(pressureLevels)]prometheus.Gauge
+	registry         *prometheus.Registry
+	requests         *prometheus.CounterVec
+	assetRequests    *prometheus.CounterVec
+	nonBrowserExempt *prometheus.CounterVec
+	blocked          *prometheus.CounterVec
+	challenged       *prometheus.CounterVec
+	duration         *prometheus.HistogramVec
+	decisions        *prometheus.CounterVec
+	challengeFP      prometheus.Counter
+	hardBlocks       *prometheus.CounterVec
+	verifiedBots     *prometheus.CounterVec
+	activeVisitors   prometheus.Gauge
+	visitorsByState  *prometheus.GaugeVec
+	powDifficulty    prometheus.Gauge
+	globalPressure   *prometheus.GaugeVec
+	pressureGauges   [len(pressureLevels)]prometheus.Gauge
 	// pressureLevel est l'index publié dans pressureGauges (unknownPressure :
 	// niveau inconnu, toutes à 0). pressureMu sérialise les republications.
 	pressureLevel   atomic.Int32
@@ -70,6 +71,10 @@ func New() *Metrics {
 		assetRequests: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "waf_asset_requests_total",
 			Help: "Static asset requests bypassing challenge and trust score, by domain (FR-24).",
+		}, []string{"domain"}),
+		nonBrowserExempt: prometheus.NewCounterVec(prometheus.CounterOpts{
+			Name: "waf_antibot_non_browser_exempt_total",
+			Help: "Anti-bot non-browser signals waived on domains[].non_browser_paths, by configured domain (FR-41).",
 		}, []string{"domain"}),
 		blocked: prometheus.NewCounterVec(prometheus.CounterOpts{
 			Name: "waf_blocked_total",
@@ -167,7 +172,7 @@ func New() *Metrics {
 		m.pressureGauges[i] = m.globalPressure.WithLabelValues(level)
 	}
 	m.pressureLevel.Store(unpublishedPressure)
-	registry.MustRegister(m.requests, m.assetRequests, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors, m.alertsSent, m.alertsFailed, m.panics)
+	registry.MustRegister(m.requests, m.assetRequests, m.nonBrowserExempt, m.blocked, m.challenged, m.duration, m.decisions, m.challengeFP, m.hardBlocks, m.verifiedBots, m.activeVisitors, m.visitorsByState, m.powDifficulty, m.globalPressure, m.underAttack, m.underAttackHits, m.clusterEvents, m.tlsCertExpiry, m.cfRanges, m.cfRangeUpdates, m.storageDegraded, m.storageErrors, m.alertsSent, m.alertsFailed, m.panics)
 	// La liste compilée est en vigueur au démarrage : publier son cardinal tout
 	// de suite évite une jauge à 0 qui se lirait comme « aucune plage connue ».
 	m.cfRanges.Set(float64(len(cloudflare.Ranges())))
@@ -201,6 +206,15 @@ func (m *Metrics) SetTLSCertExpiry(domain string, notAfter time.Time) {
 // ratio avec waf_requests_total sert à ajuster static_assets.
 func (m *Metrics) IncAssetRequest(host string) {
 	m.assetRequests.WithLabelValues(m.domains.Label(host)).Inc()
+}
+
+// IncNonBrowserExempt compte une exemption anti-bot de
+// domains[].non_browser_paths (FR-41). domain est le host configuré de l'entrée
+// qui l'a accordée : borné par domains[], il ne passe pas par Label, dont la
+// règle « exact avant wildcard » pourrait nommer une autre entrée que celle
+// résolue (première correspondance).
+func (m *Metrics) IncNonBrowserExempt(domain string) {
+	m.nonBrowserExempt.WithLabelValues(domain).Inc()
 }
 
 // SetPowDifficulty publie la difficulté courante du PoW adaptatif (FR-14).

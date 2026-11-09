@@ -137,7 +137,10 @@ challenge:
 ```
 
 La configuration par domaine (`domains:`) surcharge l'upstream, l'activation du
-challenge (`challenge_enabled`) et le certificat TLS (`tls`) par hôte. Les
+challenge (`challenge_enabled`), les chemins d'API appelés serveur à serveur
+exemptés des heuristiques « non-navigateur » de l'anti-bot
+(`non_browser_paths`, [ADR-023](specs/decisions/ADR-023-per-domain-non-browser-paths.md))
+et le certificat TLS (`tls`) par hôte. Les
 surcharges de rate limit et de seuils de confiance par domaine, acceptées mais
 jamais appliquées, ont été retirées et sont refusées au démarrage
 ([ADR-022](specs/decisions/ADR-022-remove-inert-domain-overrides.md)).

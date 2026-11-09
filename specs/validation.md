@@ -1,7 +1,7 @@
 ---
 status: implemented
 version: 1.0.0
-last-reviewed: 2026-10-02
+last-reviewed: 2026-11-09
 ---
 
 # Validation Report — WAF Anti-DDoS / Anti-Bot
@@ -294,6 +294,15 @@ last-reviewed: 2026-10-02
 | 2026-09-24 | Hôte des tokens | `TestClearanceCookieHoldsAcrossHostSpellings`, `TestInjectedTokenVerifiesForTheNormalizedDomain` | pass | En échec sur l'ancien code pour `Example.TEST` et `example.test:443` |
 | 2026-09-24 | `ttlcache` sous contention | Benchmark `Get` parallèle (non versionné), 1/4/8/16 cœurs | mesure | 37 / 91 / 85 / 108 ns/op : ~10 M lectures/s par cache, sharding non justifié |
 | 2026-09-24 | Binaire | Exécution réelle sur `config.example.yaml` | pass | `Example.com:8080` compté sous `domain="example.com"` ; `attack-1.test`, `attack-2.test` sous `_undeclared` ; `GET /waf/admin/config` masque les secrets |
+| 2026-11-09 | Sprint 29 (FR-41) | `go test ./... -coverprofile` | pass | 1 069 tests et sous-tests, 0 échec ; couverture 85,0 % (gate 80 %) |
+| 2026-11-09 | Sprint 29 (FR-41) | `go vet ./...` + `go build ./...` + `gofmt -l` | pass | |
+| 2026-11-09 | Sprint 29 (FR-41) | G3 `go test ./... -run` conformance | pass | dont `TestNonBrowserPathsSchemaMatchesValidate` |
+| 2026-11-09 | Sprint 29 (FR-41) | `spectral lint` admin + public (6.16.3) | pass | 0 erreur ; contrats OpenAPI inchangés |
+| 2026-11-09 | Sprint 29 (FR-41) | `golangci-lint` v2.14.0 | **non exécuté localement** | binaire local v2.13.2 (go1.27.0) incapable de lire l'export data de go1.27.3 ; v2.14.0 non téléchargeable (timeout TLS vers proxy.golang.org) ; couvert par la CI |
+| 2026-11-09 | Sprint 29 (FR-41) | `govulncheck` v1.8.0 | **non exécuté localement** | base vuln.go.dev injoignable (timeout TLS) ; `go.mod` / `go.sum` inchangés ; couvert par la CI |
+| 2026-11-09 | Sprint 29 (FR-41) | `go test -race` | **non exécuté localement** | cgo indisponible sur le poste ; couvert par la CI |
+| 2026-11-09 | Chemins non-navigateur (FR-41) | `TestNonBrowserPath*` (anti-bot), `TestAppNonBrowserPaths*` (pipeline) | pass | 6 tests anti-bot en échec avec l'exemption neutralisée (mutation) ; 100 `POST /v1/siteverify` UA `node` : 0 × 403, trust score comme moteur de risque appliqué ; `/` : 403 |
+| 2026-11-09 | Validation FR-41 | `TestValidateNonBrowserPaths`, `TestNonBrowserPathsSchemaMatchesValidate` | pass | `pattern` du schéma compilé en RE2 et comparé à `config.Validate` sur chaque frontière (segments, longueur en caractères, contrôles C0/DEL/C1) |
 | 2026-10-02 | Sprint 28 (audit 13) | `go test ./...` | pass | 998 tests et sous-tests, 50 paquets |
 | 2026-10-02 | Sprint 28 (audit 13) | `make spec-lint typecheck conformance behavior security` | pass | spectral 0 erreur, couverture 85,5 %, govulncheck v1.8.0 : 0 vulnérabilité atteignable |
 | 2026-10-02 | Sprint 28 (audit 13) | `golangci-lint` v2.14.0 `run ./...` | pass | 0 issue |

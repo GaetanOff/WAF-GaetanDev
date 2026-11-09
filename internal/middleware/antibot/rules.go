@@ -25,10 +25,11 @@ type Decision struct {
 
 type Rules struct {
 	honeypotPaths []string
+	nonBrowser    nonBrowserPaths
 }
 
 func NewRules(cfg config.Config) Rules {
-	return Rules{honeypotPaths: cfg.HoneypotPaths}
+	return Rules{honeypotPaths: cfg.HoneypotPaths, nonBrowser: newNonBrowserPaths(cfg.Domains)}
 }
 
 func (r Rules) Evaluate(req *http.Request) Decision {

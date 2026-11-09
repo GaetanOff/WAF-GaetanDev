@@ -23,6 +23,9 @@ type Middleware struct {
 	rules  Rules
 	scores *trust.ScoreManager
 	shadow bool
+	// onNonBrowserExempt compte une exemption FR-41 effective, par host
+	// configuré de l'entrée domains[] (nil : pas de comptage).
+	onNonBrowserExempt func(domain string)
 }
 
 // New construit le middleware anti-bot. shadow (= risk_engine.shadow_mode) active
@@ -33,6 +36,13 @@ func New(rules Rules, scores *trust.ScoreManager, shadow bool) Middleware {
 	return Middleware{rules: rules, scores: scores, shadow: shadow}
 }
 
+// WithNonBrowserExemptCounter branche le comptage des exemptions de
+// domains[].non_browser_paths (FR-41, waf_antibot_non_browser_exempt_total).
+func (m Middleware) WithNonBrowserExemptCounter(onExempt func(domain string)) Middleware {
+	m.onNonBrowserExempt = onExempt
+	return m
+}
+
 func (m Middleware) Handler(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get(wafheader.Action) == wafheader.ActionPass {
@@ -40,10 +50,7 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 			return
 		}
 
-		decision := m.rules.Evaluate(r)
-		if isNonBrowserSignal(decision.Reason) && r.Header.Get(access.HeaderUserAgentWhitelisted) == "true" {
-			decision = Decision{}
-		}
+		decision := m.exemptNonBrowserClients(r, m.rules.Evaluate(r))
 		if decision.Delta == 0 {
 			next.ServeHTTP(w, r)
 			return
@@ -109,4 +116,34 @@ func (m Middleware) Handler(next http.Handler) http.Handler {
 // d'automatisation et navigateurs headless restent évalués.
 func isNonBrowserSignal(reason string) bool {
 	return reason == ReasonMissingHeader || reason == ReasonSuspiciousUA
+}
+
+// isNonBrowserPathSignal étend isNonBrowserSignal au User-Agent vide, pour les
+// seuls chemins de domains[].non_browser_paths (FR-41) : un client HTTP
+// serveur à serveur n'en envoie pas toujours. La whitelist UA n'en hérite pas :
+// elle exempte un client qui se déclare par son User-Agent, et un User-Agent
+// vide ne déclare rien.
+func isNonBrowserPathSignal(reason string) bool {
+	return isNonBrowserSignal(reason) || reason == ReasonMissingUA
+}
+
+// exemptNonBrowserClients lève les signaux « client non navigateur » d'un
+// client déclaré comme tel : User-Agent de whitelist_user_agents, ou chemin de
+// domains[].non_browser_paths (FR-41). Honeypot, automatisation et headless ne
+// sont jamais levés.
+func (m Middleware) exemptNonBrowserClients(r *http.Request, decision Decision) Decision {
+	if isNonBrowserSignal(decision.Reason) && r.Header.Get(access.HeaderUserAgentWhitelisted) == "true" {
+		return Decision{}
+	}
+	if !isNonBrowserPathSignal(decision.Reason) {
+		return decision
+	}
+	domain, exempt := m.rules.nonBrowser.exempt(r.Host, r.URL.Path)
+	if !exempt {
+		return decision
+	}
+	if m.onNonBrowserExempt != nil {
+		m.onNonBrowserExempt(domain)
+	}
+	return Decision{}
 }
